@@ -949,7 +949,7 @@ final class CameraModel {
             return
         }
         releaseLock()
-        modeChangeLedByPick = true
+        modeChangeLedByPick = !applyingControlChange
         updateSettings { settings in
             settings.mode = .manual
             if keepingAutoExposure {
