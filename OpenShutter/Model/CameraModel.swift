@@ -1940,11 +1940,12 @@ final class CameraModel {
         let request = makePhotoRequest(bracket: bracket, position: position)
         // Read before the shot, since the zoom can change while it is processed.
         let rawNeedsOneX = rawBlockedByZoom
+        let inMacro = isMacro
         do {
             let results = try await backend.capturePhoto(request)
             handle(results)
             if rawNeedsOneX {
-                noteRawLeftOut(request, results: results)
+                noteRawLeftOut(request, results: results, inMacro: inMacro)
             } else {
                 // A photo that could keep its RAW ends the run, so the next zoomed one is told again.
                 rawNoticeShown = false
@@ -1955,12 +1956,14 @@ final class CameraModel {
     }
 
     /// AVFoundation leaves Bayer RAW out of zoomed shots, so only the processed photo is saved. Said once for each
-    /// run of zoomed photos: RAW in the quick settings shows it too, but that panel is closed while shooting.
-    private func noteRawLeftOut(_ request: PhotoRequest, results: [CaptureResult]) {
+    /// run of zoomed photos: RAW in the quick settings shows it too, but that panel is closed while shooting. Not
+    /// worded as "needs 1x": macro is a crop with the 1x button lit, and the 8x button only needs 4x.
+    private func noteRawLeftOut(_ request: PhotoRequest, results: [CaptureResult], inMacro: Bool) {
         guard !rawNoticeShown, !results.isEmpty, results.allSatisfy({ $0.kind == .photo && $0.savedToLibrary }) else { return }
         rawNoticeShown = true
         let saved = request.processedFormat == .jpeg ? "JPEG" : "HEIF"
-        showToast("RAW needs the lens at 1\u{00D7}. Saved \(saved) only.", symbol: "exclamationmark.triangle")
+        let reason = inMacro ? "No RAW in macro." : "RAW isn't saved at this zoom."
+        showToast("\(reason) Saved \(saved) only.", symbol: "exclamationmark.triangle")
     }
 
     private func performFocusBracket() async {

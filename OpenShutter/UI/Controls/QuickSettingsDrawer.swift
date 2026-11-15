@@ -163,9 +163,19 @@ struct QuickSettingsDrawer: View {
         // The photo output leaves Bayer RAW out of zoomed shots, macro's among them. Still a button, so RAW can be
         // turned off.
         let zoomed = applies && !stacked && isOn && model.rawBlockedByZoom
-        let value = stacked ? "Not in stacks" : (zoomed ? "Not at this zoom" : raw.title)
-        let hint: String? = stacked ? "Stacked exposures are saved without RAW."
-            : (zoomed ? "RAW needs a lens at its own zoom, such as 1\u{00D7}. Zoomed photos are saved without it." : nil)
+        var value = raw.title
+        var hint: String? = nil
+        if stacked {
+            value = "Not in stacks"
+            hint = "Stacked exposures are saved without RAW."
+        } else if zoomed, model.isMacro {
+            // Macro keeps the 1x button lit, so "this zoom" would point at a lens that isn't the one running.
+            value = "Not in macro"
+            hint = "Macro photos are saved without RAW."
+        } else if zoomed {
+            value = "Not at this zoom"
+            hint = "RAW needs a lens at its own zoom, such as 1\u{00D7}. Zoomed photos are saved without it."
+        }
         return DrawerButtonItem(model: model, title: "RAW", value: value,
                                 isActive: isOn && !stacked && !zoomed,
                                 isEnabled: applies && !stacked && choices.count > 1,
