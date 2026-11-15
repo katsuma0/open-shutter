@@ -2,7 +2,7 @@
 
 Open Shutter is an iPhone camera app with the manual controls iOS lets an app touch. Shutter speed from the fastest the sensor allows out to 30 minutes, ISO, white balance in Kelvin and tint, manual focus, exposure compensation, every back lens, and on an iPhone 18 Pro the aperture itself.
 
-It opens straight into the camera. Four modes: Night, Photo, Manual and Video, with every control on the screen in all of them. Settings starts as a short list. A switch at the top, Advanced settings, opens the full one, sorted into groups. The camera is the same either way.
+It opens straight into the camera. Four modes: Night, Photo, Manual and Video. Settings starts as a short list. A switch at the top, Advanced settings, opens the full one, sorted into groups. The camera is the same either way.
 
 The sensor can't hold a single frame open much longer than a second. Anything longer here is built from frames: a 30 second exposure is thirty 1 second frames added together on the GPU, which is what light does on a sensor anyway, so the brightness matches a real 30 second shot. Night mode works the same way with alignment and averaging, and it takes any duration you give it between 1 and 30 seconds instead of Apple's presets.
 
