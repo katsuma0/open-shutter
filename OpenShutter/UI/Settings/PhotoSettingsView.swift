@@ -213,7 +213,8 @@ struct BasicPhotosSection: View {
         } header: {
             Text("Photos")
         } footer: {
-            SettingsFooter(Self.notes(capture: capture, photo: photo, presets: model.lensPresets, access: locationAccess))
+            SettingsFooter(Self.notes(capture: capture, photo: photo, presets: model.lensPresets,
+                                      access: locationAccess))
         }
     }
 
@@ -320,7 +321,8 @@ extension PhotoSupport {
     }
 
     func heifNote(for capture: CaptureOptions) -> String? {
-        capture.processedFormat == .heif && !heif ? "The current camera can't save HEIF, so photos are saved as JPEG." : nil
+        guard capture.processedFormat == .heif, !heif else { return nil }
+        return "The current camera can't save HEIF, so photos are saved as JPEG."
     }
 
     /// Says what a shot really saves. The photo pipeline swaps ProRAW for Bayer RAW where ProRAW is missing,

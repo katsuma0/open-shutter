@@ -98,37 +98,37 @@ private struct AdvancedMenuSection: View {
             NavigationLink {
                 PhotoSettingsView(model: model, locationAccess: locationAccess)
             } label: {
-                MenuRowLabel(title: "Photos", detail: "Format, RAW, resolution and processing", symbol: "photo")
+                MenuRowLabel("Photos", detail: "Format, RAW, resolution and processing", symbol: "photo")
             }
             NavigationLink {
                 ExposureSettingsView(model: model)
             } label: {
-                MenuRowLabel(title: "Exposure", detail: "Auto exposure limit, metering and HDR", symbol: "plusminus.circle")
+                MenuRowLabel("Exposure", detail: "Auto exposure limit, metering and HDR", symbol: "plusminus.circle")
             }
             NavigationLink {
                 FocusSettingsView(model: model)
             } label: {
-                MenuRowLabel(title: "Focus", detail: "Autofocus range, faces and tracking", symbol: "scope")
+                MenuRowLabel("Focus", detail: "Autofocus range, faces and tracking", symbol: "scope")
             }
             NavigationLink {
                 ViewfinderSettingsView(model: model)
             } label: {
-                MenuRowLabel(title: "Viewfinder", detail: "Histogram, zebras and focus peaking", symbol: "viewfinder")
+                MenuRowLabel("Viewfinder", detail: "Histogram, zebras and focus peaking", symbol: "viewfinder")
             }
             NavigationLink {
                 NightSettingsView(model: model)
             } label: {
-                MenuRowLabel(title: "Night", detail: "Long exposures and battery saver", symbol: "moon.stars")
+                MenuRowLabel("Night", detail: "Long exposures and battery saver", symbol: "moon.stars")
             }
             NavigationLink {
                 VideoSettingsView(model: model)
             } label: {
-                MenuRowLabel(title: "Video", detail: "Resolution, frame rate and sound", symbol: "video")
+                MenuRowLabel("Video", detail: "Resolution, frame rate and sound", symbol: "video")
             }
             NavigationLink {
                 ControlsSettingsView(model: model)
             } label: {
-                MenuRowLabel(title: "Controls", detail: "Camera Control and lens switching", symbol: "slider.horizontal.3")
+                MenuRowLabel("Controls", detail: "Camera Control and lens switching", symbol: "slider.horizontal.3")
             }
             ThisCameraLink(model: model)
         } header: {
@@ -148,7 +148,7 @@ private struct ThisCameraLink: View {
         NavigationLink {
             CapabilitiesView(capabilities: capabilities)
         } label: {
-            MenuRowLabel(title: "This camera", detail: Self.summary(capabilities), symbol: "info.circle")
+            MenuRowLabel("This camera", detail: Self.summary(capabilities), symbol: "info.circle")
         }
     }
 
@@ -159,7 +159,8 @@ private struct ThisCameraLink: View {
         let aperture = capabilities.supportsVariableAperture
             ? ApertureScale.label(range.lowerBound) + "\u{2013}" + ApertureScale.compactLabel(range.upperBound)
             : ApertureScale.label(lens.aperture)
-        return [lens.name, LensMath.focalLengthLabel(lens.equivalentFocalLength), aperture].joined(separator: " \u{00B7} ")
+        return [lens.name, LensMath.focalLengthLabel(lens.equivalentFocalLength), aperture]
+            .joined(separator: " \u{00B7} ")
     }
 }
 
@@ -168,6 +169,12 @@ private struct MenuRowLabel: View {
     let title: String
     let detail: String
     let symbol: String
+
+    init(_ title: String, detail: String, symbol: String) {
+        self.title = title
+        self.detail = detail
+        self.symbol = symbol
+    }
 
     var body: some View {
         Label {

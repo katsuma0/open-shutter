@@ -233,6 +233,57 @@ struct UnavailableFeatures {
     }
 }
 
+/// What the current camera's formats can record, so the video menus only offer combinations that exist. Here and
+/// not with the Video page, because Reset all settings fits the default video to them as well.
+enum VideoFormatChoices {
+    /// Offered before the camera has listed its formats; nothing is filtered or fitted until it has.
+    static let fallbackFrameRates: [Double] = [24, 25, 30, 60]
+
+    static func resolutions(colorMode: VideoColorMode, formats: [FormatDescriptor]) -> [VideoResolution] {
+        guard !formats.isEmpty else { return VideoResolution.allCases }
+        return FormatSelector.availableResolutions(colorMode: colorMode, among: formats)
+    }
+
+    static func frameRates(resolution: VideoResolution, colorMode: VideoColorMode, formats: [FormatDescriptor]) -> [Double] {
+        guard !formats.isEmpty else { return fallbackFrameRates }
+        return FormatSelector.availableFrameRates(resolution: resolution, colorMode: colorMode, among: formats)
+    }
+
+    static func isRecordable(_ video: VideoSettings, formats: [FormatDescriptor]) -> Bool {
+        guard !formats.isEmpty else { return true }
+        let requirement = VideoRequirement(resolution: video.resolution, frameRate: video.frameRate, colorMode: video.colorMode)
+        return FormatSelector.bestVideoFormat(for: requirement, among: formats) != nil
+    }
+
+    static func fitted(_ video: VideoSettings, formats: [FormatDescriptor]) -> VideoSettings {
+        guard !formats.isEmpty else { return video }
+        var result = video
+        let sizes = resolutions(colorMode: result.colorMode, formats: formats)
+        if !sizes.contains(result.resolution), let nearest = nearestResolution(to: result.resolution, in: sizes) {
+            result.resolution = nearest
+        }
+        let rates = frameRates(resolution: result.resolution, colorMode: result.colorMode, formats: formats)
+        if !rates.contains(where: { abs($0 - result.frameRate) < 0.01 }),
+           let nearest = rates.min(by: { abs($0 - result.frameRate) < abs($1 - result.frameRate) }) {
+            result.frameRate = nearest
+        }
+        return result
+    }
+
+    /// Ties go to the larger size: stepping off an unsupported size, people rarely want less detail.
+    private static func nearestResolution(to wanted: VideoResolution, in sizes: [VideoResolution]) -> VideoResolution? {
+        let order = VideoResolution.allCases
+        guard let target = order.firstIndex(of: wanted) else { return sizes.last }
+        return sizes.min { a, b in
+            let indexA = order.firstIndex(of: a) ?? 0
+            let indexB = order.firstIndex(of: b) ?? 0
+            let distanceA = abs(indexA - target)
+            let distanceB = abs(indexB - target)
+            return distanceA != distanceB ? distanceA < distanceB : indexA > indexB
+        }
+    }
+}
+
 /// Whether the app may read location, so the location row can say why photos carry no place. LocationProvider owns
 /// the real updates; this one only watches the permission. The sheet makes one and hands it to the short list and to
 /// the Photos page, whichever shows the row.
