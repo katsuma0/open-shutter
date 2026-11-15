@@ -2271,7 +2271,7 @@ final class CameraModel {
     private func commit(_ proposed: CameraSettings) {
         var next = proposed
         // A blend, frame, bulb or alignment that isn't the scene's own was set by hand, and that is what Custom
-        // means. Checked here for every way in: the LONG panel's setters and the rows in Settings.
+        // means. Checked here for every way in: the NIGHT panel's setters and the rows in Settings.
         let long = next.longExposure
         if let recipe = long.recipe,
            long.blend != recipe.blend || long.bulb != recipe.bulb || long.frameSeconds != recipe.frameSeconds
@@ -2426,12 +2426,6 @@ final class CameraModel {
             guard !Task.isCancelled else { return }
             self?.store.save(snapshot)
         }
-    }
-
-    private func saveNow() {
-        saveTask?.cancel()
-        saveTask = nil
-        store.save(settings)
     }
 
     /// Dials can fire 60 times a second; the device only needs the latest value about 30 times a second.
@@ -3231,8 +3225,8 @@ final class CameraModel {
         }
     }
 
-    // Auto means auto exposure, autofocus or auto white balance picks the value as the light changes. A value a
-    // scene fixes is not auto, though the person never set it: asking for auto there goes back to the scene's.
+    // Auto means auto exposure picks the value as the light changes. A value a scene fixes is not auto, though the
+    // person never set it: asking for auto there goes back to the scene's.
 
     var isISOAuto: Bool {
         switch settings.mode {
@@ -3251,10 +3245,7 @@ final class CameraModel {
         }
     }
 
-    var isWhiteBalanceAuto: Bool { effectiveWhiteBalance.isAuto }
-    var isFocusAuto: Bool { effectiveFocus.lensPosition == nil }
-
-    /// "1/250 · ISO 100 · ƒ/1.8 · +0.3" for the readout.
+    /// The exposure on one line: "1/250 · ISO 100 · ƒ/1.8 · +0.3".
     var exposureSummary: String {
         var parts = [
             ShutterSpeed(seconds: displayShutter).label,
