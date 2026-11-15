@@ -884,7 +884,7 @@ private struct ShutterRow: View {
                     }
                     .disabled(busy)
                 } else {
-                    Color.clear.frame(width: ShutterSideButton.size)
+                    Color.clear.frame(width: ShutterSideButton.standardSize)
                 }
                 Spacer(minLength: 0)
                 ShutterSideButton(symbol: "circle.grid.3x3.fill", isActive: model.isDrawerOpen,
@@ -903,11 +903,12 @@ private struct ShutterRow: View {
 
 /// A round button beside the shutter. Lit with an accent ring while its feature is on.
 private struct ShutterSideButton: View {
-    static let size: CGFloat = 50
+    static let standardSize: CGFloat = 50
 
     let symbol: String
     let isActive: Bool
     let label: String
+    var size: CGFloat = ShutterSideButton.standardSize
     let action: () -> Void
 
     var body: some View {
@@ -916,9 +917,9 @@ private struct ShutterSideButton: View {
             action()
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 19, weight: .semibold))
+                .font(.system(size: size * 0.38, weight: .semibold))
                 .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
-                .frame(width: Self.size, height: Self.size)
+                .frame(width: size, height: size)
                 .cameraGlass(in: Circle())
                 .overlay(Circle().strokeBorder(isActive ? Theme.accent : Color.clear, lineWidth: 2))
                 .contentShape(Circle())
@@ -934,21 +935,37 @@ private struct BottomRow: View {
 
     var body: some View {
         let leftHanded = AppearanceStore.shared.leftHanded
+        let busy = model.activity.isBusy
         ZStack {
-            HStack(spacing: 0) {
+            // Macro and the quick settings sit between the outer buttons and the shutter, as they flank the shutter
+            // on a phone with a band: without them this phone would have no way to either.
+            HStack(spacing: 6) {
                 if leftHanded {
                     FlipButton(model: model)
                 } else {
                     ThumbnailButton(model: model)
                 }
+                if model.macroAvailable, model.settings.mode != .video {
+                    ShutterSideButton(symbol: "camera.macro", isActive: model.isMacro,
+                                      label: model.isMacro ? "Macro, on" : "Macro", size: 44) {
+                        model.toggleMacro()
+                    }
+                    .disabled(busy)
+                    .opacity(busy ? 0.4 : 1)
+                }
                 Spacer(minLength: 0)
+                ShutterSideButton(symbol: "circle.grid.3x3.fill", isActive: model.isDrawerOpen,
+                                  label: model.isDrawerOpen ? "Hide quick settings" : "Show quick settings", size: 44) {
+                    withAnimation(Theme.spring) { model.isDrawerOpen.toggle() }
+                }
+                .opacity(busy ? 0.4 : 1)
                 if leftHanded {
                     ThumbnailButton(model: model)
                 } else {
                     FlipButton(model: model)
                 }
             }
-            .padding(.horizontal, 30)
+            .padding(.horizontal, 16)
             ShutterSlot(model: model)
         }
         .frame(maxWidth: .infinity)

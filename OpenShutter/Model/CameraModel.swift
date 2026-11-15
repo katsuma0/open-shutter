@@ -935,6 +935,8 @@ final class CameraModel {
     func select(_ preset: LensPreset, haptic: Bool = true) {
         // Any lens button leaves macro, the 1x button too: lit for macro, a tap on it brings the main camera back.
         // That tap is not the second tap on a button a glide is heading to, so it goes through like a replay.
+        // A shot in progress keeps its lens, and macro with it.
+        guard !activity.isBusy else { return }
         let leavingMacro = isMacro
         if leavingMacro { isMacro = false }
         select(preset, haptic: haptic, replaying: leavingMacro)
