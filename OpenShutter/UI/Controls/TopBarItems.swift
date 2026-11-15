@@ -453,9 +453,8 @@ private struct BarTimer: View {
         case .sheet:
             cycle.sheetOffered = true
             Haptics.tap()
-            // The sheet belongs to the drawer, which opens for it and presents it.
+            // The camera screen presents the sheet; the quick settings panel stays as it is.
             timerSheetRequested.wrappedValue = true
-            withAnimation(Theme.spring) { model.isDrawerOpen = true }
         }
     }
 }
@@ -566,10 +565,9 @@ private struct TimerOptions: View {
         QuickActions.setSchedule(CaptureSchedule(delay: delay), model)
     }
 
-    /// The sheet belongs to the drawer, which opens for it and presents it.
+    /// The camera screen presents the sheet; the quick settings panel stays as it is.
     private func showSheet() {
         timerSheetRequested = true
-        withAnimation(Theme.spring) { model.isDrawerOpen = true }
     }
 }
 

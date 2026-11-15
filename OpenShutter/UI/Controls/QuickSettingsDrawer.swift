@@ -7,9 +7,8 @@ import CameraCore
 /// between shots.
 struct QuickSettingsDrawer: View {
     @Bindable var model: CameraModel
-    /// Set by the top bar's Timer button to ask for the timer sheet, which is presented from here.
+    /// Set to show the timer sheet, which the camera screen presents.
     @Binding var timerSheetRequested: Bool
-    @State private var showsTimerSheet = false
     /// The timer cycle ends with "custom": after that sheet closes, the next tap wraps around to Off.
     @State private var timerCycleReachedCustom = false
 
@@ -57,19 +56,8 @@ struct QuickSettingsDrawer: View {
                     }
                 }
         )
-        .sheet(isPresented: $showsTimerSheet) {
-            TimerControls(model: model)
-        }
-        // The camera screen hands the volume buttons back to the system while a sheet covers the viewfinder.
-        .preference(key: QuickSettingsSheetKey.self, value: showsTimerSheet)
         .onChange(of: model.settings.capture.schedule) { _, _ in
             timerCycleReachedCustom = false
-        }
-        // Initial covers a request that opened the drawer: it arrives before this view exists.
-        .onChange(of: timerSheetRequested, initial: true) { _, requested in
-            guard requested else { return }
-            timerSheetRequested = false
-            showsTimerSheet = true
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Quick settings")
@@ -103,7 +91,7 @@ struct QuickSettingsDrawer: View {
             .pickerStyle(.inline)
             if advanced {
                 Button {
-                    showsTimerSheet = true
+                    timerSheetRequested = true
                 } label: {
                     Label("Custom", systemImage: "slider.horizontal.3")
                 }
@@ -124,7 +112,7 @@ struct QuickSettingsDrawer: View {
         case .sheet:
             timerCycleReachedCustom = true
             Haptics.tap()
-            showsTimerSheet = true
+            timerSheetRequested = true
         }
     }
 
@@ -289,16 +277,6 @@ struct QuickSettingsDrawer: View {
             return Formatting.compactDuration(schedule.delay) + " \u{00D7}\(schedule.shots)"
         }
         return "\(schedule.shots) shots"
-    }
-}
-
-/// True while the drawer's timer sheet is up. Internal rather than private because the camera screen reads it:
-/// the sheet covers the viewfinder, so the screen gives the volume buttons back to the system meanwhile.
-struct QuickSettingsSheetKey: PreferenceKey {
-    static let defaultValue = false
-
-    static func reduce(value: inout Bool, nextValue: () -> Bool) {
-        value = value || nextValue()
     }
 }
 

@@ -74,10 +74,9 @@ private struct CameraLayout: View {
     /// A lens button is swapping cameras. Both cameras frame the same picture at the swap, so this veil is short.
     /// A lens button's swap of cameras holds the last frame on screen until the new camera's first frames settle.
     @State private var lensFrozen = false
-    /// The drawer's timer sheet is up. It belongs to the drawer, so the drawer reports it as a preference.
-    @State private var drawerSheetShown = false
-    /// The top bar's timer badge asked for that sheet. The badge opens the drawer, and the drawer presents it.
-    @State private var timerSheetRequested = false
+    /// The timer sheet is up. The top bar's Timer button and the quick settings panel's timer item both ask for it,
+    /// and it is presented from here, so the bar's button never has to open the panel.
+    @State private var timerSheetShown = false
     /// Gesture state shared by the picture, the sun above the bands and VoiceOver's viewfinder element.
     @State private var interaction = ViewfinderInteraction()
     /// Width over height of the camera image as the portrait preview shows it: measured from the preview layer while
@@ -144,7 +143,7 @@ private struct CameraLayout: View {
                                 bandsSolid: bandsSolid)
 
                 DrawerLayer(model: model, catcherHeight: max(0, (controlsTop ?? size.height) - topBarBottom),
-                            timerSheetRequested: $timerSheetRequested)
+                            timerSheetRequested: $timerSheetShown)
                     .padding(.top, topBarBottom)
                     .opacity(fullscreen ? 0 : 1)
                     .allowsHitTesting(!fullscreen)
@@ -168,7 +167,7 @@ private struct CameraLayout: View {
                 }
 
                 // Drawn after the drawer so the drawer slides out from underneath it.
-                TopBar(model: model, timerSheetRequested: $timerSheetRequested)
+                TopBar(model: model, timerSheetRequested: $timerSheetShown)
                     .frame(width: size.width)
                     .padding(.top, insets.top)
                     .opacity(fullscreen ? 0 : 1)
@@ -194,6 +193,9 @@ private struct CameraLayout: View {
         }
         .animation(.easeInOut(duration: 0.25), value: fullscreen)
         .modifier(HardwareButtons(model: model, isEnabled: hardwareButtonsEnabled))
+        .sheet(isPresented: $timerSheetShown) {
+            TimerControls(model: model)
+        }
         .onChange(of: mode) { oldMode, newMode in
             if let dial = model.activeDial, !Self.dialAllowed(dial, in: newMode, advanced: model.isAdvanced) {
                 model.activeDial = nil
@@ -240,19 +242,15 @@ private struct CameraLayout: View {
             }
         }
         .onChange(of: model.activity) { _, activity in
-            // An open drawer would cover the Stop button and let settings change under a running shot. With its
-            // timer sheet up it stays, since closing it would throw the sheet's edits away.
-            guard model.isDrawerOpen, !drawerSheetShown, Self.closesDrawer(activity) else { return }
+            // An open drawer would cover the Stop button and let settings change under a running shot.
+            guard model.isDrawerOpen, Self.closesDrawer(activity) else { return }
             withAnimation(Theme.spring) { model.isDrawerOpen = false }
         }
         .onChange(of: model.bracketInProgress) { _, running in
             // A bracket is a long capture with a Stop button too, though its activity is the brief .capturing
             // that a single photo passes through.
-            guard running, model.isDrawerOpen, !drawerSheetShown else { return }
+            guard running, model.isDrawerOpen else { return }
             withAnimation(Theme.spring) { model.isDrawerOpen = false }
-        }
-        .onPreferenceChange(QuickSettingsSheetKey.self) { shown in
-            drawerSheetShown = shown
         }
         .onChange(of: model.settings.controls.haptics, initial: true) { _, enabled in
             Haptics.isEnabled = enabled
@@ -270,7 +268,7 @@ private struct CameraLayout: View {
     /// asks apps that can't act on a press to hand the buttons back rather than swallow it.
     private var hardwareButtonsEnabled: Bool {
         model.settings.controls.volumeShutter && model.sessionState == .running
-            && !model.isSettingsPresented && !model.isReviewPresented && !drawerSheetShown
+            && !model.isSettingsPresented && !model.isReviewPresented && !timerSheetShown
     }
 
     private static func closesDrawer(_ activity: CaptureActivity) -> Bool {
