@@ -7,9 +7,9 @@ import CameraCore
 
 struct LensRow: View {
     let model: CameraModel
-
-    /// Touch and hold on a lens button opens it in the buttons' place.
-    @State private var wheel = ZoomWheelModel()
+    /// Touch and hold on a lens button opens it in the buttons' place. The controls zone holds it, and fades the
+    /// rows above this one while it is open: the readout reaches over them.
+    let wheel: ZoomWheelModel
 
     var body: some View {
         // Left-handed trades the two chips, which brings the exposure chip under a left thumb.

@@ -701,9 +701,14 @@ private struct ControlsZone: View {
     /// Space between the lens buttons and the shutter row when nothing sits between them.
     let lensGap: CGFloat
 
+    /// The zoom wheel a hold on a lens button opens. Its readout reaches over the rows above the lens row, so they
+    /// fade while it is open.
+    @State private var wheel = ZoomWheelModel()
+
     var body: some View {
         let mode = model.settings.mode
         let dial = model.activeDial
+        let wheelOpen = wheel.isOpen
         let activity = model.activity
         let isStacking = activity == .stacking
         let isRecording = activity == .recording
@@ -715,21 +720,33 @@ private struct ControlsZone: View {
                 // The dial opens at the top of the stack, above the rows whose chips opened it: the lens buttons, the
                 // shutter and exposure chips beside them and the mode's chips stay exactly where they were, so
                 // nothing moves under the finger.
-                if dial != nil {
-                    ActiveDialView(model: model)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                Group {
+                    if dial != nil {
+                        ActiveDialView(model: model)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                    if showsPanel {
+                        ModePanels(model: model, mode: mode, showsSecondary: dial == nil, isRecording: isRecording)
+                            // NIGHT's two kinds of shot are one mode on screen, so its panel changes in place.
+                            .id(mode.carouselMode)
+                            .transition(.opacity)
+                    } else if dial == .shutter {
+                        // PHOTO's shutter dial leads into MANUAL at its first tick. The strip's row is free from the
+                        // start, so the strip fades into it and the dial stays where the finger is.
+                        Color.clear
+                            .frame(height: 44)
+                            .accessibilityHidden(true)
+                    }
                 }
-                if showsPanel {
-                    ModePanels(model: model, mode: mode, showsSecondary: dial == nil, isRecording: isRecording)
-                        // NIGHT's two kinds of shot are one mode on screen, so its panel changes in place.
-                        .id(mode.carouselMode)
-                        .transition(.opacity)
-                }
+                // Faded, not removed: the zone keeps its height, so nothing moves while the wheel is open.
+                .opacity(wheelOpen ? 0 : 1)
+                .allowsHitTesting(!wheelOpen)
+                .accessibilityHidden(wheelOpen)
             }
 
             // In every mode, at Apple's distance from the shutter, with the shutter chip on one side and the exposure
             // chip on the other.
-            LensRow(model: model)
+            LensRow(model: model, wheel: wheel)
                 .disabled(isStacking)
                 .opacity(isStacking ? 0.35 : 1)
 
