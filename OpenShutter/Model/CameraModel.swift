@@ -1569,8 +1569,8 @@ final class CameraModel {
                 return
             }
             // The blend goes in while the scene used last is still on, so commit gives it the alignment that
-            // suits it on the way to Custom. A blend that is the scene's own changes nothing there, and the
-            // scene turns into Custom with its values.
+            // suits it on the way to Custom (the setter does, where that scene was Custom already). A blend that
+            // is the scene's own changes nothing there, and the scene turns into Custom with its values.
             setLongExposureBlend(blend)
             setLongExposureScene(.custom)
             return
@@ -1589,7 +1589,15 @@ final class CameraModel {
     // settings go back to the scene's own whatever is written.
 
     func setLongExposureBlend(_ blend: StackBlend) {
-        updateSettings { $0.longExposure.blend = blend }
+        updateSettings {
+            // Custom has no recipe for commit to compare with. Alignment still where its blend put it (on for Blur,
+            // off for Real and Trails) was not set by hand, so it follows the new blend, as on the way out of a scene.
+            if $0.longExposure.scene == .custom, $0.longExposure.blend != blend,
+               $0.longExposure.align == ($0.longExposure.blend == .average) {
+                $0.longExposure.align = blend == .average
+            }
+            $0.longExposure.blend = blend
+        }
     }
 
     /// Shutter for each Blur or Trails frame; nil leaves it to auto exposure.
