@@ -279,6 +279,13 @@ private struct CameraLayout: View {
         }
     }
 
+    /// What closes the drawer keeps it closed: the dots button beside the shutter rests until the shot ends, as the
+    /// top bar's buttons do. A single photo doesn't hold it, which would blink the button with every shot, and a
+    /// drawer that is open can always be closed.
+    static func keepsDrawerClosed(_ model: CameraModel) -> Bool {
+        (closesDrawer(model.activity) || model.bracketInProgress) && !model.isDrawerOpen
+    }
+
     private func showVeil(holdNanoseconds: UInt64) {
         // A flip asks twice in one update (lens switch and selfie change); the longer hold wins in either order.
         veilHoldNanoseconds = veilVisible ? max(veilHoldNanoseconds, holdNanoseconds) : holdNanoseconds
@@ -891,6 +898,7 @@ private struct ShutterRow: View {
 
     var body: some View {
         let busy = model.activity.isBusy
+        let drawerHeld = CameraLayout.keepsDrawerClosed(model)
         ZStack {
             HStack(spacing: 0) {
                 if model.macroAvailable, model.settings.mode != .video {
@@ -899,6 +907,7 @@ private struct ShutterRow: View {
                         model.toggleMacro()
                     }
                     .disabled(busy)
+                    .opacity(busy ? 0.4 : 1)
                 } else {
                     Color.clear.frame(width: ShutterSideButton.standardSize)
                 }
@@ -907,9 +916,10 @@ private struct ShutterRow: View {
                                   label: model.isDrawerOpen ? "Hide quick settings" : "Show quick settings") {
                     withAnimation(Theme.spring) { model.isDrawerOpen.toggle() }
                 }
+                .disabled(drawerHeld)
+                .opacity(drawerHeld ? 0.4 : 1)
             }
             .padding(.horizontal, 36)
-            .opacity(busy ? 0.4 : 1)
             ShutterSlot(model: model)
         }
         .frame(maxWidth: .infinity)
@@ -952,6 +962,7 @@ private struct BottomRow: View {
     var body: some View {
         let leftHanded = AppearanceStore.shared.leftHanded
         let busy = model.activity.isBusy
+        let drawerHeld = CameraLayout.keepsDrawerClosed(model)
         ZStack {
             // Macro and the quick settings sit between the outer buttons and the shutter, as they flank the shutter
             // on a phone with a band: without them this phone would have no way to either.
@@ -974,7 +985,8 @@ private struct BottomRow: View {
                                   label: model.isDrawerOpen ? "Hide quick settings" : "Show quick settings", size: 44) {
                     withAnimation(Theme.spring) { model.isDrawerOpen.toggle() }
                 }
-                .opacity(busy ? 0.4 : 1)
+                .disabled(drawerHeld)
+                .opacity(drawerHeld ? 0.4 : 1)
                 if leftHanded {
                     ThumbnailButton(model: model)
                 } else {
