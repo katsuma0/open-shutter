@@ -917,13 +917,28 @@ final class CameraModel {
         !activity.isBusy && intervalometer == nil && photosInFlight == 0
     }
 
+    /// Says why a pick that leads to another mode did nothing (canChangeMode). The controls that send such picks stay
+    /// live while the mode can't change: PHOTO's shutter dial while a photo saves, NIGHT's scene menu and row of four
+    /// between an intervalometer's shots. A dial sends a tick many times a second, and every toast slides in anew and
+    /// is read out by VoiceOver, so one that already says this stays up as it is.
+    private func noteModeChangeRefused() {
+        let message = activity.isBusy || intervalometer != nil
+            ? "Finish the shot first." : "Wait for the last photo to save."
+        guard toast?.message != message else { return }
+        showToast(message, symbol: "exclamationmark.triangle")
+    }
+
     /// Picking a manual value in PHOTO or NIGHT is a request for manual control, the way a camera's mode dial
     /// works. It goes by setMode's rules, and a lock set in the old mode goes with it. A focus or white balance pick
     /// says nothing about exposure, so keepingAutoExposure leaves MANUAL's saved shutter, ISO and aperture behind
     /// instead of bringing them back into the shot.
     private func switchToManual(keepingAutoExposure: Bool = false, _ change: (inout CameraSettings) -> Void) {
         // The simple interface has no MANUAL to land in.
-        guard isAdvanced, canChangeMode else { return }
+        guard isAdvanced else { return }
+        guard canChangeMode else {
+            noteModeChangeRefused()
+            return
+        }
         releaseLock()
         updateSettings { settings in
             settings.mode = .manual
@@ -1532,20 +1547,34 @@ final class CameraModel {
     /// taking the shot, so the pick changes the mode underneath while the carousel stays on NIGHT.
     func selectNightScene(_ scene: LongExposureScene?) {
         guard !activity.isBusy else { return }
-        guard let scene else {
-            setMode(.night)
+        let mode: CaptureMode = scene == nil ? .night : .long
+        if settings.mode != mode { setMode(mode) }
+        // setMode refuses while photos are still being saved or an intervalometer runs.
+        guard settings.mode == mode else {
+            noteModeChangeRefused()
             return
         }
-        if settings.mode != .long { setMode(.long) }
-        // setMode refuses while photos are still being saved or an intervalometer runs.
-        guard settings.mode == .long else { return }
-        setLongExposureScene(scene)
+        if let scene { setLongExposureScene(scene) }
     }
 
     /// Real, Blur or Trails. Picked while the night shot is on, it starts a long exposure of the person's own making,
     /// which is what Custom means.
     func selectNightBlend(_ blend: StackBlend) {
-        if settings.mode == .night { selectNightScene(.custom) }
+        if settings.mode == .night {
+            guard !activity.isBusy else { return }
+            setMode(.long)
+            // setMode refuses while photos are still being saved or an intervalometer runs.
+            guard settings.mode == .long else {
+                noteModeChangeRefused()
+                return
+            }
+            // The blend goes in while the scene used last is still on, so commit gives it the alignment that
+            // suits it on the way to Custom. A blend that is the scene's own changes nothing there, and the
+            // scene turns into Custom with its values.
+            setLongExposureBlend(blend)
+            setLongExposureScene(.custom)
+            return
+        }
         guard settings.mode == .long else { return }
         setLongExposureBlend(blend)
     }
