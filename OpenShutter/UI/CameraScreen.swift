@@ -201,10 +201,11 @@ private struct CameraLayout: View {
                 model.activeDial = nil
             }
             // Video needs a session reconfiguration, which takes longer than a photo mode change. A change of scene
-            // inside NIGHT is no change of mode on screen, and a dial that leads into MANUAL is still being turned:
-            // neither gets the veil.
+            // inside NIGHT is no change of mode on screen, and PHOTO's shutter dial is still being turned when its
+            // first tick leads into MANUAL: neither gets the veil. Every other change does, dial open or not.
             let involvesVideo = oldMode == .video || newMode == .video
-            if oldMode.carouselMode != newMode.carouselMode, involvesVideo || model.activeDial == nil {
+            let ledByDial = oldMode == .photo && newMode == .manual && model.activeDial == .shutter
+            if oldMode.carouselMode != newMode.carouselMode, !ledByDial {
                 showVeil(holdNanoseconds: involvesVideo ? 650_000_000 : 350_000_000)
             }
             // VIDEO's shape at once, before the aspect task starts, so the frame never heads for the photo format's.
