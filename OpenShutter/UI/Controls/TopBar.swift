@@ -225,6 +225,9 @@ private struct VideoFormatChip: View {
         .foregroundStyle(Theme.primaryText)
         // Bare like the glyphs beside it, with their shadow to read over a bright picture.
         .shadow(color: .black.opacity(0.5), radius: 3)
+        .background {
+            SolidBacking(shape: Capsule(), height: 28)
+        }
         .contentTransition(.numericText())
         // One unit for the bar's reading order, so both its buttons come before the gear.
         .accessibilityElement(children: .contain)
@@ -410,8 +413,8 @@ private struct RecordingCapsule: View {
 // MARK: - Styles and helpers
 
 /// A bar button's look: the glyph alone in a 44 pt touch area, white, or the accent while its setting is on. No
-/// circle behind it, as in Apple's Camera, so it carries a shadow to read over a bright picture. The name is from
-/// when each sat in a glass circle.
+/// circle behind it, as in Apple's Camera, so it carries a shadow to read over a bright picture. With Solid buttons
+/// the dark circle is back. The name is from when each sat in a glass circle.
 struct BarCircleStyle: ButtonStyle {
     var isActive = false
     /// A press on the button's touch and hold layer.
@@ -424,10 +427,30 @@ struct BarCircleStyle: ButtonStyle {
             .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
             .shadow(color: .black.opacity(0.5), radius: 3)
             .frame(width: 44, height: 44)
+            .background {
+                SolidBacking(shape: Circle(), width: Theme.controlSize, height: Theme.controlSize)
+            }
             .scaleEffect(pressed ? 0.86 : 1)
             .opacity(pressed ? 0.7 : 1)
             .animation(Theme.snappy, value: pressed)
             .contentShape(Rectangle())
+    }
+}
+
+/// The dark backing Solid buttons puts behind a bar button, which is bare without it: the same fill and hairline as
+/// every other control then has. Its own view, so it reads the option itself and comes or goes when the switch does.
+private struct SolidBacking<S: Shape>: View {
+    let shape: S
+    /// nil takes the width of the control it sits behind.
+    var width: CGFloat? = nil
+    let height: CGFloat
+
+    var body: some View {
+        if AppearanceStore.shared.solidControls {
+            Color.clear
+                .frame(width: width, height: height)
+                .cameraGlass(in: shape)
+        }
     }
 }
 
