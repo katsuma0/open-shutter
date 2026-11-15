@@ -142,9 +142,11 @@ final class CameraModel {
     @ObservationIgnored private var photoGeneration = 0
     /// The newest photo frees the shutter as soon as it is exposed (cameraBackendWillCapture).
     @ObservationIgnored private var releasesAtExposure = false
-    @ObservationIgnored private var rawNoticeShown = false
-    /// The newest mode change came from a manual value picked in PHOTO or NIGHT (switchToManual), not from the
-    /// carousel or the Camera Control. The camera screen skips its veil for the one a dial is still being turned on.
+    /// Which reason the run of zoomed photos was last told: macro (true) or the zoom. nil once a photo kept its RAW.
+    @ObservationIgnored private var rawNoticeForMacro: Bool?
+    /// The newest mode change came from a manual value picked on screen in PHOTO or NIGHT (switchToManual: a dial or
+    /// a chip's menu), not from the carousel or the Camera Control. The camera screen skips its veil for the one a
+    /// dial is still being turned on.
     @ObservationIgnored private(set) var modeChangeLedByPick = false
     /// A value picked on the Camera Control is already on show in its overlay, so it isn't reinstalled for it.
     @ObservationIgnored private var applyingControlChange = false
@@ -1948,7 +1950,7 @@ final class CameraModel {
                 noteRawLeftOut(request, results: results, inMacro: inMacro)
             } else {
                 // A photo that could keep its RAW ends the run, so the next zoomed one is told again.
-                rawNoticeShown = false
+                rawNoticeForMacro = nil
             }
         } catch {
             report(error)
@@ -1956,13 +1958,14 @@ final class CameraModel {
     }
 
     /// AVFoundation leaves Bayer RAW out of zoomed shots, so only the processed photo is saved. Said once for each
-    /// run of zoomed photos: RAW in the quick settings shows it too, but that panel is closed while shooting. Not
-    /// worded as "needs 1x": macro is a crop with the 1x button lit, and the 8x button only needs 4x.
+    /// run of zoomed photos and for each reason: RAW in the quick settings shows it too, but that panel is closed
+    /// while shooting. Not worded as "needs 1x": macro is a crop with the 1x button lit, and the 8x button only needs
+    /// 4x. Worded about the photo, since the zoom may have changed by the time it is saved.
     private func noteRawLeftOut(_ request: PhotoRequest, results: [CaptureResult], inMacro: Bool) {
-        guard !rawNoticeShown, !results.isEmpty, results.allSatisfy({ $0.kind == .photo && $0.savedToLibrary }) else { return }
-        rawNoticeShown = true
+        guard rawNoticeForMacro != inMacro, !results.isEmpty, results.allSatisfy({ $0.kind == .photo && $0.savedToLibrary }) else { return }
+        rawNoticeForMacro = inMacro
         let saved = request.processedFormat == .jpeg ? "JPEG" : "HEIF"
-        let reason = inMacro ? "No RAW in macro." : "RAW isn't saved at this zoom."
+        let reason = inMacro ? "No RAW in macro." : "No RAW in zoomed photos."
         showToast("\(reason) Saved \(saved) only.", symbol: "exclamationmark.triangle")
     }
 
