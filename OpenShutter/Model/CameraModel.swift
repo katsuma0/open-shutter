@@ -618,15 +618,19 @@ final class CameraModel {
         self.motionMonitor = motionMonitor ?? MotionMonitor()
         self.locationProvider = locationProvider ?? LocationProvider()
         self.library = library ?? CaptureLibrary()
-        // What the startup options don't keep goes back to where a fresh install starts, before anything is
-        // simplified or applied from it.
-        var loaded = store.load().applyingStartupOptions()
+        var stored = store.load()
         // The camera shows every control now, and Settings has the switch for how much it lists. A save from the
-        // earlier simple interface gets back what that interface had put aside, once.
-        if !loaded.interface.advanced, loaded.interface.welcomed {
-            loaded = loaded.restoringAdvanced(from: store.loadAdvancedSnapshot())
+        // earlier simple interface gets back what that interface had put aside, once. Written back before the
+        // snapshot goes: a launch that changes no setting would otherwise leave the simple save on disk with nothing
+        // left to restore it from.
+        if !stored.interface.advanced, stored.interface.welcomed {
+            stored = stored.restoringAdvanced(from: store.loadAdvancedSnapshot())
+            store.save(stored)
             store.clearAdvancedSnapshot()
         }
+        // What the startup options don't keep goes back to where a fresh install starts, after the restore, so a
+        // MANUAL it brings back doesn't open a camera that is set to start in PHOTO.
+        var loaded = stored.applyingStartupOptions()
         loaded.interface.advanced = true
         loaded.interface.welcomed = true
         self.settings = loaded
