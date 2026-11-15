@@ -702,8 +702,8 @@ private struct BarAspect: View {
     }
 }
 
-/// The interface's shapes, a ratio entered in Settings as a row of its own, and in the advanced interface the way to
-/// enter one.
+/// Every shape, a ratio entered in Settings as a row of its own, and the way to enter one: Custom ratio, in the
+/// Camera section at the top of Settings.
 private struct AspectOptions: View {
     let model: CameraModel
 

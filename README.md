@@ -33,7 +33,7 @@ What's in it:
 - Settings in light, dark or whatever the phone uses, with seven accent colors. For accessibility there are larger labels, solid buttons that don't depend on the picture behind them, reduce motion, a left-handed layout, and spoken status, which reads out the countdown and says Keep the phone still and Done. Bold Text, Increase Contrast and VoiceOver work too.
 - Preserve settings like Apple's: the mode, the lens and zoom, and the exposure can each stay where you left them or start fresh. Also Prioritize faster shooting, and Allow audio playback, which lets music keep playing while you film.
 - Touch and hold on most buttons lists their choices: flash, video light brightness, timer, video format, the manual chips with their common values. Every dial has a Done button that brings the modes back, and a swipe down does the same.
-- A settings page for the capture, exposure, focus, video and control options, and a page listing what your camera reports: every format, range and feature.
+- Settings opens short: aspect ratio, grid and level at the top, then the few options most people change. With Advanced settings on it has a page each for photos, exposure, focus, the viewfinder, Night, video and controls, and one listing what your camera reports: every format, range and feature.
 
 ## Running it
 

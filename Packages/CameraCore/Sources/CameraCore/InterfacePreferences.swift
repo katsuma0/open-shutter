@@ -169,7 +169,9 @@ public enum HardwareButtonAction: String, Codable, Sendable, CaseIterable, Ident
 
 // MARK: - Top bar
 
-/// A button the top bar can carry beside the chevron, picked and ordered in Settings.
+/// A button the top bar can carry. The app's bar is fixed now: flash, shape, timer, format, histogram and Live Photo,
+/// with the gear. It still names its buttons by these cases and asks each where it applies; the rest are the ones
+/// the bar could carry while people arranged it themselves.
 public enum TopBarItem: String, Codable, Sendable, CaseIterable, Identifiable {
     case flash, livePhoto, timer, aspect, grid, level, location, quietShutter, batterySaver, nightDuration
     case raw, exposureLock, format, resolution, processing, histogram, zebras, peaking, falseColor
@@ -273,9 +275,9 @@ public enum TopBarItem: String, Codable, Sendable, CaseIterable, Identifiable {
     }
 }
 
-/// The top bar's own buttons. The bar has seven equal slots on every iPhone: three for the left side, the chevron,
-/// two for the right side and the gear. Fixed slots keep each button where the thumb expects it, the same from phone
-/// to phone, and never let the bar crowd.
+/// The arrangement the top bar had while people picked its buttons: seven equal slots, three for the left side, a
+/// chevron, two for the right side and the gear. The app's bar is fixed now and no longer reads this. It stays in the
+/// settings so saves from that time still decode.
 public struct TopBarOptions: Codable, Hashable, Sendable {
     /// Slots left of the chevron.
     public static let leadingRoom = 3
