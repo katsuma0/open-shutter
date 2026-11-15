@@ -13,6 +13,13 @@ final class MotionMonitor {
     /// Holds the angles back while nobody can see them (the battery saver's black screen). Tracking goes on, so the
     /// cross is in the right place when the screen lights up again.
     var pausesDriftAngles = false
+    /// How much the phone is moving, 0 to 1 (MotionPulse.level), for the steady pill's meter. Called only when the
+    /// level changes by a step worth drawing, at most about ten times a second.
+    var onPulse: ((Double) -> Void)?
+    /// The level as last smoothed: up at once, down slowly, so a single twitch is seen and the bars don't flicker.
+    private var pulse = 0.0
+    private var publishedPulse = 0.0
+    private var lastPulseTime: TimeInterval?
 
     private let manager = CMMotionManager()
     private var state = MotionState()
@@ -48,6 +55,11 @@ final class MotionMonitor {
         smoothedRoll = nil
         // What the sensor saw before the pause says nothing about the phone when it starts again.
         stillness.reset()
+        pulse = 0
+        if publishedPulse != 0 {
+            publishedPulse = 0
+            onPulse?(0)
+        }
         endDrift()
     }
 
@@ -79,6 +91,7 @@ final class MotionMonitor {
         let speed = (rate.x * rate.x + rate.y * rate.y + rate.z * rate.z).squareRoot()
         // Sensor time, not the clock: samples queued behind a busy main thread keep their own spacing.
         stillness.add(speed: speed, at: motion.timestamp)
+        publishPulse(speed: speed, at: motion.timestamp)
 
         let pitch = LevelMath.pitchDegrees(gravityZ: gravity.z)
         // Flat on a table the roll is meaningless; keep the last orientation instead of spinning icons.
@@ -111,6 +124,18 @@ final class MotionMonitor {
             lastPublished = next
             onUpdate?(next)
         }
+    }
+
+    /// Rises with the movement at once and falls back over about half a second. Published in steps of a tenth, no
+    /// more than ten times a second, so a hand's tremor costs the screen ten small redraws a second and a tripod none.
+    private func publishPulse(speed: Double, at time: TimeInterval) {
+        pulse = max(MotionPulse.level(forSpeed: speed), pulse * 0.86)
+        let stepped = (pulse * 10).rounded() / 10
+        guard stepped != publishedPulse else { return }
+        if let last = lastPulseTime, time >= last, time - last < 0.1, stepped != 0 { return }
+        lastPulseTime = time
+        publishedPulse = stepped
+        onPulse?(stepped)
     }
 
     private func trackDrift(_ rate: CMRotationRate, at time: TimeInterval) {

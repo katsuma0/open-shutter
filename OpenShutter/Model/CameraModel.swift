@@ -192,6 +192,8 @@ final class CameraModel {
     private(set) var isWaitingForSteady = false
     /// How far the phone turned since a NIGHT or LONG shot began, for the crosshairs.
     let drift = DriftState()
+    /// How much the phone is moving right now, for the steady pill's meter.
+    let motionPulse = MotionPulse()
     /// The battery saver's dimming.
     let dimmer = ScreenDimmer()
     /// Every photo and video taken with the app, for the gallery.
@@ -653,6 +655,9 @@ final class CameraModel {
         }
         motionMonitor.onDriftChange = { [weak self] in
             self?.refreshSteadyStatus()
+        }
+        motionMonitor.onPulse = { [weak self] level in
+            self?.motionPulse.set(level)
         }
 
         authorization = backend.authorizationStatus()

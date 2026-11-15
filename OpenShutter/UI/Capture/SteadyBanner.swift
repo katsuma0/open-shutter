@@ -33,10 +33,11 @@ private struct SteadyBannerSlot: View {
         let reduceMotion = systemReduceMotion || AppearanceStore.shared.reduceMotion
         ZStack {
             if let message {
-                SteadyPill(message: message)
+                // One pill for as long as a status shows: a new state changes its words and colour in place. Two
+                // pills crossing, one fading out under the other, read as a smear while a phone held by hand flips
+                // between moving and steady.
+                SteadyPill(message: message, pulse: model.motion.isAvailable ? model.motionPulse : nil)
                     .modifier(PersonsTop(degrees: degrees, sideways: turns % 2 != 0))
-                    // A new state, or a turn of the phone, fades the old pill out where it was and the new one in.
-                    .id(PillKey(message: message, turns: turns))
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.96)))
             }
         }
@@ -56,11 +57,6 @@ private struct SteadyBannerSlot: View {
         default: return .center
         }
     }
-}
-
-private struct PillKey: Hashable {
-    let message: SteadyMessage
-    let turns: Int
 }
 
 /// Turns the pill upright for the person. On its side it is laid out turned, so it takes the room it covers and
@@ -103,6 +99,8 @@ private struct QuarterTurnLayout: Layout {
 /// are dark with white text. A calm state fades to 70 percent after 3 s, and every new state starts at full strength.
 private struct SteadyPill: View {
     let message: SteadyMessage
+    /// The live movement, where a sensor reports it.
+    let pulse: MotionPulse?
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @ScaledMetric(relativeTo: .headline) private var iconSize: CGFloat = 22
@@ -122,15 +120,21 @@ private struct SteadyPill: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(message.title)
                     .font(.headline)
+                    .contentTransition(.opacity)
                 if let detail = message.detail {
                     Text(detail)
                         .font(.footnote.weight(.medium))
                         .opacity(0.85)
+                        .transition(.opacity)
                 }
             }
             .foregroundStyle(ink)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
+            if let pulse {
+                MotionMeter(pulse: pulse)
+                    .foregroundStyle(ink)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
@@ -149,7 +153,9 @@ private struct SteadyPill: View {
         .opacity(isQuiet ? 0.7 : 1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(message.spoken))
-        .task {
+        // The pill stays while its state changes, so every state starts its own count at full strength.
+        .task(id: message) {
+            if isQuiet { isQuiet = false }
             guard Self.quietens(message) else { return }
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
@@ -160,6 +166,32 @@ private struct SteadyPill: View {
     /// States that only confirm all is well step back once they have been read.
     private static func quietens(_ message: SteadyMessage) -> Bool {
         message == .steady || message == .capturing
+    }
+}
+
+/// Five small bars at the end of the pill that rise with the phone's movement and settle again: proof that the
+/// sensor feels even a light touch, before the pill's words change. Small and soft on purpose. The words are the
+/// status; this only shows the phone is listening.
+private struct MotionMeter: View {
+    let pulse: MotionPulse
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+
+    /// The middle bars swing the most, like the trace of a small tremor.
+    private static let weights: [Double] = [0.4, 0.75, 1, 0.75, 0.4]
+
+    var body: some View {
+        let level = pulse.level
+        let still = systemReduceMotion || AppearanceStore.shared.reduceMotion
+        HStack(alignment: .center, spacing: 2) {
+            ForEach(Self.weights.indices, id: \.self) { index in
+                Capsule()
+                    .frame(width: 2.5, height: 3 + CGFloat(level * Self.weights[index]) * 12)
+            }
+        }
+        .frame(width: 22, height: 16)
+        .opacity(0.7)
+        .animation(still ? nil : .easeOut(duration: 0.2), value: level)
+        .accessibilityHidden(true)
     }
 }
 
