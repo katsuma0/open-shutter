@@ -24,7 +24,7 @@ struct QuickSettingsDrawer: View {
                 GridRow {
                     processingItem
                     lockItem
-                    quietItem
+                    silentItem
                     batterySaverItem
                 }
                 GridRow {
@@ -216,12 +216,14 @@ struct QuickSettingsDrawer: View {
         }
     }
 
-    private var quietItem: some View {
+    private var silentItem: some View {
         let isOn = model.settings.capture.silentShutter
         let mode = model.settings.mode
         // The system keeps the sound where the law asks for it, so the item only works where the camera allows it.
         let supported = model.capabilities.shutterSoundSuppressionSupported
-        return DrawerButtonItem(model: model, title: "Quiet", value: isOn ? "On" : "Off", isActive: isOn && supported,
+        // Settings calls it Silent shutter. The column has room for the first word; VoiceOver says both.
+        return DrawerButtonItem(model: model, title: "Silent", spokenTitle: "Silent shutter",
+                                value: isOn ? "On" : "Off", isActive: isOn && supported,
                                 isEnabled: supported && (mode == .photo || mode == .manual),
                                 hint: supported ? nil : "This camera always plays the shutter sound.") {
             QuickActions.toggle(\.capture.silentShutter, model)
@@ -297,6 +299,8 @@ struct QuickSettingsDrawer: View {
 private struct DrawerButtonItem<Glyph: View>: View {
     let model: CameraModel
     let title: String
+    /// What VoiceOver calls the item, where the title under the glyph is a shorter word.
+    var spokenTitle: String? = nil
     let value: String
     var isActive = false
     var isEnabled = true
@@ -311,7 +315,7 @@ private struct DrawerButtonItem<Glyph: View>: View {
         .buttonStyle(DrawerPressStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.35)
-        .accessibilityLabel(title)
+        .accessibilityLabel(spokenTitle ?? title)
         .accessibilityValue(value)
         .accessibilityHint(hint ?? "")
     }
