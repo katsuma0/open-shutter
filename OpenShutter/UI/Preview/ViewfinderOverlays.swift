@@ -478,7 +478,8 @@ private struct StatusBadges: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .stackExplanation(isPresented: $showsStackInfo)
+                // Below the badge, over the picture: no other side of the corner fits the bubble on every phone.
+                .stackExplanation(isPresented: $showsStackInfo, arrowEdge: .bottom)
                 .accessibilityHint("Explains what a stacked exposure is.")
                 .transition(.opacity)
             }
@@ -504,6 +505,13 @@ private struct StatusBadges: View {
         // The Camera Control overlay takes over the screen; the badges step aside while it shows.
         .opacity(model.controlsFullscreen ? 0 : 1)
         .animation(Theme.snappy, value: model.controlsFullscreen)
+        // The bubble is a system presentation above the whole camera, so it has to be closed with its badge. It
+        // would stay lit on the battery saver's black screen, where the first touch would close it instead of
+        // lighting the screen, and over the Camera Control's overlay. A badge that leaves takes its bubble down
+        // but not always the flag, and the next badge would then open one by itself.
+        .onChange(of: stacked && !model.dimmer.isDimmed && !model.controlsFullscreen) { _, inSight in
+            if !inSight && showsStackInfo { showsStackInfo = false }
+        }
     }
 }
 

@@ -731,8 +731,8 @@ struct DialValueHeader: View {
     }
 }
 
-/// Shutter values past the hardware maximum are built from several frames. The badge says so beside the value, and
-/// a tap on it says what that means.
+/// Shutter values past the hardware maximum are built from several frames, and so is every Blur or Trails shot in
+/// NIGHT. The badge says so beside the value, and a tap on it says what that means.
 private struct StackBadge: View {
     /// A fixed width, so the header can keep the same room free on the value's other side.
     static let width: CGFloat = 50
@@ -764,19 +764,23 @@ private struct StackBadge: View {
 }
 
 extension View {
-    /// The small bubble that says what a stacked exposure is, for the badges that carry the word.
-    func stackExplanation(isPresented: Binding<Bool>) -> some View {
-        popover(isPresented: isPresented, arrowEdge: .bottom) {
+    /// The small bubble that says what a stacked exposure is, for the badges that carry the word. With no `arrowEdge`
+    /// the system hangs it on the side of the badge that has the room.
+    func stackExplanation(isPresented: Binding<Bool>, arrowEdge: Edge? = nil) -> some View {
+        popover(isPresented: isPresented, arrowEdge: arrowEdge) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Stacked exposure")
                     .font(.headline)
-                Text("The sensor can't hold one frame open this long, so the camera takes a run of shorter frames and adds them together. The picture comes out like one long exposure. Keep the phone still until it finishes.")
+                Text("The camera takes a run of shorter frames and merges them into one picture. It comes out like one long exposure. Keep the phone still until it finishes.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(16)
             .frame(width: 290, alignment: .leading)
+            // The bubble can't scroll, and at the largest text sizes it would be taller than the screen. The pill and
+            // the dim screen stop at the same size.
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             // A bubble at the badge on an iPhone too, where a popover would otherwise become a sheet.
             .presentationCompactAdaptation(.popover)
         }
