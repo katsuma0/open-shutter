@@ -341,12 +341,7 @@ private struct BarRaw: View {
     }
 
     static func step(_ model: CameraModel) {
-        let choices = choices(for: model.capabilities)
-        let index = choices.firstIndex(of: model.settings.capture.rawFormat)
-        // Spelled out: a bare .none next to an optional reads as nil.
-        let next: RawFormat = index.map { choices[($0 + 1) % choices.count] } ?? RawFormat.none
-        Haptics.tap()
-        model.updateSettings { $0.capture.rawFormat = next }
+        QuickActions.stepRaw(model)
     }
 
     private static func hint(stacked: Bool, zoomed: Bool) -> String {
@@ -357,10 +352,7 @@ private struct BarRaw: View {
     }
 
     static func choices(for capabilities: CameraCapabilities) -> [RawFormat] {
-        var choices: [RawFormat] = [RawFormat.none]
-        if capabilities.rawSupported { choices.append(.bayer) }
-        if capabilities.proRAWSupported { choices.append(.proRAW) }
-        return choices
+        QuickActions.rawChoices(capabilities)
     }
 }
 
@@ -697,7 +689,7 @@ private struct BarAspect: View {
             QuickActions.stepAspect(model)
         } label: {
             Upright(model: model) {
-                ItemText(aspect.label, size: 11)
+                ItemText(aspect.label, size: 13)
             }
         }
         .buttonStyle(BarCircleStyle(isActive: QuickActions.aspectIsActive(aspect), isPressed: press.isPressed))
@@ -970,7 +962,7 @@ private struct BarFormat: View {
             QuickActions.stepFormat(model)
         } label: {
             Upright(model: model) {
-                ItemText(value, size: 10)
+                ItemText(value, size: 12)
             }
         }
         .buttonStyle(BarCircleStyle(isActive: format != .heif))
@@ -1533,6 +1525,25 @@ enum QuickActions {
     static func setAspect(_ aspect: AspectRatio, _ model: CameraModel) {
         Haptics.tick()
         model.updateSettings { $0.capture.aspect = aspect }
+    }
+
+    // MARK: RAW
+
+    /// Off, then what this camera can save.
+    static func rawChoices(_ capabilities: CameraCapabilities) -> [RawFormat] {
+        var choices: [RawFormat] = [RawFormat.none]
+        if capabilities.rawSupported { choices.append(.bayer) }
+        if capabilities.proRAWSupported { choices.append(.proRAW) }
+        return choices
+    }
+
+    static func stepRaw(_ model: CameraModel) {
+        let choices = rawChoices(model.capabilities)
+        let index = choices.firstIndex(of: model.settings.capture.rawFormat)
+        // Spelled out: a bare .none next to an optional reads as nil.
+        let next: RawFormat = index.map { choices[($0 + 1) % choices.count] } ?? RawFormat.none
+        Haptics.tap()
+        model.updateSettings { $0.capture.rawFormat = next }
     }
 
     // MARK: Timer

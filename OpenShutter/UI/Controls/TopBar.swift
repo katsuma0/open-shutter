@@ -1,14 +1,17 @@
 import SwiftUI
 import CameraCore
 
-/// The row over the top of the picture: up to three buttons on the left, the drawer chevron in the middle, up to two
-/// on the right and the gear, in seven equal slots on every iPhone. The person picks and orders the buttons in
-/// Settings; one that doesn't work in this mode or on this camera steps aside and the next one moves up. A tap does
-/// a button's main thing; touch and hold lists its choices.
+/// The row over the top of the picture: flash, shape, timer, format, histogram, Live Photo and the gear, always
+/// those seven and always in the same seven slots, as plain glyphs with nothing behind them, like Apple's Camera. One
+/// that has nothing to do in a mode dims in its place and never steps aside, so each stays where the thumb expects
+/// it. A tap does a button's main thing; touch and hold lists its choices.
 struct TopBar: View {
     @Bindable var model: CameraModel
-    /// Set to ask the quick settings drawer for its timer sheet.
+    /// Set to ask the quick settings panel for its timer sheet.
     @Binding var timerSheetRequested: Bool
+
+    /// Left to right. The gear takes the seventh slot.
+    private static let items: [TopBarItem] = [.flash, .aspect, .timer, .format, .histogram, .livePhoto]
 
     var body: some View {
         let mode = model.settings.mode
@@ -16,66 +19,42 @@ struct TopBar: View {
         let isRecording = activity == .recording
         // A focus or white balance bracket is one long capture that reads the settings again for every frame.
         let isHeld = Self.holdsControls(activity) || model.bracketInProgress
-        // The level switch brings buttons in or out, animated like the controls under the viewfinder.
-        let advanced = model.isAdvanced
-        let layout = model.settings.topBar.layout(
-            advanced: advanced, mode: mode,
-            wantsBadge: TopBarScheduleBadge.isWanted(model: model, mode: mode),
-            isAvailable: { TopBarItemButton.isAvailable($0, model: model, mode: mode) }
-        )
-        // The right side sits against the gear, where the bar's last buttons have always been.
-        let trailingStart = BarSlots.gear - layout.trailing.count
 
         BarSlots {
-            ForEach(Array(layout.leading.enumerated()), id: \.element) { index, item in
-                // While filming only the light stays: it is wanted most once the recording runs. It keeps clear of the
-                // recording capsule, which spans the middle three slots.
-                let stays = item == .flash
-                let slot = isRecording && stays ? min(index, BarSlots.recording.lowerBound - 1) : index
-                TopBarItemButton(model: model, item: item, mode: mode, timerSheetRequested: $timerSheetRequested)
-                    .modifier(SlotPlacement(slots: slot...slot, isHidden: isRecording && !stays, isHeld: isHeld))
-            }
-            if layout.showsBadge {
-                TopBarScheduleBadge(model: model, mode: mode, timerSheetRequested: $timerSheetRequested)
-                    .modifier(SlotPlacement(slots: layout.leading.count...layout.leading.count,
-                                            isHidden: isRecording, isHeld: isHeld))
+            ForEach(Array(Self.items.enumerated()), id: \.element) { index, item in
+                if mode == .video, item == .format {
+                    // VIDEO's format is the size and the frame rate, which need the timer's slot as well.
+                    VideoFormatChip(model: model)
+                        .modifier(SlotPlacement(slots: BarSlots.format, isHidden: isRecording, isHeld: isHeld))
+                } else if !(mode == .video && item == .timer) {
+                    let applies = item.applies(in: mode) && TopBarItemButton.isAvailable(item, model: model, mode: mode)
+                    // While filming only the light stays: it is wanted most once the recording runs.
+                    let stays = item == .flash
+                    TopBarItemButton(model: model, item: item, mode: mode, timerSheetRequested: $timerSheetRequested)
+                        .disabled(!applies)
+                        .opacity(applies ? 1 : 0.3)
+                        .modifier(SlotPlacement(slots: index...index, isHidden: isRecording && !stays, isHeld: isHeld))
+                }
             }
             if isRecording {
                 RecordingCapsule(model: model)
                     .accessibilitySortPriority(Double(BarSlots.count - BarSlots.recording.lowerBound))
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     .layoutValue(key: BarSlot.self, value: BarSlots.recording)
-            } else {
-                DrawerToggle(model: model)
-                    .modifier(SlotPlacement(slots: BarSlots.chevron...BarSlots.chevron, isHidden: false,
-                                            isHeld: isHeld))
-            }
-            ForEach(Array(layout.trailing.enumerated()), id: \.element) { index, item in
-                let slot = trailingStart + index
-                TopBarItemButton(model: model, item: item, mode: mode, timerSheetRequested: $timerSheetRequested)
-                    .modifier(SlotPlacement(slots: slot...slot, isHidden: isRecording, isHeld: isHeld))
-            }
-            // In VIDEO the format takes the right side, which the layout leaves without buttons there.
-            if mode == .video {
-                VideoFormatChip(model: model)
-                    .modifier(SlotPlacement(slots: BarSlots.format, isHidden: isRecording, isHeld: isHeld))
             }
             SettingsButton(model: model)
                 .modifier(SlotPlacement(slots: BarSlots.gear...BarSlots.gear, isHidden: isRecording, isHeld: isHeld))
         }
         .frame(maxWidth: .infinity)
         .frame(height: BarSlots.height)
-        // No background: at 16:9 the bar sits over the top of the picture, as in Apple's Camera, and the drawer slides
-        // out from the clip edge under it. The gaps between buttons still take a stray tap, as the black bar did,
-        // so a near miss doesn't move focus on the picture behind.
+        // No background: the bar sits over the top of the picture, as in Apple's Camera. The gaps between buttons
+        // still take a stray tap, so a near miss doesn't move focus on the picture behind.
         .contentShape(Rectangle())
-        // VoiceOver reads it left to right: the left side, the chevron, the right side and the gear.
+        // VoiceOver reads it left to right.
         .accessibilityElement(children: .contain)
-        .animation(Theme.snappy, value: layout)
         .animation(Theme.snappy, value: mode)
         .animation(Theme.snappy, value: isRecording)
         .animation(Theme.snappy, value: isHeld)
-        .animation(Theme.snappy, value: advanced)
     }
 
     /// Countdown, stacks and saving keep the bar visible but inert, so nothing changes under a running shot.
@@ -90,17 +69,16 @@ struct TopBar: View {
 
 // MARK: - Slots
 
-/// Seven equal slots across the bar on every iPhone: three for the left side, the chevron, two for the right side
-/// and the gear. The same seven places on every phone keep each button where the thumb expects it, and the narrowest
-/// phone still leaves 14 pt between the circles, so neighbours never crowd or overlap.
+/// Seven equal slots across the bar on every iPhone: six buttons and the gear. The same seven places on every phone
+/// keep each button where the thumb expects it, and the narrowest phone still gives each a 44 pt touch area with room
+/// between, so neighbours never crowd or overlap.
 private struct BarSlots: Layout {
     static let count = 7
-    static let chevron = 3
     static let gear = 6
-    /// While filming, the red capsule takes the chevron's slot and one on each side of it.
+    /// While filming, the red capsule takes the middle three slots.
     static let recording = 2...4
-    /// VIDEO's format chip, about 90 pt wide, takes both right slots.
-    static let format = 4...5
+    /// VIDEO's format chip, about 90 pt wide, takes the timer's slot and its own.
+    static let format = 2...3
     static let height: CGFloat = 48
     /// From the screen edges, as the bar has always sat.
     static let inset: CGFloat = 6
@@ -241,15 +219,12 @@ private struct VideoFormatChip: View {
         .buttonStyle(.plain)
         .font(Theme.chipFont)
         // Its two slots hold "1080p · 29.97" on the narrowest phone; with Larger labels the text shrinks to fit them
-        // rather than reach the chevron or the gear.
+        // rather than reach its neighbours.
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .foregroundStyle(Theme.primaryText)
-        .background {
-            Color.clear
-                .frame(height: 28)
-                .cameraGlass(in: Capsule())
-        }
+        // Bare like the glyphs beside it, with their shadow to read over a bright picture.
+        .shadow(color: .black.opacity(0.5), radius: 3)
         .contentTransition(.numericText())
         // One unit for the bar's reading order, so both its buttons come before the gear.
         .accessibilityElement(children: .contain)
@@ -351,26 +326,6 @@ private struct VideoFormatOptions: View {
     }
 }
 
-private struct DrawerToggle: View {
-    let model: CameraModel
-
-    var body: some View {
-        let isOpen = model.isDrawerOpen
-        // With Reduce motion, in the app or in iOS, the chevron switches direction instead of turning over.
-        let still = AppearanceStore.shared.reduceMotion
-        Button {
-            Haptics.tap()
-            withAnimation(Theme.spring) { model.isDrawerOpen.toggle() }
-        } label: {
-            Image(systemName: still && isOpen ? "chevron.up" : "chevron.down")
-                .rotationEffect(.degrees(isOpen && !still ? 180 : 0))
-                .animation(still ? nil : Theme.spring, value: isOpen)
-        }
-        .buttonStyle(BarCircleStyle(isActive: isOpen))
-        .accessibilityLabel(isOpen ? "Hide quick settings" : "Show quick settings")
-    }
-}
-
 private struct SettingsButton: View {
     let model: CameraModel
     @State private var press = PressTracker()
@@ -454,17 +409,24 @@ private struct RecordingCapsule: View {
 
 // MARK: - Styles and helpers
 
-/// The shared glass circle, with the touch area grown to 44 pt around it. Every customizable button uses it, so each
-/// fills one of the bar's slots exactly.
+/// A bar button's look: the glyph alone in a 44 pt touch area, white, or the accent while its setting is on. No
+/// circle behind it, as in Apple's Camera, so it carries a shadow to read over a bright picture. The name is from
+/// when each sat in a glass circle.
 struct BarCircleStyle: ButtonStyle {
     var isActive = false
     /// A press on the button's touch and hold layer.
     var isPressed = false
 
     func makeBody(configuration: Configuration) -> some View {
-        GlassCircleButtonStyle(size: Theme.controlSize, isActive: isActive, isPressed: isPressed)
-            .makeBody(configuration: configuration)
+        let pressed = configuration.isPressed || isPressed
+        configuration.label
+            .font(.system(size: 18 * Theme.labelScale, weight: .semibold))
+            .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
+            .shadow(color: .black.opacity(0.5), radius: 3)
             .frame(width: 44, height: 44)
+            .scaleEffect(pressed ? 0.86 : 1)
+            .opacity(pressed ? 0.7 : 1)
+            .animation(Theme.snappy, value: pressed)
             .contentShape(Rectangle())
     }
 }
