@@ -26,7 +26,7 @@ struct AccessibilitySettingsView: View {
                 Toggle("Reduce motion", isOn: model.settingBinding(\.accessibility.reduceMotion))
             } footer: {
                 SettingsFooter([
-                    "Keeps icons still when the phone turns and fades panels instead of sliding them.",
+                    "Fades panels instead of sliding them, and stops the dials and the zoom from gliding.",
                     systemReducesMotion ? "Reduce Motion is on in iOS, so the camera moves less already." : nil,
                 ])
             }
