@@ -651,20 +651,22 @@ struct DialValueHeader: View {
             .minimumScaleFactor(0.7)
             // At 16:9 the header sits on the picture, so its text carries a shadow.
             .shadow(color: .black.opacity(0.6), radius: 4)
-            // Hung off the value's trailing edge instead of sharing its row: the value stays over the yellow line
-            // when the badge comes and goes as the dial crosses the longest single shutter.
-            .overlay(alignment: .trailing) {
-                if isStacked {
-                    StackBadge()
-                        .fixedSize()
-                        .alignmentGuide(.trailing) { $0[.leading] - 6 }
-                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                }
-            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))
         .accessibilityValue(Text(spokenValue))
+        // The badge sits in the row beside the value, with a hidden twin on the other side: the value stays over
+        // the yellow line when the badge comes and goes as the dial crosses the longest single shutter, and the
+        // badge can never land on the value, which an offset from the value's edge did on a phone.
+        .padding(.horizontal, isStacked ? StackBadge.width + 6 : 0)
+        .overlay(alignment: .trailing) {
+            if isStacked {
+                StackBadge()
+                    // Level with the value, which sits under the title.
+                    .offset(y: 6)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
+        }
     }
 
     private var spokenValue: String {
@@ -729,17 +731,55 @@ struct DialValueHeader: View {
     }
 }
 
-/// Shutter values past the hardware maximum are built from several frames.
+/// Shutter values past the hardware maximum are built from several frames. The badge says so beside the value, and
+/// a tap on it says what that means.
 private struct StackBadge: View {
+    /// A fixed width, so the header can keep the same room free on the value's other side.
+    static let width: CGFloat = 50
+
+    @State private var showsInfo = false
+
     var body: some View {
-        Text("STACK")
-            .font(.system(size: 10, weight: .bold))
-            .tracking(0.8)
-            .foregroundStyle(Theme.accent)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(Theme.accent.opacity(0.18)))
-            .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.6), lineWidth: 1))
+        Button {
+            Haptics.tap()
+            showsInfo = true
+        } label: {
+            Text("STACK")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(0.8)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(Theme.accent)
+                .frame(width: Self.width, height: 20)
+                .background(Capsule().fill(Theme.accent.opacity(0.18)))
+                .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.6), lineWidth: 1))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .stackExplanation(isPresented: $showsInfo)
+        .accessibilityLabel("Stacked exposure")
+        .accessibilityHint("Explains what a stacked exposure is.")
+    }
+}
+
+extension View {
+    /// The small bubble that says what a stacked exposure is, for the badges that carry the word.
+    func stackExplanation(isPresented: Binding<Bool>) -> some View {
+        popover(isPresented: isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Stacked exposure")
+                    .font(.headline)
+                Text("The sensor can't hold one frame open this long, so the camera takes a run of shorter frames and adds them together. The picture comes out like one long exposure. Keep the phone still until it finishes.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+            .frame(width: 290, alignment: .leading)
+            // A bubble at the badge on an iPhone too, where a popover would otherwise become a sheet.
+            .presentationCompactAdaptation(.popover)
+        }
     }
 }
 

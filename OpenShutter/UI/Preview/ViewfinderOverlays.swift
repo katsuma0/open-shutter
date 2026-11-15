@@ -22,16 +22,20 @@ struct ViewfinderOverlays: View {
         let frame = geometry.frame
         let square = focusSquare
         ZStack(alignment: .topLeading) {
+            // Each layer leaves its touches to the picture, so taps still focus through the grid, the level and the
+            // focus square. The badges do the same, except STACKED, which explains itself when tapped.
             GridLines(style: model.settings.display.grid, rect: frame)
                 .frameMotion(value: frame)
+                .allowsHitTesting(false)
             LevelIndicator(model: model, center: CGPoint(x: frame.midX, y: frame.midY))
+                .allowsHitTesting(false)
             FocusReticleLayer(model: model, size: geometry.screen.size, origin: geometry.picture.origin,
                               bounds: geometry.visibleFrame, square: square)
+                .allowsHitTesting(false)
             StatusBadges(model: model, rect: geometry.open, topShift: topShift,
                          reticleShowsLock: square?.isLocked == true)
         }
         .frame(width: geometry.screen.width, height: geometry.screen.height, alignment: .topLeading)
-        .allowsHitTesting(false)
         .onChange(of: model.focusPoint, initial: true) { _, point in
             trackedFocusPoint = point
             if focusPointIsStale { focusPointIsStale = false }
@@ -449,6 +453,7 @@ private struct StatusBadges: View {
     let topShift: CGFloat
     /// The focus square is on screen with its own lock label.
     let reticleShowsLock: Bool
+    @State private var showsStackInfo = false
 
     var body: some View {
         let advanced = model.isAdvanced
@@ -462,17 +467,31 @@ private struct StatusBadges: View {
         let turns = model.motion.quarterTurns
         VStack(alignment: .trailing, spacing: 0) {
             if stacked {
-                StatusBadge(symbol: "square.stack.3d.up.fill", text: "STACKED", tint: Theme.accent, quarterTurns: turns)
-                    .padding(.bottom, 6)
-                    .transition(.opacity)
+                // The one badge that takes a touch: the word needs explaining, and a tap on it does.
+                Button {
+                    Haptics.tap()
+                    showsStackInfo = true
+                } label: {
+                    StatusBadge(symbol: "square.stack.3d.up.fill", text: "STACKED", tint: Theme.accent,
+                                quarterTurns: turns)
+                        .frame(minWidth: 44, minHeight: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .stackExplanation(isPresented: $showsStackInfo)
+                .accessibilityHint("Explains what a stacked exposure is.")
+                .transition(.opacity)
             }
-            if showsLock {
-                StatusBadge(symbol: "lock.fill", text: lock.badgeLabel, tint: Theme.accent, quarterTurns: turns)
-                    .padding(.bottom, 6)
-                    .transition(.opacity)
+            Group {
+                if showsLock {
+                    StatusBadge(symbol: "lock.fill", text: lock.badgeLabel, tint: Theme.accent, quarterTurns: turns)
+                        .padding(.bottom, 6)
+                        .transition(.opacity)
+                }
+                ClippingBadge(model: model, quarterTurns: turns)
+                SensorBadges(model: model, quarterTurns: turns)
             }
-            ClippingBadge(model: model, quarterTurns: turns)
-            SensorBadges(model: model, quarterTurns: turns)
+            .allowsHitTesting(false)
         }
         .padding(.top, 10 + topShift)
         .padding(.trailing, 10)
