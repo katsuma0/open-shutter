@@ -115,6 +115,12 @@ private struct ExposureChip: View {
         let isOpen = model.activeDial == .bias
         let isShown = advanced || isAdjusted || isOpen
         let locked = Self.isLocked(model.activity)
+        // Typed strings, picked here: written as ternaries of literals inside the modifiers below, they take the
+        // type checker seconds.
+        let symbol: String = advanced ? "plusminus.circle" : "sun.max.fill"
+        let label: String = advanced ? "Exposure compensation" : "Brightness"
+        let hint: String = advanced ? "Opens the exposure dial. Touch and hold for more options."
+                                    : "Opens the brightness dial. Touch and hold for more options."
 
         ZStack {
             if isShown {
@@ -122,7 +128,7 @@ private struct ExposureChip: View {
                     // Only the glyph turns with the phone, as on the strip's chips; the whole chip turned upright
                     // would stand out of its row. The simple interface wears the viewfinder's sun.
                     Upright(model: model) {
-                        Image(systemName: advanced ? "plusminus.circle" : "sun.max.fill")
+                        Image(systemName: symbol)
                     }
                     Text(EVFormat.label(bias))
                         .contentTransition(.numericText(value: bias))
@@ -146,10 +152,9 @@ private struct ExposureChip: View {
                 .onTapGesture { Self.toggleDial(model) }
                 .accessibilityElement(children: .ignore)
                 .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(advanced ? "Exposure compensation" : "Brightness")
-                .accessibilityValue(EVFormat.label(bias))
-                .accessibilityHint(advanced ? "Opens the exposure dial. Touch and hold for more options."
-                                            : "Opens the brightness dial. Touch and hold for more options.")
+                .accessibilityLabel(Text(label))
+                .accessibilityValue(Text(EVFormat.label(bias)))
+                .accessibilityHint(Text(hint))
                 .accessibilityAction { Self.toggleDial(model) }
                 .accessibilityAction(named: "Reset") { Self.reset(model) }
                 .overlay {

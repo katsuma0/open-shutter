@@ -163,11 +163,11 @@ private struct ChipMenu: View {
         case .shutter: shutter
         case .iso: iso
         case .aperture: aperture
-        case .bias: bias
         case .whiteBalance: whiteBalance
         case .tint: tint
         case .focus: focus
-        case .zoom: EmptyView()
+        // Exposure compensation has its own chip and menu in the lens row (ExposureChip), and zoom has no chip.
+        case .bias, .zoom: EmptyView()
         }
     }
 
@@ -250,19 +250,6 @@ private struct ChipMenu: View {
             ForEach(stops, id: \.self) { value in
                 HoldMenuChoice(ApertureScale.label(value), isOn: ChipPresets.isSame(fixed, value)) {
                     model.setAperture(value)
-                }
-            }
-        }
-    }
-
-    private var bias: some View {
-        let settings = model.settings
-        let current = settings.mode == .night ? settings.night.biasEV : settings.manual.bias
-        let range = model.capabilities.biasRange
-        return Section(kind.title) {
-            ForEach(ChipPresets.biases.filter { range.contains($0) }, id: \.self) { value in
-                HoldMenuChoice(EVFormat.label(value) + " EV", isOn: abs(current - value) < 0.05) {
-                    model.setBias(value)
                 }
             }
         }
