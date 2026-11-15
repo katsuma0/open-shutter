@@ -369,9 +369,11 @@ private struct NightPlanLine: View {
     let isLong: Bool
 
     var body: some View {
-        let text = isLong
-            ? NightText.plan(model.longPlan, bulb: model.settings.longExposure.bulb)
-            : NightText.plan(model.nightPlan, bulb: false)
+        let long = model.settings.longExposure
+        let plan = isLong ? model.longPlan : model.nightPlan
+        // Bulb has no length to plan, so the line gives the limit from Settings, where the exposure stops by itself.
+        let bulbLimit = isLong && long.bulb ? long.maxBulbSeconds : nil
+        let text = NightText.plan(plan, bulbLimit: bulbLimit)
         Text(text)
             .font(Theme.readoutFont)
             .foregroundStyle(Theme.secondaryText)
@@ -380,7 +382,7 @@ private struct NightPlanLine: View {
             .overPicture()
             // Rolls only inside an explicit animation: the plan follows the 10 Hz light readings.
             .contentTransition(.numericText())
-            .accessibilityLabel(Text("Plan: " + text))
+            .accessibilityLabel(Text("Plan: " + NightText.plan(plan, bulbLimit: bulbLimit, spoken: true)))
     }
 }
 
@@ -412,13 +414,15 @@ private enum NightText {
     /// Short enough for the two lines beside the row of four on the narrowest phone.
     static let nightDetail = "Averages frames for a clean, bright picture."
 
-    /// "12 frames × 1/4s · ISO 640", or for bulb "Bulb: 1s frames · ISO 100".
-    static func plan(_ plan: StackPlan, bulb: Bool) -> String {
+    /// "12 frames × 1/4s · ISO 640", or with a bulb limit "Bulb: 1s frames · ISO 100 · max 30m". `spoken` writes the
+    /// limit out for VoiceOver, which would read "30m" as thirty meters.
+    static func plan(_ plan: StackPlan, bulbLimit: Double?, spoken: Bool = false) -> String {
         let speed = ShutterSpeed(seconds: plan.frameSeconds)
         let shutter = speed.isFraction ? speed.label + "s" : speed.label
         let iso = ISOScale.label(plan.iso)
-        if bulb {
-            return "Bulb: \(shutter) frames \u{00B7} \(iso)"
+        if let bulbLimit {
+            let limit = spoken ? HoldMenuText.spokenTime(bulbLimit) : Formatting.compactDuration(bulbLimit)
+            return "Bulb: \(shutter) frames \u{00B7} \(iso) \u{00B7} max \(limit)"
         }
         let frames = plan.frameCount == 1 ? "1 frame" : "\(plan.frameCount) frames"
         return "\(frames) \u{00D7} \(shutter) \u{00B7} \(iso)"
