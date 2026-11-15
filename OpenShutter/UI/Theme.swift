@@ -158,7 +158,7 @@ private struct UprightRotation: ViewModifier {
     }
 }
 
-/// Round glass button used across the top bar and beside the shutter.
+/// Round glass button, used beside the shutter and in the photo editor.
 struct GlassCircleButtonStyle: ButtonStyle {
     var size: CGFloat = Theme.controlSize
     var isActive = false

@@ -7,7 +7,7 @@ import CameraCore
 /// it. A tap does a button's main thing; touch and hold lists its choices.
 struct TopBar: View {
     @Bindable var model: CameraModel
-    /// Set to ask the quick settings panel for its timer sheet.
+    /// Set to show the timer sheet, which the camera screen presents.
     @Binding var timerSheetRequested: Bool
 
     /// Left to right. The gear takes the seventh slot.
@@ -133,7 +133,7 @@ private struct SlotPlacement: ViewModifier {
 /// so the control's redraws with every settings change leave the system's menu button alone.
 private struct BarTouchLayer: View {
     enum Control {
-        case resolution, frameRate, settings
+        case resolution, frameRate
     }
 
     let model: CameraModel
@@ -145,13 +145,9 @@ private struct BarTouchLayer: View {
             switch control {
             case .resolution: VideoFormatChip.stepResolution(model)
             case .frameRate: VideoFormatChip.stepFrameRate(model)
-            case .settings: SettingsButton.open(model)
             }
         } options: {
-            switch control {
-            case .resolution, .frameRate: VideoFormatOptions(model: model)
-            case .settings: SettingsButtonOptions(model: model)
-            }
+            VideoFormatOptions(model: model)
         }
     }
 }
@@ -331,41 +327,19 @@ private struct VideoFormatOptions: View {
 
 private struct SettingsButton: View {
     let model: CameraModel
-    @State private var press = PressTracker()
 
     var body: some View {
         Button {
-            Self.open(model)
+            Haptics.tap()
+            model.isDrawerOpen = false
+            model.isSettingsPresented = true
         } label: {
             Upright(model: model) {
                 Image(systemName: "gearshape")
             }
         }
-        .buttonStyle(BarCircleStyle(isPressed: press.isPressed))
+        .buttonStyle(BarCircleStyle())
         .accessibilityLabel("Settings")
-        .accessibilityHint(HoldMenuText.hint)
-        .overlay {
-            BarTouchLayer(model: model, control: .settings, press: press)
-        }
-    }
-
-    fileprivate static func open(_ model: CameraModel) {
-        Haptics.tap()
-        model.isDrawerOpen = false
-        model.isSettingsPresented = true
-    }
-}
-
-/// The gear's touch and hold menu.
-private struct SettingsButtonOptions: View {
-    let model: CameraModel
-
-    var body: some View {
-        Button {
-            SettingsButton.open(model)
-        } label: {
-            Label("Settings", systemImage: "gearshape")
-        }
     }
 }
 
