@@ -1,7 +1,7 @@
 import SwiftUI
 import CameraCore
 
-/// The dial for `model.activeDial`, with its header and presets. It sits where the mode carousel was, so it
+/// The dial for `model.activeDial`, with its header and presets. It opens at the top of the controls stack and
 /// carries its own ways back: Done in the header, a swipe down, and VoiceOver's escape gesture.
 struct ActiveDialView: View {
     @Bindable var model: CameraModel

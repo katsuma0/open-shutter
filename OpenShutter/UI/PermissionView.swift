@@ -9,7 +9,7 @@ struct PermissionView: View {
     var body: some View {
         let status = model.authorization
         // Where the page fits, the button keeps its place near the bottom. Large text sizes can outgrow the screen,
-        // and then the page scrolls, as the welcome page before it does.
+        // and then the page scrolls.
         ViewThatFits(in: .vertical) {
             page(for: status)
                 .frame(maxHeight: .infinity)

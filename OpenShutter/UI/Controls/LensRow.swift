@@ -37,8 +37,8 @@ struct LensRow: View {
             .accessibilityHidden(wheelOpen)
         }
         .frame(maxWidth: .infinity, minHeight: 44)
-        // Over the row and the picture above it, never in the layout: the controls zone measures its height for
-        // the viewfinder, and an open wheel must not move anything.
+        // Over this row and whatever is above it: the picture, or the rows the controls zone fades meanwhile. Never
+        // in the layout: the zone measures its height for the viewfinder, and an open wheel must not move anything.
         .overlay(alignment: .bottom) {
             ZoomWheelOverlay(model: model, wheel: wheel)
         }

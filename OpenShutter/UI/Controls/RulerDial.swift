@@ -597,8 +597,7 @@ struct DialValueHeader: View {
     /// What VoiceOver says AUTO does while it is off. nil for the usual return to automatic.
     var autoHint: String? = nil
     var onDone: (() -> Void)? = nil
-    /// What VoiceOver says Done does. The shared dial sits where the mode carousel was; a dial inside a panel
-    /// leaves the carousel in view and passes its own words.
+    /// What VoiceOver says Done does.
     var doneHint: String = "Closes the dial."
 
     /// Both sides get the same width so the value stays centered over the dial's yellow line.
