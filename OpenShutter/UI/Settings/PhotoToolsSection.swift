@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The Tools section of Settings, the same at both interface levels: the photo info tool shows a file's own data
-/// under its standard names, which are the same words for everyone.
+/// The Tools section of Settings, the same whether Advanced settings is on or off: the photo info tool shows a
+/// file's own data under its standard names, which are the same words for everyone.
 struct PhotoToolsSection: View {
     var body: some View {
         Section {

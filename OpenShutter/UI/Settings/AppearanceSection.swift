@@ -1,8 +1,8 @@
 import SwiftUI
 import CameraCore
 
-/// How the app looks and handles, at both levels: light or dark for Settings, the accent color, and the pages for
-/// the top bar, the buttons and haptics, accessibility and what the camera keeps between launches.
+/// How the app looks and handles, whether Advanced settings is on or off: light or dark for Settings, the accent
+/// color, and the pages for the buttons and haptics, accessibility and what the camera keeps between launches.
 struct LookAndControlsSection: View {
     let model: CameraModel
 
@@ -15,9 +15,6 @@ struct LookAndControlsSection: View {
             AccentColorRow(selection: accent) { choice in
                 Haptics.tick()
                 model.updateSettings { $0.appearance.accent = choice }
-            }
-            NavigationLink("Top bar") {
-                TopBarSettingsView(model: model)
             }
             NavigationLink("Buttons and haptics") {
                 ButtonsAndHapticsView(model: model)

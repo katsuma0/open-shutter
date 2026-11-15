@@ -56,7 +56,7 @@ struct CapabilitiesView: View {
         }
         .listStyle(.insetGrouped)
         .textSelection(.enabled)
-        .navigationTitle("Camera Details")
+        .navigationTitle("This camera")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {

@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 import CameraCore
 
 // Building blocks shared by the Settings form and the pages it leads to.
@@ -229,5 +230,37 @@ struct UnavailableFeatures {
             sentences.append("Needs an Xcode 27 build: \(ListFormatter.localizedString(byJoining: needsNewerBuild)).")
         }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+    }
+}
+
+/// Whether the app may read location, so the location row can say why photos carry no place. LocationProvider owns
+/// the real updates; this one only watches the permission. The sheet makes one and hands it to the short list and to
+/// the Photos page, whichever shows the row.
+@MainActor
+@Observable
+final class LocationPermissionWatcher: NSObject, CLLocationManagerDelegate {
+    private(set) var status: CLAuthorizationStatus = .notDetermined
+    private(set) var isPrecise = true
+
+    @ObservationIgnored private let manager = CLLocationManager()
+
+    var isDenied: Bool { status == .denied || status == .restricted }
+    var isAuthorized: Bool { status == .authorizedWhenInUse || status == .authorizedAlways }
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        refresh()
+    }
+
+    private func refresh() {
+        status = manager.authorizationStatus
+        isPrecise = manager.accuracyAuthorization == .fullAccuracy
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            self.refresh()
+        }
     }
 }
