@@ -85,7 +85,9 @@ struct LensRowShutterChip: View {
         }
         .frame(minWidth: 44, minHeight: 44)
         .disabled(ChipReader.isLocked(model.activity))
-        .opacity(ChipReader.isDimmed(model.activity) ? 0.45 : 1)
+        // Like the exposure chip on the row's other side. A stack dims the whole lens row (ControlsZone), and a
+        // dimming of its own on top of that would all but hide the running shot's duration.
+        .opacity(model.activity == .saving ? 0.45 : 1)
         .animation(Theme.snappy, value: shows)
     }
 }
@@ -322,11 +324,10 @@ private struct ChipMenu: View {
 /// The values the chip menus offer. Each list is cut to what the camera and the mode can do before it shows.
 private enum ChipPresets {
     static let shutters: [Double] = [1.0 / 1000, 1.0 / 250, 1.0 / 60, 1.0 / 15, 1.0 / 4, 1, 4, 30]
-    static let longDurations: [Double] = [1, 4, 15, 30, 60, 300]
+    /// From the shortest time worth stacking to the dial's longest.
+    static let longDurations: [Double] = [1, 2, 4, 8, 15, 30, 60, 300, 600, 1800]
     static let nightDurations: [Double] = [3, 5, 10, 15, 30]
     static let isos: [Double] = [100, 400, 800, 1600, 3200]
-    /// Zero first, where the other menus have Auto: it gives the value back.
-    static let biases: [Double] = [0, -2, -1, 1, 2]
     /// The dial's own preset row without Auto, which leads the menu. Candle sits below the 2000 K the camera can
     /// lock to.
     static let whiteBalance: [WhiteBalancePreset] = [.daylight, .cloudy, .shade, .tungsten, .fluorescent, .flash]
