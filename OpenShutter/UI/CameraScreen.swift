@@ -721,6 +721,9 @@ private struct ControlsZone: View {
         let isStacking = activity == .stacking
         let isRecording = activity == .recording
         let showsPanel = mode != .photo
+        // An open dial folds the mode's own panel away to keep the stack short. Without a band (iPhone SE) the quick
+        // settings panel reaches down to that panel, so it folds while the quick settings are open too.
+        let showsSecondary = dial == nil && (modeRowInBand || !model.isDrawerOpen)
 
         VStack(spacing: 6) {
             // A stack can't change mid-capture, so its panels fold away and the progress has the screen.
@@ -734,7 +737,7 @@ private struct ControlsZone: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                     if showsPanel {
-                        ModePanels(model: model, mode: mode, showsSecondary: dial == nil, isRecording: isRecording)
+                        ModePanels(model: model, mode: mode, showsSecondary: showsSecondary, isRecording: isRecording)
                             // NIGHT's two kinds of shot are one mode on screen, so its panel changes in place.
                             .id(mode.carouselMode)
                             .transition(.opacity)
@@ -758,8 +761,9 @@ private struct ControlsZone: View {
                 .disabled(isStacking)
                 .opacity(isStacking ? 0.35 : 1)
 
-            // Without a band for the mode row the carousel sits here, and an open dial takes its room.
-            if !isStacking, dial == nil, !modeRowInBand {
+            // Without a band for the mode row the carousel sits here. It stays while a dial is open, as it does in
+            // the band, so the lens row and the chips above it keep their place under the finger.
+            if !isStacking, !modeRowInBand {
                 CarouselSlot(model: model)
                     .transition(.opacity)
             }
@@ -789,11 +793,21 @@ private struct ControlsZone: View {
         .animation(Theme.spring, value: dial)
         .animation(Theme.spring, value: mode)
         .animation(Theme.spring, value: isStacking)
+        // Without a band the stack with a dial on top reaches up into the open quick settings panel, so the two take
+        // turns there: opening one closes the other.
+        .onChange(of: dial) { _, opened in
+            guard opened != nil, !modeRowInBand, model.isDrawerOpen else { return }
+            withAnimation(Theme.spring) { model.isDrawerOpen = false }
+        }
+        .onChange(of: !modeRowInBand && model.isDrawerOpen) { _, isOpen in
+            guard isOpen, model.activeDial != nil else { return }
+            withAnimation(Theme.spring) { model.activeDial = nil }
+        }
     }
 }
 
 /// The controls each mode adds above the lens row. The manual chips sit directly over the lens buttons in every mode
-/// that has them, with the mode's own panel above; an open dial folds that panel away to keep the stack short.
+/// that has them, with the mode's own panel above. That panel folds away while `showsSecondary` is false.
 private struct ModePanels: View {
     let model: CameraModel
     let mode: CaptureMode
