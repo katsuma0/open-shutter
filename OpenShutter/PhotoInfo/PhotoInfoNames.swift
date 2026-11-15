@@ -626,10 +626,11 @@ enum PhotoInfoNames {
         return text
     }
 
+    /// The mode as the camera's carousel names it. A file keeps "long" for a long exposure scene, which is part of
+    /// Night there, and its Scene row says which one.
     static func modeTitle(_ mode: CaptureMode) -> String {
         switch mode {
-        case .night: return "Night"
-        case .long: return "Long exposure"
+        case .night, .long: return "Night"
         case .photo: return "Photo"
         case .manual: return "Manual"
         case .video: return "Video"

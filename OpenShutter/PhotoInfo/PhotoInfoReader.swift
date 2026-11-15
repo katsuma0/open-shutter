@@ -109,7 +109,9 @@ enum PhotoInfoReader {
 
         let place = placeTaken(groups[PhotoInfoNames.gps] ?? [:])
         let summary = summaryRows(groups: groups, topLevel: topLevel, app: xmp.app, extraImages: extraImages)
-        let appRows = ShotXMP.Field.allCases.compactMap { field in
+        // Interface is left out: the camera has one interface now, so the row would read Advanced on every new
+        // photo and name a choice the app no longer has. The field stays in the file and shows under XMP.
+        let appRows = ShotXMP.Field.allCases.filter { $0 != .interface }.compactMap { field in
             xmp.app[field].map { PhotoInfoRow(id: "app/" + field.rawValue, title: PhotoInfoNames.appTitle(field),
                                               value: PhotoInfoNames.appValue(field, $0)) }
         }
