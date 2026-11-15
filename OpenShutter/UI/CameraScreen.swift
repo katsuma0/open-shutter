@@ -204,7 +204,8 @@ private struct CameraLayout: View {
             // inside NIGHT is no change of mode on screen, and PHOTO's shutter dial is still being turned when its
             // first tick leads into MANUAL: neither gets the veil. Every other change does, dial open or not.
             let involvesVideo = oldMode == .video || newMode == .video
-            let ledByDial = oldMode == .photo && newMode == .manual && model.activeDial == .shutter
+            let ledByDial = model.modeChangeLedByPick && oldMode == .photo && newMode == .manual
+                && model.activeDial == .shutter
             if oldMode.carouselMode != newMode.carouselMode, !ledByDial {
                 showVeil(holdNanoseconds: involvesVideo ? 650_000_000 : 350_000_000)
             }

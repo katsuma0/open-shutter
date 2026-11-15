@@ -143,6 +143,9 @@ final class CameraModel {
     /// The newest photo frees the shutter as soon as it is exposed (cameraBackendWillCapture).
     @ObservationIgnored private var releasesAtExposure = false
     @ObservationIgnored private var rawNoticeShown = false
+    /// The newest mode change came from a manual value picked in PHOTO or NIGHT (switchToManual), not from the
+    /// carousel or the Camera Control. The camera screen skips its veil for the one a dial is still being turned on.
+    @ObservationIgnored private(set) var modeChangeLedByPick = false
     /// A value picked on the Camera Control is already on show in its overlay, so it isn't reinstalled for it.
     @ObservationIgnored private var applyingControlChange = false
     /// NIGHT's metered light and bias when AE was locked, so recomposing doesn't change the plan.
@@ -907,6 +910,7 @@ final class CameraModel {
         if mode == .video, isMacro, let id = macroButtonID, let wide = backLensPresets.first(where: { $0.id == id }) {
             select(wide, haptic: false)
         }
+        modeChangeLedByPick = false
         updateSettings { $0.mode = mode }
     }
 
@@ -943,6 +947,7 @@ final class CameraModel {
             return
         }
         releaseLock()
+        modeChangeLedByPick = true
         updateSettings { settings in
             settings.mode = .manual
             if keepingAutoExposure {
