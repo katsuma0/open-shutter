@@ -97,7 +97,8 @@ private struct LongExposureSection: View {
         let long = model.settings.longExposure
 
         Section {
-            SettingsPicker("Blend", selection: model.settingBinding(\.longExposure.blend),
+            SettingsPicker("Blend", selection: Binding(get: { model.settings.longExposure.blend },
+                                                       set: { model.setLongExposureBlend($0) }),
                          options: StackBlend.allCases, label: \.title)
             Toggle("Align frames", isOn: model.settingBinding(\.longExposure.align))
             SettingsPicker("Bulb limit", selection: model.settingBinding(\.longExposure.maxBulbSeconds),
