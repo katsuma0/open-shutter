@@ -18,7 +18,7 @@ final class InterfaceLevelTests: XCTestCase {
         "controls.volumeShutter", "controls.haptics",
         "controls.volumeUpAction", "controls.volumeDownAction", "controls.hapticStrength", "controls.dialTicks",
         "controls.zoomTicks",
-        "interface.welcomed",
+        "interface.welcomed", "interface.advancedSettings",
         // How the app looks and handles.
         "appearance.scheme", "appearance.accent",
         "accessibility.largerLabels", "accessibility.solidControls", "accessibility.reduceMotion",
@@ -112,6 +112,7 @@ final class InterfaceLevelTests: XCTestCase {
         s.controls.zoomTicks = .lensValues
         s.interface.advanced = true
         s.interface.welcomed = true
+        s.interface.advancedSettings = true
         s.appearance.scheme = .light
         s.appearance.accent = .teal
         s.accessibility.largerLabels = true
@@ -178,7 +179,7 @@ final class InterfaceLevelTests: XCTestCase {
     /// `settings` as a version before scenes and the interface level saved them: the same JSON without the two.
     private func savedBeforeTheSimpleInterface(_ settings: CameraSettings) throws -> Data {
         let json = try XCTUnwrap(String(data: settings.encoded(), encoding: .utf8))
-        let interface = #""interface":{"advanced":\#(settings.interface.advanced),"welcomed":\#(settings.interface.welcomed)},"#
+        let interface = #""interface":{"advanced":\#(settings.interface.advanced),"advancedSettings":\#(settings.interface.advancedSettings),"welcomed":\#(settings.interface.welcomed)},"#
         let scene = #""scene":"\#(settings.longExposure.scene.rawValue)","#
         XCTAssertTrue(json.contains(interface) && json.contains(scene), json)
         return Data(json.replacingOccurrences(of: interface, with: "").replacingOccurrences(of: scene, with: "").utf8)
@@ -375,7 +376,8 @@ final class InterfaceLevelTests: XCTestCase {
             settings.mode = mode
             let simple = settings.simplified().mode
             XCTAssertEqual(simple, mode == .manual ? .photo : mode, mode.rawValue)
-            XCTAssertTrue(CaptureMode.carouselOrder(advanced: false).contains(simple), mode.rawValue)
+            // LONG shows under NIGHT's entry.
+            XCTAssertTrue(CaptureMode.carouselOrder(advanced: false).contains(simple.carouselMode), mode.rawValue)
         }
     }
 

@@ -398,32 +398,16 @@ private struct SettingsButton: View {
     }
 }
 
-/// The switch between the simple and the advanced interface, without the trip through Settings.
+/// The gear's touch and hold menu.
 private struct SettingsButtonOptions: View {
     let model: CameraModel
 
     var body: some View {
-        let advanced = model.isAdvanced
-        Toggle(isOn: Binding(get: { advanced }, set: { setAdvanced($0) })) {
-            Label("Advanced controls", systemImage: "slider.horizontal.3")
-        }
-        // Off whenever the model would refuse, like the switch in Settings, so the menu never offers a change that
-        // only ends in a warning.
-        .disabled(!model.canChangeInterface)
         Button {
             SettingsButton.open(model)
         } label: {
             Label("Settings", systemImage: "gearshape")
         }
-    }
-
-    private func setAdvanced(_ wanted: Bool) {
-        Haptics.tap()
-        model.setAdvanced(wanted)
-        // A shot that starts while the menu is open still makes the model refuse, and it says so itself.
-        guard model.isAdvanced == wanted else { return }
-        // The menu is gone by now and the change can be easy to miss, so it is said, and read out by VoiceOver.
-        model.showToast(wanted ? "Advanced controls on" : "Advanced controls off", symbol: "slider.horizontal.3")
     }
 }
 

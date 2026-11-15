@@ -46,27 +46,21 @@ struct SettingsView: View {
 
 // MARK: - Interface level
 
-/// The switch between the simple and the advanced interface. It leads the form at both levels, because it decides
-/// what the rest of the form lists.
+/// The switch for how much this page lists. It leads the form, because it decides what the rest of it shows. The
+/// camera is the same either way.
 private struct InterfaceSection: View {
     let model: CameraModel
 
-    private static let explanation = "Off is recommended for most photos. On adds manual mode, RAW, the histogram and the detailed settings. Turning it off puts everything they changed back on automatic; turning it on again brings your settings back."
-    private static let busyNote = "This can't change while a shot is in progress."
+    private static let explanation = "Lists every setting, in groups. Off keeps this page to the ones most people change. The camera itself stays the same."
 
     var body: some View {
-        // The model refuses the change under a running shot and says so in a toast, which this sheet covers. The
-        // same conditions gray the switch out here, with the reason in the footer.
-        let isBusy = !model.canChangeInterface
         Section {
-            Toggle("Advanced controls", isOn: Binding(
-                get: { model.isAdvanced },
-                set: { model.setAdvanced($0) }
+            Toggle("Advanced settings", isOn: Binding(
+                get: { model.showsAdvancedSettings },
+                set: { model.setAdvancedSettings($0) }
             ))
-            .disabled(isBusy)
-            .accessibilityHint(isBusy ? Self.busyNote : "")
         } footer: {
-            SettingsFooter([Self.explanation, isBusy ? Self.busyNote : nil])
+            SettingsFooter([Self.explanation])
         }
     }
 }
@@ -78,7 +72,7 @@ private struct InterfaceLevelSections: View {
     let locationAccess: LocationPermissionWatcher?
 
     var body: some View {
-        if model.isAdvanced {
+        if model.showsAdvancedSettings {
             CaptureSection(model: model, locationAccess: locationAccess)
             ExposureSection(model: model)
             FocusSection(model: model)
@@ -1324,13 +1318,8 @@ private struct AboutSection: View {
             fresh.zoom = settings.zoom
             // The default 4K 30 isn't on every lens, and the saved values should say what VIDEO really records.
             fresh.video = VideoFormatChoices.fitted(fresh.video, formats: formats)
-            // The defaults switch on tools only the advanced interface shows, such as the histogram and the
-            // readout. The simple one gets the defaults the way it runs them.
-            settings = fresh.interface.advanced ? fresh : fresh.simplified()
+            settings = fresh
         }
-        // The simple interface keeps the advanced one's settings put away for its switch to bring back. They are
-        // reset too, or turning the switch on later would undo this reset.
-        model.forgetAdvancedSettings()
         // An open dial would keep editing a value that just went back to auto, or a tint that no longer applies.
         model.activeDial = nil
         Haptics.success()

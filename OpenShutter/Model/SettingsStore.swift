@@ -29,18 +29,13 @@ final class SettingsStore {
 
     // MARK: - Advanced snapshot
 
-    /// The settings as they were when the advanced interface was last turned off, so turning it on again can
-    /// bring back what the simple interface reset.
+    /// What the earlier simple interface put aside when it was turned on. The camera always shows every control
+    /// now, so this is only read once, to bring those settings back, and then cleared.
     private var snapshotKey: String { key + ".advanced" }
 
     func loadAdvancedSnapshot() -> CameraSettings? {
         guard let data = defaults.data(forKey: snapshotKey) else { return nil }
         return CameraSettings.decoded(from: data)
-    }
-
-    func saveAdvancedSnapshot(_ settings: CameraSettings) {
-        guard let data = try? settings.encoded() else { return }
-        defaults.set(data, forKey: snapshotKey)
     }
 
     func clearAdvancedSnapshot() {

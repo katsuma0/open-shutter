@@ -5,7 +5,7 @@ import AVKit
 import _AVKit_SwiftUI
 import CameraCore
 
-/// The whole camera: viewfinder, controls, mode carousel, shutter. The first launch starts with the welcome question.
+/// The whole camera: viewfinder, controls, mode carousel, shutter.
 struct CameraScreen: View {
     @Bindable var model: CameraModel
     @Environment(\.scenePhase) private var scenePhase
@@ -34,19 +34,13 @@ struct CameraScreen: View {
     }
 }
 
-/// The welcome question, the camera or the permission page. Whether the question is still open is a setting, and
-/// dials and pinches write the settings many times a second, so it is read here and not by the screen with its sheets.
+/// The camera or the permission page.
 private struct ScreenContent: View {
     let model: CameraModel
 
     var body: some View {
-        let needsWelcome = model.needsWelcome
         ZStack {
-            if needsWelcome {
-                // Before the camera starts, so the permission prompt comes after the answer.
-                WelcomeView(model: model)
-                    .transition(.opacity)
-            } else if model.authorization == .authorized {
+            if model.authorization == .authorized {
                 CameraLayout(model: model)
                     .transition(.opacity)
             } else {
@@ -55,7 +49,6 @@ private struct ScreenContent: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: model.authorization)
-        .animation(.easeInOut(duration: 0.3), value: needsWelcome)
     }
 }
 
@@ -205,9 +198,13 @@ private struct CameraLayout: View {
             if let dial = model.activeDial, !Self.dialAllowed(dial, in: newMode, advanced: model.isAdvanced) {
                 model.activeDial = nil
             }
-            // Video needs a session reconfiguration, which takes longer than a photo mode change.
+            // Video needs a session reconfiguration, which takes longer than a photo mode change. A change of scene
+            // inside NIGHT is no change of mode on screen, and a dial that leads into MANUAL is still being turned:
+            // neither gets the veil.
             let involvesVideo = oldMode == .video || newMode == .video
-            showVeil(holdNanoseconds: involvesVideo ? 650_000_000 : 350_000_000)
+            if oldMode.carouselMode != newMode.carouselMode, involvesVideo || model.activeDial == nil {
+                showVeil(holdNanoseconds: involvesVideo ? 650_000_000 : 350_000_000)
+            }
             // VIDEO's shape at once, before the aspect task starts, so the frame never heads for the photo format's.
             updateImageAspect()
         }
@@ -296,7 +293,9 @@ private struct CameraLayout: View {
     static func dialAllowed(_ dial: DialKind, in mode: CaptureMode, advanced: Bool) -> Bool {
         guard advanced else { return dial == .bias || dial == .zoom }
         switch mode {
-        case .photo, .night: return dial == .bias || dial == .zoom
+        // The lens row carries the shutter and exposure chips in every mode. PHOTO's shutter dial leads into
+        // MANUAL at the first value picked; NIGHT's sets how long the shot runs.
+        case .photo, .night: return dial == .bias || dial == .zoom || dial == .shutter
         case .manual, .long, .video: return true
         }
     }
@@ -868,11 +867,11 @@ private struct CarouselSlot: View {
         // VIDEO there would leave the rest of the sequence taking nothing. A bracket runs as long, so it dims too.
         let sequenceRunning = model.intervalometer != nil || model.bracketInProgress
         ModeCarousel(
+            // NIGHT stands for the night shot and the long exposure scenes, and comes back to the one used last.
             mode: Binding(
-                get: { model.settings.mode },
-                set: { model.setMode($0) }
+                get: { model.settings.mode.carouselMode },
+                set: { model.selectCarouselMode($0) }
             ),
-            // The simple interface leaves MANUAL out.
             modes: model.availableModes
         )
         // Hidden but still laid out, so the controls around it don't jump when recording starts.
