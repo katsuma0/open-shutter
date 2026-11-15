@@ -920,11 +920,14 @@ final class CameraModel {
     /// Says why a pick that leads to another mode did nothing (canChangeMode). The controls that send such picks stay
     /// live while the mode can't change: PHOTO's shutter dial while a photo saves, NIGHT's scene menu and row of four
     /// between an intervalometer's shots. A dial sends a tick many times a second, and every toast slides in anew and
-    /// is read out by VoiceOver, so one that already says this stays up as it is.
+    /// is read out by VoiceOver, so one that already says this stays up as it is, with its time started over.
     private func noteModeChangeRefused() {
         let message = activity.isBusy || intervalometer != nil
             ? "Finish the shot first." : "Wait for the last photo to save."
-        guard toast?.message != message else { return }
+        if let shown = toast, shown.message == message {
+            expireToast(shown)
+            return
+        }
         showToast(message, symbol: "exclamationmark.triangle")
     }
 
@@ -2314,6 +2317,11 @@ final class CameraModel {
     func showToast(_ message: String, symbol: String? = nil) {
         let item = Toast(message: message, symbol: symbol)
         toast = item
+        expireToast(item)
+    }
+
+    /// Takes the toast down after its time. Called again for a toast already up, it starts that time over.
+    private func expireToast(_ item: Toast) {
         toastTask?.cancel()
         toastTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_200_000_000)
