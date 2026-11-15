@@ -839,10 +839,12 @@ final class CameraModel {
         if lenses != self.lenses { self.lenses = lenses }
         let presets = backend.lensPresets
         if presets != lensPresets { lensPresets = presets }
-        // A camera left in macro opens in macro: the saved lens and zoom say so once the lenses are known.
+        // A camera left in macro opens in macro: the saved lens and zoom say so once the lenses are known. Not in
+        // VIDEO, where macro never follows (setMode) and the same lens and zoom were reached by hand.
         if !macroRestored, !lenses.isEmpty {
             macroRestored = true
-            if let lens = lenses.first(where: { $0.id == settings.lensID }), lens.kind == .ultraWide,
+            if settings.mode != .video,
+               let lens = lenses.first(where: { $0.id == settings.lensID }), lens.kind == .ultraWide,
                abs(settings.zoom * lens.relativeZoom - 1) < 0.02 {
                 isMacro = true
             }
@@ -900,6 +902,11 @@ final class CameraModel {
             activeDial = nil
         }
         if mode.usesStacking { lastNightFamilyMode = mode }
+        // VIDEO has no macro button to show macro or to end it, so macro stays behind: the main camera's 1x, the
+        // button that was lit, is the lens VIDEO opens on.
+        if mode == .video, isMacro, let id = macroButtonID, let wide = backLensPresets.first(where: { $0.id == id }) {
+            select(wide, haptic: false)
+        }
         updateSettings { $0.mode = mode }
     }
 
@@ -3067,8 +3074,9 @@ final class CameraModel {
     // MARK: Macro and close subjects
 
     /// Macro is on: the ultra wide camera framing like 1x. It focuses far closer than the main camera, which is how
-    /// Apple's Camera takes its close-ups. The 1x button stays lit for it, and any lens button leaves it. A flag of
-    /// its own, not read off the lens and zoom: a pinch through 1x on the ultra wide camera is not macro.
+    /// Apple's Camera takes its close-ups. The 1x button stays lit for it. Any lens button leaves it, and so does a
+    /// switch to VIDEO, which has no macro button. A flag of its own, not read off the lens and zoom: a pinch
+    /// through 1x on the ultra wide camera is not macro.
     private(set) var isMacro = false
     @ObservationIgnored private var macroRestored = false
 
