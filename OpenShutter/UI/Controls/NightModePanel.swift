@@ -409,7 +409,8 @@ private struct NightChipStyle: ButtonStyle {
 private enum NightText {
     /// The night shot's name in the scene menu and the row of four.
     static let nightTitle = "Night"
-    static let nightDetail = "Lines up and averages frames. Bright and clean in low light."
+    /// Short enough for the two lines beside the row of four on the narrowest phone.
+    static let nightDetail = "Averages frames for a clean, bright picture."
 
     /// "12 frames × 1/4s · ISO 640", or for bulb "Bulb: 1s frames · ISO 100".
     static func plan(_ plan: StackPlan, bulb: Bool) -> String {
