@@ -23,7 +23,7 @@ What's in it:
 - A battery saver for long shots, off until you turn it on. On a shot of 10 seconds or more, the screen goes black 3 seconds in and lights up again for the last 5 seconds, whenever the phone moves, and for 10 seconds after a touch.
 - Self timer up to 10 minutes, an intervalometer (up to 9999 shots, up to an hour apart), and exposure, focus or white balance brackets.
 - HEIF, JPEG, RAW, ProRAW and RAW plus either, 12 or 48 MP, compression quality, and how much Apple processing you want.
-- Histogram (luma or RGB), zebras, false color, level, grids and clipping warnings. A shot built from frames wears a STACK badge, and a tap on it says what that means.
+- Histogram (luma or RGB), zebras, false color, level, grids and clipping warnings. A shutter too long for one frame wears a STACK badge, and so does any Blur or Trails shot in Night. A tap on it says what that means.
 - Video with manual exposure, frame rate, resolution, HEVC, H.264 or ProRes, HDR, Apple Log or Apple Log 2, every stabilization mode the phone offers, wind noise reduction, and the torch.
 - The Camera Control button carries zoom, lens, exposure, shutter, ISO and white balance by default. Aperture, focus and mode can be swapped in from Settings. Each volume button takes a job: shutter, zoom in, zoom out, brighter, darker or next lens. A Camera Control click does what volume down does, and any of them stops a running shot. Haptics come in Off, Light, Normal and Strong, with their own switches for selection ticks and zoom ticks.
 - The top bar is always the same seven, drawn as plain icons with nothing behind them: flash, aspect ratio, timer, format, histogram, Live Photo and Settings. One that has nothing to do in a mode dims where it is. In Video the timer and format make way for the size and frame rate, and while it records only the light and the clock stay. Solid buttons, under accessibility, puts a dark circle behind each. Grid and level are at the top of Settings, next to the aspect ratio.
@@ -53,7 +53,7 @@ Apple keeps some things to its own Camera app. Its Night mode, Photographic Styl
 
 Manual exposure only works on the physical lenses, not on Apple's combined multi-lens camera, so a lens change takes a beat and macro is a button rather than automatic.
 
-There's no 24 MP option. iOS only delivers 24 MP through deferred processing, and the app keeps that off so it can crop and save each photo itself. Bayer RAW needs a lens at its own zoom, like 0.5×, 1× or 4×. At 2×, 8× or with any pinch zoom you get the HEIF or JPEG alone, and RAW in the quick settings says so. ProRAW works at any zoom.
+There's no 24 MP option. iOS only delivers 24 MP through deferred processing, and the app keeps that off so it can crop and save each photo itself. Bayer RAW needs a lens at its own zoom, like 0.5×, 1× or 4×. At 2×, 8×, in macro or with any pinch zoom you get the HEIF or JPEG alone, and RAW in the quick settings says so. ProRAW works at any zoom.
 
 At 16:9 the bands above and below the picture stay black. Apple's Camera fills them from the ultra wide while you shoot on the main lens. This app runs one camera at a time, so there's nothing to put there. If you had an earlier build installed, your saved 4:3 stays until you tap the aspect ratio or reset the settings.
 
@@ -63,7 +63,7 @@ The battery saver covers the screen in black and turns the brightness down. It c
 
 The sky scenes park the focus at the far end of the lens. Apple doesn't promise that is infinity on every lens, so if stars come out soft, set the focus by hand with the focus chip.
 
-Silent shutter only appears where iOS allows it. Exposure brackets are one burst, capped at what the phone reports, usually three to five frames. Focus brackets (up to 30 frames) and white balance brackets (up to 9) are separate shots. Stacked exposures are built from the video stream, so they're 12 MP even on a 48 MP sensor, and they save as HEIF or JPEG, not RAW.
+Silent shutter only works where iOS allows it. Elsewhere its quick settings item is dimmed and Settings leaves the row out. Exposure brackets are one burst, capped at what the phone reports, usually three to five frames. Focus brackets (up to 30 frames) and white balance brackets (up to 9) are separate shots. Stacked exposures are built from the video stream, so they're 12 MP even on a 48 MP sensor, and they save as HEIF or JPEG, not RAW.
 
 If you leave the app in the middle of a long exposure, it keeps the frames it has and finishes the photo when you come back. Apps in the background get no GPU, so that last step has to wait.
 
