@@ -53,7 +53,7 @@ Apple keeps some things to its own Camera app. Its Night mode, Photographic Styl
 
 Manual exposure only works on the physical lenses, not on Apple's combined multi-lens camera, so a lens change takes a beat and macro is a button rather than automatic.
 
-There's no 24 MP option. iOS only delivers 24 MP through deferred processing, and the app keeps that off so it can crop and save each photo itself. Bayer RAW needs a lens at its own zoom, like 0.5×, 1× or 4×. At 2×, 8× or with any pinch zoom you get the HEIF or JPEG alone, and the RAW chip dims to show it. ProRAW works at any zoom.
+There's no 24 MP option. iOS only delivers 24 MP through deferred processing, and the app keeps that off so it can crop and save each photo itself. Bayer RAW needs a lens at its own zoom, like 0.5×, 1× or 4×. At 2×, 8× or with any pinch zoom you get the HEIF or JPEG alone, and RAW in the quick settings says so. ProRAW works at any zoom.
 
 At 16:9 the bands above and below the picture stay black. Apple's Camera fills them from the ultra wide while you shoot on the main lens. This app runs one camera at a time, so there's nothing to put there. If you had an earlier build installed, your saved 4:3 stays until you tap the aspect ratio or reset the settings.
 

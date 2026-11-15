@@ -1887,14 +1887,19 @@ final class CameraModel {
         do {
             let results = try await backend.capturePhoto(request)
             handle(results)
-            if rawNeedsOneX { noteRawLeftOut(request, results: results) }
+            if rawNeedsOneX {
+                noteRawLeftOut(request, results: results)
+            } else {
+                // A photo that could keep its RAW ends the run, so the next zoomed one is told again.
+                rawNoticeShown = false
+            }
         } catch {
             report(error)
         }
     }
 
-    /// AVFoundation leaves Bayer RAW out of zoomed shots, so only the processed photo is saved. The RAW chip shows
-    /// it as well, so this is said once.
+    /// AVFoundation leaves Bayer RAW out of zoomed shots, so only the processed photo is saved. Said once for each
+    /// run of zoomed photos: RAW in the quick settings shows it too, but that panel is closed while shooting.
     private func noteRawLeftOut(_ request: PhotoRequest, results: [CaptureResult]) {
         guard !rawNoticeShown, !results.isEmpty, results.allSatisfy({ $0.kind == .photo && $0.savedToLibrary }) else { return }
         rawNoticeShown = true

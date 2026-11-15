@@ -156,9 +156,20 @@ struct QuickSettingsDrawer: View {
         let raw = model.settings.capture.rawFormat
         let mode = model.settings.mode
         let choices = QuickActions.rawChoices(model.capabilities)
-        return DrawerButtonItem(model: model, title: "RAW", value: raw.title,
-                                isActive: raw != RawFormat.none,
-                                isEnabled: (mode == .photo || mode == .manual) && choices.count > 1) {
+        let applies = mode == .photo || mode == .manual
+        let isOn = raw != RawFormat.none
+        // A MANUAL shutter past the hardware limit is shot as a stack, which writes HEIF or JPEG only.
+        let stacked = mode == .manual && model.shutterIsStacked
+        // The photo output leaves Bayer RAW out of zoomed shots, macro's among them. Still a button, so RAW can be
+        // turned off.
+        let zoomed = applies && !stacked && isOn && model.rawBlockedByZoom
+        let value = stacked ? "Not in stacks" : (zoomed ? "Not at this zoom" : raw.title)
+        let hint: String? = stacked ? "Stacked exposures are saved without RAW."
+            : (zoomed ? "RAW needs a lens at its own zoom, such as 1\u{00D7}. Zoomed photos are saved without it." : nil)
+        return DrawerButtonItem(model: model, title: "RAW", value: value,
+                                isActive: isOn && !stacked && !zoomed,
+                                isEnabled: applies && !stacked && choices.count > 1,
+                                hint: hint) {
             QuickActions.stepRaw(model)
         } glyph: {
             Text("RAW")
