@@ -435,7 +435,6 @@ private struct ViewfinderStack: View {
             ViewfinderOverlays(model: model, geometry: geometry, topShift: bannerShift)
             ExposureSliderLayer(model: model, interaction: interaction, geometry: geometry)
             HistogramSlot(model: model, open: open, topShift: bannerShift)
-            ReadoutSlot(model: model, open: open)
             SteadyStatusPlacement(model: model, open: open, shift: $bannerShift)
             ToastLayer(model: model, open: open, topShift: bannerShift)
             SessionStatusLayer(model: model, open: open)
@@ -484,28 +483,6 @@ private struct HistogramSlot: View {
         .frameMotion(value: open)
         .animation(Theme.spring, value: topShift)
         .allowsHitTesting(false)
-    }
-}
-
-private struct ReadoutSlot: View {
-    let model: CameraModel
-    let open: CGRect
-
-    var body: some View {
-        // A stack's status block moves down to clear the drift crosses, and no phone has room for the readout under
-        // it as well: it would cover Stop.
-        let shows = model.settings.display.showReadout && model.activity != .stacking
-        ZStack {
-            if shows {
-                // ReadoutHUD keeps its own margin; this keeps it clear of the controls under the frame.
-                ReadoutHUD(model: model)
-                    .transition(.opacity)
-            }
-        }
-        .frame(width: max(open.width, 0), height: max(open.height, 0), alignment: .bottom)
-        .position(x: open.midX, y: open.midY)
-        .frameMotion(value: open)
-        .animation(.easeInOut(duration: 0.25), value: shows)
     }
 }
 
@@ -732,53 +709,49 @@ private struct ControlsZone: View {
         let activity = model.activity
         let isStacking = activity == .stacking
         let isRecording = activity == .recording
-        let advanced = model.isAdvanced
-        let showsPanel = Self.hasPanel(mode: mode, dialOpen: dial != nil, advanced: advanced)
-        // An exposure dial makes the stack tall enough to cover a good part of the picture on 6.1" phones, so the
-        // lens buttons step aside for it. The zoom dial belongs with them, and the EV chip of PHOTO and NIGHT lives
-        // in that row. So does the simple interface's brightness chip in every mode, and the panel steps aside there.
-        let showsLensRow = dial == nil || dial == .zoom || mode == .photo || mode == .night || !advanced
-        // With nothing between them, the lens buttons keep the distance Apple's keep from the shutter.
-        let lensAboveShutter = showsLensRow && (isStacking || (!showsPanel && dial == nil))
+        let showsPanel = mode != .photo
 
         VStack(spacing: 6) {
-            if showsLensRow {
-                LensRow(model: model)
-                    .disabled(isStacking)
-                    .opacity(isStacking ? 0.35 : 1)
-                    .transition(.opacity)
-            }
-
             // A stack can't change mid-capture, so its panels fold away and the progress has the screen.
             if !isStacking {
-                if showsPanel {
-                    ModePanels(model: model, mode: mode, advanced: advanced, showsSecondary: dial == nil,
-                               isRecording: isRecording)
-                        .id(mode)
-                        .transition(.opacity)
-                }
-                // The dial sits above the shutter, like the Camera app's exposure dial. Without a band for the mode
-                // row it takes the carousel's place.
+                // The dial opens at the top of the stack, above the rows whose chips opened it: the lens buttons, the
+                // shutter and exposure chips beside them and the mode's chips stay exactly where they were, so
+                // nothing moves under the finger.
                 if dial != nil {
                     ActiveDialView(model: model)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
-                } else if !modeRowInBand {
-                    CarouselSlot(model: model)
+                }
+                if showsPanel {
+                    ModePanels(model: model, mode: mode, showsSecondary: dial == nil, isRecording: isRecording)
+                        // NIGHT's two kinds of shot are one mode on screen, so its panel changes in place.
+                        .id(mode.carouselMode)
                         .transition(.opacity)
                 }
+            }
+
+            // In every mode, at Apple's distance from the shutter, with the shutter chip on one side and the exposure
+            // chip on the other.
+            LensRow(model: model)
+                .disabled(isStacking)
+                .opacity(isStacking ? 0.35 : 1)
+
+            // Without a band for the mode row the carousel sits here, and an open dial takes its room.
+            if !isStacking, dial == nil, !modeRowInBand {
+                CarouselSlot(model: model)
+                    .transition(.opacity)
             }
 
             if modeRowInBand {
                 ShutterRow(model: model)
-                    .padding(.top, lensAboveShutter ? max(0, lensGap - 6) : 4)
+                    .padding(.top, max(0, lensGap - 6))
             } else {
                 BottomRow(model: model)
             }
         }
         .padding(.bottom, modeRowInBand ? 0 : 4)
         .frame(maxWidth: .infinity)
-        // VoiceOver's two-finger scrub closes an open dial from whichever control has the focus: the lens row and
-        // the brightness chip open dials too, and have no escape of their own.
+        // VoiceOver's two-finger scrub closes an open dial from whichever control has the focus: the lens row's
+        // chips open dials too, and have no escape of their own.
         .accessibilityElement(children: .contain)
         .accessibilityAction(.escape) {
             guard model.activeDial != nil else { return }
@@ -793,27 +766,14 @@ private struct ControlsZone: View {
         .animation(Theme.spring, value: dial)
         .animation(Theme.spring, value: mode)
         .animation(Theme.spring, value: isStacking)
-        .animation(Theme.spring, value: advanced)
-    }
-
-    /// The advanced interface keeps its manual strip under an open dial. The simple one has no strip: its LONG
-    /// panel is the scene picker, which makes room for a dial as NIGHT's panel does, and its VIDEO has no panel.
-    private static func hasPanel(mode: CaptureMode, dialOpen: Bool, advanced: Bool) -> Bool {
-        switch mode {
-        case .manual, .video: return advanced
-        case .long: return advanced || !dialOpen
-        case .night: return !dialOpen
-        case .photo: return false
-        }
     }
 }
 
-/// The controls each mode adds between the lens row and the shutter. The manual strip and the video panel are the
-/// advanced interface's; NightControls and LongExposureControls switch to their simple layout themselves.
+/// The controls each mode adds above the lens row. The manual chips sit directly over the lens buttons in every mode
+/// that has them, with the mode's own panel above; an open dial folds that panel away to keep the stack short.
 private struct ModePanels: View {
     let model: CameraModel
     let mode: CaptureMode
-    let advanced: Bool
     let showsSecondary: Bool
     let isRecording: Bool
 
@@ -821,32 +781,24 @@ private struct ModePanels: View {
         VStack(spacing: 6) {
             switch mode {
             case .manual:
-                if advanced {
-                    ManualControlStrip(model: model)
-                }
-            case .long:
-                // The simple interface picks a scene and its time; the values on the strip follow the scene.
-                if advanced {
-                    ManualControlStrip(model: model)
-                }
+                ManualControlStrip(model: model)
+            case .night, .long:
                 if showsSecondary {
-                    LongExposureControls(model: model)
+                    NightModePanel(model: model)
+                }
+                // A long exposure scene takes ISO, aperture, white balance and focus by hand. The night shot sets
+                // its own, so it has no chips to offer.
+                if mode == .long {
+                    ManualControlStrip(model: model)
                 }
             case .video:
-                // The simple interface films on automatic, with the format chip in the top bar.
-                if advanced {
-                    ManualControlStrip(model: model)
-                    if showsSecondary {
-                        // A format change mid-recording would reconfigure the session under the movie file.
-                        VideoControls(model: model)
-                            .disabled(isRecording)
-                            .opacity(isRecording ? 0.35 : 1)
-                    }
-                }
-            case .night:
                 if showsSecondary {
-                    NightControls(model: model)
+                    // A format change mid-recording would reconfigure the session under the movie file.
+                    VideoControls(model: model)
+                        .disabled(isRecording)
+                        .opacity(isRecording ? 0.35 : 1)
                 }
+                ManualControlStrip(model: model)
             case .photo:
                 EmptyView()
             }
@@ -925,7 +877,7 @@ private struct ShutterRow: View {
         let busy = model.activity.isBusy
         ZStack {
             HStack(spacing: 0) {
-                if model.macroAvailable, model.settings.mode == .photo {
+                if model.macroAvailable, model.settings.mode != .video {
                     ShutterSideButton(symbol: "camera.macro", isActive: model.isMacro,
                                       label: model.isMacro ? "Macro, on" : "Macro") {
                         model.toggleMacro()

@@ -1510,6 +1510,28 @@ final class CameraModel {
         updateSettings { $0.longExposure.apply(scene) }
     }
 
+    /// A pick from NIGHT's scene menu: the night shot (nil), or a long exposure scene. The two are different ways of
+    /// taking the shot, so the pick changes the mode underneath while the carousel stays on NIGHT.
+    func selectNightScene(_ scene: LongExposureScene?) {
+        guard !activity.isBusy else { return }
+        guard let scene else {
+            setMode(.night)
+            return
+        }
+        if settings.mode != .long { setMode(.long) }
+        // setMode refuses while photos are still being saved or an intervalometer runs.
+        guard settings.mode == .long else { return }
+        setLongExposureScene(scene)
+    }
+
+    /// Real, Blur or Trails. Picked while the night shot is on, it starts a long exposure of the person's own making,
+    /// which is what Custom means.
+    func selectNightBlend(_ blend: StackBlend) {
+        if settings.mode == .night { selectNightScene(.custom) }
+        guard settings.mode == .long else { return }
+        setLongExposureBlend(blend)
+    }
+
     /// The scene's recipe while LONG is on with a scene chosen; nil in other modes and for Custom.
     var sceneRecipe: LongExposureRecipe? {
         settings.mode == .long ? settings.longExposure.recipe : nil

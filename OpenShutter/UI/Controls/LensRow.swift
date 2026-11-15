@@ -1,8 +1,9 @@
 import SwiftUI
 import CameraCore
 
-// The row above the mode carousel: the lens buttons and, beside them, the brightness chip. In a file of its own so
-// the zoom work and the camera screen's layout don't share one file.
+// The row above the shutter: the lens buttons with the shutter chip on one side and the exposure chip on the other,
+// in the same place in every mode. In a file of its own so the zoom work and the camera screen's layout don't share
+// one file.
 
 struct LensRow: View {
     let model: CameraModel
@@ -11,25 +12,29 @@ struct LensRow: View {
     @State private var wheel = ZoomWheelModel()
 
     var body: some View {
-        let mode = model.settings.mode
-        // The advanced interface has the EV chip on the manual strip in the other modes. The simple one has no
-        // strip, so its brightness chip belongs here in every mode; it only shows while there is something to see.
-        let showsExposure = !model.isAdvanced || mode == .photo || mode == .night
-        // Left-handed brings the chip to the left of the lens buttons, where a left thumb reaches it.
-        let chipEdge: Edge.Set = AppearanceStore.shared.leftHanded ? .leading : .trailing
+        // Left-handed trades the two chips, which brings the exposure chip under a left thumb.
+        let leftHanded = AppearanceStore.shared.leftHanded
         let wheelOpen = wheel.isOpen
         ZStack {
             LensPickerSlot(model: model, wheel: wheel)
-            if showsExposure {
-                ExposureChip(model: model)
-                    .frame(maxWidth: .infinity, alignment: chipEdge == .leading ? .leading : .trailing)
-                    .padding(chipEdge, 14)
-                    // Out of the way of the wheel, whose touch surface spans the whole row while it is open.
-                    .opacity(wheelOpen ? 0 : 1)
-                    .allowsHitTesting(!wheelOpen)
-                    .accessibilityHidden(wheelOpen)
-                    .transition(.opacity)
+            HStack(spacing: 0) {
+                if leftHanded {
+                    ExposureChip(model: model)
+                } else {
+                    LensRowShutterChip(model: model)
+                }
+                Spacer(minLength: 0)
+                if leftHanded {
+                    LensRowShutterChip(model: model)
+                } else {
+                    ExposureChip(model: model)
+                }
             }
+            .padding(.horizontal, 10)
+            // Out of the way of the wheel, whose touch surface spans the whole row while it is open.
+            .opacity(wheelOpen ? 0 : 1)
+            .allowsHitTesting(!wheelOpen)
+            .accessibilityHidden(wheelOpen)
         }
         .frame(maxWidth: .infinity, minHeight: 44)
         // Over the row and the picture above it, never in the layout: the controls zone measures its height for
@@ -97,10 +102,8 @@ private struct LensPickerSlot: View {
     }
 }
 
-/// Exposure compensation for the modes without a manual strip. Tap opens the dial, touch and hold lists a few
-/// values and the way back to zero. The advanced interface shows it all the time. In the simple one, brightness is
-/// set on the viewfinder's sun, and the chip only shows while it is off zero or its dial is open, so an untouched
-/// camera has nothing here to set.
+/// Exposure compensation, beside the lens buttons in every mode. Tap opens the dial, touch and hold lists a few
+/// values and the way back to zero.
 private struct ExposureChip: View {
     let model: CameraModel
     @State private var press = PressTracker()
@@ -126,8 +129,10 @@ private struct ExposureChip: View {
                 }
                 .font(Theme.chipFont)
                 .foregroundStyle(isAdjusted || isOpen ? Theme.accent : Theme.primaryText)
-                .padding(.horizontal, 10)
-                .frame(height: 28)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 9)
+                .frame(height: 30)
                 .cameraGlass(in: Capsule())
                 .overlay {
                     if isOpen {
