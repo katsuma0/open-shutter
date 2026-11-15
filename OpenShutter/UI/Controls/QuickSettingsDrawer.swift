@@ -1,48 +1,37 @@
 import SwiftUI
 import CameraCore
 
-/// Glass panel under the top bar with the settings people change between shots. Tap an item to step through its
-/// values; touch and hold the ones with many values to pick directly. The simple interface keeps one row of four.
-/// Every item steps through QuickActions, as its button on the top bar does, so the two never disagree.
+/// Glass panel under the top bar with the settings people change between shots that the bar itself has no room for.
+/// The dots button beside the shutter opens it. Tap an item to step through its values; touch and hold the ones with
+/// many values to pick directly. The photo's shape, the grid and the level are in Settings: they are set once, not
+/// between shots.
 struct QuickSettingsDrawer: View {
     @Bindable var model: CameraModel
-    /// Set by the top bar's timer badge or Timer button to ask for the timer sheet, which is presented from here.
+    /// Set to show the timer sheet, which the camera screen presents.
     @Binding var timerSheetRequested: Bool
-    @State private var showsTimerSheet = false
     /// The timer cycle ends with "custom": after that sheet closes, the next tap wraps around to Off.
     @State private var timerCycleReachedCustom = false
 
     var body: some View {
-        let advanced = model.isAdvanced
         VStack(spacing: 10) {
             Grid(horizontalSpacing: 2, verticalSpacing: 12) {
-                if advanced {
-                    GridRow {
-                        aspectItem(advanced: true)
-                        timerItem(advanced: true)
-                        formatItem
-                        resolutionItem
-                    }
-                    GridRow {
-                        processingItem
-                        lockItem
-                        gridItem
-                        levelItem
-                    }
-                    GridRow {
-                        histogramItem
-                        zebraItem
-                        peakingItem
-                        falseColorItem
-                    }
-                } else {
-                    // What the simple interface leaves to choose between shots. Everything else runs on automatic.
-                    GridRow {
-                        aspectItem(advanced: false)
-                        timerItem(advanced: false)
-                        simpleGridItem
-                        levelItem
-                    }
+                GridRow {
+                    timerItem(advanced: true)
+                    formatItem
+                    rawItem
+                    resolutionItem
+                }
+                GridRow {
+                    processingItem
+                    lockItem
+                    silentItem
+                    batterySaverItem
+                }
+                GridRow {
+                    histogramItem
+                    zebraItem
+                    peakingItem
+                    falseColorItem
                 }
             }
             Capsule()
@@ -58,8 +47,6 @@ struct QuickSettingsDrawer: View {
         .fixedSize(horizontal: false, vertical: true)
         .cameraGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .padding(.horizontal, 8)
-        // Outside the glass, so the panel grows and shrinks with its rows when the interface level changes.
-        .animation(Theme.spring, value: advanced)
         // Swiping the panel back up closes it, the way it came.
         .gesture(
             DragGesture(minimumDistance: 12)
@@ -69,20 +56,8 @@ struct QuickSettingsDrawer: View {
                     }
                 }
         )
-        .sheet(isPresented: $showsTimerSheet) {
-            TimerControls(model: model)
-        }
-        // The camera screen hands the volume buttons back to the system while a sheet covers the viewfinder.
-        .preference(key: QuickSettingsSheetKey.self, value: showsTimerSheet)
         .onChange(of: model.settings.capture.schedule) { _, _ in
             timerCycleReachedCustom = false
-        }
-        // Initial covers a request that opened the drawer: it arrives before this view exists.
-        .onChange(of: timerSheetRequested, initial: true) { _, requested in
-            guard requested else { return }
-            timerSheetRequested = false
-            // The sheet holds the intervalometer and the brackets, which the simple interface doesn't have.
-            if advanced { showsTimerSheet = true }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Quick settings")
@@ -94,47 +69,6 @@ struct QuickSettingsDrawer: View {
     }
 
     // MARK: - Capture
-
-    /// The advanced interface offers every preset and the way to a ratio entered in Settings.
-    private func aspectItem(advanced: Bool) -> some View {
-        let aspect = model.settings.capture.aspect
-        let presets = QuickActions.aspects(advanced: advanced)
-        let selection = Binding<AspectRatio>(
-            get: { QuickActions.aspectSelection(aspect, among: presets) },
-            set: { value in QuickActions.setAspect(value, model) }
-        )
-        let isPreset = presets.contains(where: { $0.matches(aspect) })
-        // Video frames are always 16:9; the crop only applies to stills.
-        return DrawerMenuItem(model: model, title: "Aspect", value: aspect.label,
-                              isActive: QuickActions.aspectIsActive(aspect),
-                              isEnabled: model.settings.mode != .video,
-                              primaryAction: { QuickActions.stepAspect(model) }) {
-            Picker("Aspect", selection: selection) {
-                ForEach(presets) { preset in
-                    Text(preset.label).tag(preset)
-                }
-                // A ratio entered in Settings gets its own row, so the menu shows which one is in use.
-                if !isPreset {
-                    Text(aspect.label).tag(aspect)
-                }
-            }
-            .pickerStyle(.inline)
-            if advanced {
-                Button {
-                    // Settings holds the side fields; the drawer stays open underneath and shows the new ratio after.
-                    model.isSettingsPresented = true
-                } label: {
-                    Label("Custom\u{2026}", systemImage: "slider.horizontal.3")
-                }
-            }
-        } glyph: {
-            Text(aspect.label)
-                .font(.system(size: 11 * Theme.labelScale, weight: .bold).monospacedDigit())
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .padding(.horizontal, 4)
-        }
-    }
 
     /// The advanced interface ends the tap cycle and the menu with the timer sheet.
     private func timerItem(advanced: Bool) -> some View {
@@ -157,7 +91,7 @@ struct QuickSettingsDrawer: View {
             .pickerStyle(.inline)
             if advanced {
                 Button {
-                    showsTimerSheet = true
+                    timerSheetRequested = true
                 } label: {
                     Label("Custom", systemImage: "slider.horizontal.3")
                 }
@@ -178,7 +112,7 @@ struct QuickSettingsDrawer: View {
         case .sheet:
             timerCycleReachedCustom = true
             Haptics.tap()
-            showsTimerSheet = true
+            timerSheetRequested = true
         }
     }
 
@@ -218,6 +152,44 @@ struct QuickSettingsDrawer: View {
         }
     }
 
+    private var rawItem: some View {
+        let raw = model.settings.capture.rawFormat
+        let mode = model.settings.mode
+        let choices = QuickActions.rawChoices(model.capabilities)
+        let applies = mode == .photo || mode == .manual
+        let isOn = raw != RawFormat.none
+        // A MANUAL shutter past the hardware limit is shot as a stack, which writes HEIF or JPEG only.
+        let stacked = mode == .manual && model.shutterIsStacked
+        // The photo output leaves Bayer RAW out of zoomed shots, macro's among them. Still a button, so RAW can be
+        // turned off.
+        let zoomed = applies && !stacked && isOn && model.rawBlockedByZoom
+        var value = raw.title
+        var hint: String? = nil
+        if stacked {
+            value = "Not in stacks"
+            hint = "Stacked exposures are saved without RAW."
+        } else if zoomed, model.isMacro {
+            // Macro keeps the 1x button lit, so "this zoom" would point at a lens that isn't the one running.
+            value = "Not in macro"
+            hint = "Macro photos are saved without RAW."
+        } else if zoomed {
+            value = "Not at this zoom"
+            hint = "RAW needs a lens at its own zoom, such as 1\u{00D7}. Zoomed photos are saved without it."
+        }
+        return DrawerButtonItem(model: model, title: "RAW", value: value,
+                                isActive: isOn && !stacked && !zoomed,
+                                isEnabled: applies && !stacked && choices.count > 1,
+                                hint: hint) {
+            QuickActions.stepRaw(model)
+        } glyph: {
+            Text("RAW")
+                .font(.system(size: 10 * Theme.labelScale, weight: .heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .padding(.horizontal, 3)
+        }
+    }
+
     // MARK: - Exposure
 
     private var processingItem: some View {
@@ -254,45 +226,33 @@ struct QuickSettingsDrawer: View {
         }
     }
 
+    private var silentItem: some View {
+        let isOn = model.settings.capture.silentShutter
+        let mode = model.settings.mode
+        // The system keeps the sound where the law asks for it, so the item only works where the camera allows it.
+        let supported = model.capabilities.shutterSoundSuppressionSupported
+        // Settings calls it Silent shutter. The column has room for the first word; VoiceOver says both.
+        return DrawerButtonItem(model: model, title: "Silent", spokenTitle: "Silent shutter",
+                                value: isOn ? "On" : "Off", isActive: isOn && supported,
+                                isEnabled: supported && (mode == .photo || mode == .manual),
+                                hint: supported ? nil : "This camera always plays the shutter sound.") {
+            QuickActions.toggle(\.capture.silentShutter, model)
+        } glyph: {
+            Image(systemName: isOn ? "speaker.slash.fill" : "speaker.wave.2.fill")
+        }
+    }
+
+    private var batterySaverItem: some View {
+        let isOn = model.settings.display.dimDuringLongShots
+        return DrawerButtonItem(model: model, title: "Battery saver", value: isOn ? "On" : "Off", isActive: isOn,
+                                hint: "Darkens the screen during long shots.") {
+            QuickActions.toggle(\.display.dimDuringLongShots, model)
+        } glyph: {
+            Image(systemName: "battery.75percent")
+        }
+    }
+
     // MARK: - Viewfinder
-
-    private var gridItem: some View {
-        let grid = model.settings.display.grid
-        let selection = Binding<GridStyle>(
-            get: { grid },
-            set: { value in QuickActions.set(\.display.grid, to: value, model) }
-        )
-        return DrawerMenuItem(model: model, title: "Grid", value: grid.title, isActive: grid != .off,
-                              primaryAction: { QuickActions.stepGrid(model) }) {
-            Picker("Grid", selection: selection) {
-                ForEach(GridStyle.allCases) { style in
-                    Text(style.title).tag(style)
-                }
-            }
-            .pickerStyle(.inline)
-        } glyph: {
-            Image(systemName: "square.grid.3x3")
-        }
-    }
-
-    /// The simple interface's grid is the rule of thirds or nothing.
-    private var simpleGridItem: some View {
-        let isOn = model.settings.display.grid != .off
-        return DrawerButtonItem(model: model, title: "Grid", value: isOn ? "On" : "Off", isActive: isOn) {
-            QuickActions.stepGrid(model)
-        } glyph: {
-            Image(systemName: "square.grid.3x3")
-        }
-    }
-
-    private var levelItem: some View {
-        let isOn = model.settings.display.showLevel
-        return DrawerButtonItem(model: model, title: "Level", value: isOn ? "On" : "Off", isActive: isOn) {
-            QuickActions.toggle(\.display.showLevel, model)
-        } glyph: {
-            Image(systemName: "level")
-        }
-    }
 
     private var histogramItem: some View {
         let style = model.settings.display.histogram
@@ -343,22 +303,14 @@ struct QuickSettingsDrawer: View {
     }
 }
 
-/// True while the drawer's timer sheet is up. Internal rather than private because the camera screen reads it:
-/// the sheet covers the viewfinder, so the screen gives the volume buttons back to the system meanwhile.
-struct QuickSettingsSheetKey: PreferenceKey {
-    static let defaultValue = false
-
-    static func reduce(value: inout Bool, nextValue: () -> Bool) {
-        value = value || nextValue()
-    }
-}
-
 // MARK: - Items
 
 /// A drawer item that does one thing on tap.
 private struct DrawerButtonItem<Glyph: View>: View {
     let model: CameraModel
     let title: String
+    /// What VoiceOver calls the item, where the title under the glyph is a shorter word.
+    var spokenTitle: String? = nil
     let value: String
     var isActive = false
     var isEnabled = true
@@ -373,7 +325,7 @@ private struct DrawerButtonItem<Glyph: View>: View {
         .buttonStyle(DrawerPressStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.35)
-        .accessibilityLabel(title)
+        .accessibilityLabel(spokenTitle ?? title)
         .accessibilityValue(value)
         .accessibilityHint(hint ?? "")
     }

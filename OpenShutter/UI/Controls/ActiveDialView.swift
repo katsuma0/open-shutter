@@ -1,7 +1,7 @@
 import SwiftUI
 import CameraCore
 
-/// The dial for `model.activeDial`, with its header and presets. It sits where the mode carousel was, so it
+/// The dial for `model.activeDial`, with its header and presets. It opens at the top of the controls stack and
 /// carries its own ways back: Done in the header, a swipe down, and VoiceOver's escape gesture.
 struct ActiveDialView: View {
     @Bindable var model: CameraModel
@@ -355,7 +355,9 @@ private enum DialValues {
     /// What the dial is called, on screen and to VoiceOver. The simple interface knows exposure compensation as
     /// brightness.
     static func name(_ kind: DialKind, model: CameraModel) -> String {
-        kind == .bias && !model.isAdvanced ? "Brightness" : kind.title
+        // In NIGHT the shutter dial is how long the shot runs.
+        if kind == .shutter, model.settings.mode.usesStacking { return "Duration" }
+        return kind == .bias && !model.isAdvanced ? "Brightness" : kind.title
     }
 
     /// Done, a swipe down and VoiceOver's escape gesture all end here.
@@ -387,8 +389,13 @@ private enum DialValues {
     static func current(_ kind: DialKind, model: CameraModel) -> Double {
         switch kind {
         case .shutter:
-            // LONG's shutter dial sets the total duration, whatever the per-frame exposure is doing.
-            return model.settings.mode == .long ? model.settings.longExposure.seconds : shownShutter(model)
+            // In NIGHT the shutter dial sets how long the whole shot runs, whatever each frame's exposure is doing:
+            // the night shot's time (the camera's own while it is automatic), or the long exposure's.
+            switch model.settings.mode {
+            case .night: return model.settings.night.seconds ?? model.nightAutoSeconds
+            case .long: return model.settings.longExposure.seconds
+            case .photo, .manual, .video: return shownShutter(model)
+            }
         case .iso: return model.displayISO
         case .aperture: return model.displayAperture
         case .bias: return bias(model)
@@ -402,7 +409,12 @@ private enum DialValues {
     static func apply(_ kind: DialKind, value: Double, model: CameraModel) {
         guard value.isFinite else { return }
         switch kind {
-        case .shutter: model.setShutter(value)
+        case .shutter:
+            if model.settings.mode == .night {
+                model.setNightSeconds(value)
+            } else {
+                model.setShutter(value)
+            }
         case .iso: model.setISO(value)
         case .aperture: model.setAperture(value)
         case .bias: model.setBias(value)
@@ -415,7 +427,12 @@ private enum DialValues {
 
     static func setAuto(_ kind: DialKind, model: CameraModel) {
         switch kind {
-        case .shutter: model.setShutter(nil)
+        case .shutter:
+            if model.settings.mode == .night {
+                model.setNightSeconds(nil)
+            } else {
+                model.setShutter(nil)
+            }
         case .iso: model.setISO(nil)
         case .aperture: model.setAperture(nil)
         case .bias: model.setBias(0)
@@ -430,6 +447,12 @@ private enum DialValues {
         let caps = model.capabilities
         switch kind {
         case .shutter:
+            if settings.mode == .night {
+                let manual = settings.night.seconds
+                // The header's A badge and lit AUTO button already say auto, so the value is the bare duration.
+                return Readout(title: "Duration", value: Formatting.compactDuration(manual ?? model.nightAutoSeconds),
+                               isAuto: manual == nil, offersAuto: true, isStacked: false)
+            }
             if settings.mode == .long {
                 let long = settings.longExposure
                 let value = long.bulb ? "Bulb" : ShutterSpeed(seconds: long.seconds).label
@@ -698,7 +721,8 @@ private enum DialScales {
 
     static func build(_ kind: DialKind, model: CameraModel) -> DialScale {
         switch kind {
-        case .shutter: return shutter(model.shutterScale.map(\.seconds))
+        case .shutter:
+            return model.settings.mode == .night ? nightDuration() : shutter(model.shutterScale.map(\.seconds))
         case .iso: return iso(model.isoScale)
         case .aperture: return aperture(model.apertureScale)
         case .bias: return bias(model.biasScale)
@@ -720,6 +744,31 @@ private enum DialScales {
         // Ticks read "250" like a camera's dial; VoiceOver gets the full "1/250".
         let spoken = values.map { ShutterSpeed(seconds: $0).label }
         return DialScale(values: values, spoken: spoken, candidates: candidates, spacing: 13, metric: .logarithmic)
+    }
+
+    /// A night shot's length: half seconds where they matter (under 10 s), whole seconds above, over the planner's 1
+    /// to 30 s.
+    private static func nightDuration() -> DialScale {
+        let range = NightModePlanner.secondsRange
+        var values: [Double] = []
+        var halves = Int((range.lowerBound * 2).rounded(.up))
+        while Double(halves) / 2 < min(10, range.upperBound) {
+            values.append(Double(halves) / 2)
+            halves += 1
+        }
+        var whole = Int(max(10, range.lowerBound).rounded(.up))
+        while Double(whole) <= range.upperBound {
+            values.append(Double(whole))
+            whole += 1
+        }
+        let labelled: Set<Double> = [1, 3, 5, 7, 10, 15, 20, 25, 30]
+        var candidates: [LabelCandidate] = []
+        for (index, seconds) in values.enumerated() where labelled.contains(seconds) {
+            let isEnd = index == 0 || index == values.count - 1
+            candidates.append(LabelCandidate(index: index, text: Formatting.compactDuration(seconds), priority: isEnd ? 2 : 1))
+        }
+        let spoken = values.map { Formatting.compactDuration($0) }
+        return DialScale(values: values, spoken: spoken, candidates: candidates, spacing: 12, metric: .linear)
     }
 
     private static func iso(_ values: [Double]) -> DialScale {

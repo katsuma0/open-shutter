@@ -1,7 +1,8 @@
 import SwiftUI
 import CameraCore
 
-/// What the volume buttons do in the camera, and how the controls feel, at both levels.
+/// What the volume buttons do in the camera, and how the controls feel. Linked from Look and controls, whether
+/// Advanced settings is on or off.
 struct ButtonsAndHapticsView: View {
     let model: CameraModel
 
@@ -11,7 +12,6 @@ struct ButtonsAndHapticsView: View {
 
     var body: some View {
         let controls = model.settings.controls
-        let advanced = model.isAdvanced
         let hasCameraControl = model.capabilities.supportsCameraControls
 
         Form {
@@ -33,9 +33,7 @@ struct ButtonsAndHapticsView: View {
             } footer: {
                 SettingsFooter([
                     hasCameraControl ? Self.cameraControlNote : nil,
-                    advanced
-                        ? "During a countdown, a night or long exposure shot, an intervalometer or a bracket, either button stops it, whatever it is set to."
-                        : "During a countdown or a night or long exposure shot, either button stops it, whatever it is set to.",
+                    "During a countdown, a night or long exposure shot, an intervalometer or a bracket, either button stops it, whatever it is set to.",
                     "Holding Zoom in, Zoom out, Brighter or Darker keeps going until you let go.",
                 ])
             }

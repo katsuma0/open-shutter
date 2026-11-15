@@ -1,8 +1,8 @@
 import SwiftUI
 import CameraCore
 
-/// Small options that make the camera easier to see, reach and follow, at both levels. iOS's own Bold Text, Reduce
-/// Transparency, Increase Contrast and VoiceOver apply without them.
+/// Small options that make the camera easier to see, reach and follow. iOS's own Bold Text, Reduce Transparency,
+/// Increase Contrast and VoiceOver apply without them.
 struct AccessibilitySettingsView: View {
     let model: CameraModel
 
@@ -26,7 +26,7 @@ struct AccessibilitySettingsView: View {
                 Toggle("Reduce motion", isOn: model.settingBinding(\.accessibility.reduceMotion))
             } footer: {
                 SettingsFooter([
-                    "Keeps icons still when the phone turns and fades panels instead of sliding them.",
+                    "Fades panels instead of sliding them, and stops the dials and the zoom from gliding.",
                     systemReducesMotion ? "Reduce Motion is on in iOS, so the camera moves less already." : nil,
                 ])
             }
@@ -34,7 +34,7 @@ struct AccessibilitySettingsView: View {
             Section {
                 Toggle("Left-handed", isOn: model.settingBinding(\.accessibility.leftHanded))
             } footer: {
-                Text("Puts the button that flips to the front camera on the left and your photos on the right, and the brightness control left of the zoom buttons.")
+                Text("Puts the button that flips to the front camera on the left and your photos on the right, and exposure compensation left of the zoom buttons.")
             }
 
             Section {

@@ -142,7 +142,12 @@ final class CameraModel {
     @ObservationIgnored private var photoGeneration = 0
     /// The newest photo frees the shutter as soon as it is exposed (cameraBackendWillCapture).
     @ObservationIgnored private var releasesAtExposure = false
-    @ObservationIgnored private var rawNoticeShown = false
+    /// Which reason the run of zoomed photos was last told: macro (true) or the zoom. nil once a photo kept its RAW.
+    @ObservationIgnored private var rawNoticeForMacro: Bool?
+    /// The newest mode change came from a manual value picked on screen in PHOTO or NIGHT (switchToManual: a dial or
+    /// a chip's menu), not from the carousel or the Camera Control. The camera screen skips its veil for the one a
+    /// dial is still being turned on.
+    @ObservationIgnored private(set) var modeChangeLedByPick = false
     /// A value picked on the Camera Control is already on show in its overlay, so it isn't reinstalled for it.
     @ObservationIgnored private var applyingControlChange = false
     /// NIGHT's metered light and bias when AE was locked, so recomposing doesn't change the plan.
@@ -192,6 +197,8 @@ final class CameraModel {
     private(set) var isWaitingForSteady = false
     /// How far the phone turned since a NIGHT or LONG shot began, for the crosshairs.
     let drift = DriftState()
+    /// How much the phone is moving right now, for the steady pill's meter.
+    let motionPulse = MotionPulse()
     /// The battery saver's dimming.
     let dimmer = ScreenDimmer()
     /// Every photo and video taken with the app, for the gallery.
@@ -616,23 +623,23 @@ final class CameraModel {
         self.motionMonitor = motionMonitor ?? MotionMonitor()
         self.locationProvider = locationProvider ?? LocationProvider()
         self.library = library ?? CaptureLibrary()
-        // What the startup options don't keep goes back to where a fresh install starts, before anything is
-        // simplified or applied from it.
-        let loaded = store.load().applyingStartupOptions()
-        if loaded.interface.advanced || !loaded.interface.welcomed {
-            // Until the first-launch question is answered nothing is simplified, so settings from a version before
-            // it come through "Advanced" exactly as they were (finishWelcome).
-            self.settings = loaded
-        } else {
-            let simple = loaded.simplified()
-            // Anything a later version starts to hide from the simple interface is kept as the snapshot, unless
-            // one from the last switch is already there.
-            if simple != loaded, store.loadAdvancedSnapshot() == nil {
-                store.saveAdvancedSnapshot(loaded)
-            }
-            self.settings = simple
+        var stored = store.load()
+        // The camera shows every control now, and Settings has the switch for how much it lists. A save from the
+        // earlier simple interface gets back what that interface had put aside, once. Written back before the
+        // snapshot goes: a launch that changes no setting would otherwise leave the simple save on disk with nothing
+        // left to restore it from.
+        if !stored.interface.advanced, stored.interface.welcomed {
+            stored = stored.restoringAdvanced(from: store.loadAdvancedSnapshot())
+            store.save(stored)
+            store.clearAdvancedSnapshot()
         }
-        // The first-launch question comes before start(), and its buttons click too.
+        // What the startup options don't keep goes back to where a fresh install starts, after the restore, so a
+        // MANUAL it brings back doesn't open a camera that is set to start in PHOTO.
+        var loaded = stored.applyingStartupOptions()
+        loaded.interface.advanced = true
+        loaded.interface.welcomed = true
+        self.settings = loaded
+        lastNightFamilyMode = loaded.mode == .long ? .long : .night
         mirrorHaptics()
         mirrorLook()
         dimmer.onChange = { [weak self] _ in self?.dimmingDidChange() }
@@ -640,11 +647,10 @@ final class CameraModel {
 
     // MARK: - Lifecycle
 
-    /// Checks permission, starts the backend with the saved settings, starts motion and location. Waits for the
-    /// first-launch question, so the camera permission prompt doesn't land on top of it, and for the app to be in
-    /// front (sceneDidBecomeActive calls again).
+    /// Checks permission, starts the backend with the saved settings, starts motion and location. Waits for the app
+    /// to be in front (sceneDidBecomeActive calls again).
     func start() async {
-        guard !hasStarted, !needsWelcome, !inBackground else { return }
+        guard !hasStarted, !inBackground else { return }
         hasStarted = true
         backend.delegate = self
         mirrorHaptics()
@@ -658,6 +664,9 @@ final class CameraModel {
         }
         motionMonitor.onDriftChange = { [weak self] in
             self?.refreshSteadyStatus()
+        }
+        motionMonitor.onPulse = { [weak self] level in
+            self?.motionPulse.set(level)
         }
 
         authorization = backend.authorizationStatus()
@@ -685,10 +694,8 @@ final class CameraModel {
     func sceneDidBecomeActive() {
         inBackground = false
         guard hasStarted else {
-            // A start put off while the app was away: the first-launch answer can arrive on the way out.
-            if !needsWelcome {
-                Task { await start() }
-            }
+            // A start put off while the app was away.
+            Task { await start() }
             return
         }
         // Keeps Auto-Lock in step with a stack that went on while the app was away.
@@ -837,6 +844,16 @@ final class CameraModel {
         if lenses != self.lenses { self.lenses = lenses }
         let presets = backend.lensPresets
         if presets != lensPresets { lensPresets = presets }
+        // A camera left in macro opens in macro: the saved lens and zoom say so once the lenses are known. Not in
+        // VIDEO, where macro never follows (setMode) and the same lens and zoom were reached by hand.
+        if !macroRestored, !lenses.isEmpty {
+            macroRestored = true
+            if settings.mode != .video,
+               let lens = lenses.first(where: { $0.id == settings.lensID }), lens.kind == .ultraWide,
+               abs(settings.zoom * lens.relativeZoom - 1) < 0.02 {
+                isMacro = true
+            }
+        }
         updateActivePreset()
     }
 
@@ -854,84 +871,48 @@ final class CameraModel {
 
     // MARK: - Simple and advanced
 
-    /// MANUAL mode and the detailed controls are showing. Off, the camera runs on auto and the screen keeps to the
-    /// basics.
+    /// The camera shows MANUAL mode and every control. Always true since the simple interface went: init sets it
+    /// for every saved state. Kept because the places that once asked still read better with the question in them.
     var isAdvanced: Bool { settings.interface.advanced }
 
-    /// The first-launch question (simple or advanced) is still open. The camera starts once it is answered.
-    var needsWelcome: Bool { !settings.interface.welcomed }
+    /// Settings lists every option, in groups. Off keeps the page to the ones most people change. Nothing about
+    /// the camera follows it.
+    var showsAdvancedSettings: Bool { settings.interface.advancedSettings }
 
-    /// Modes in the carousel, left to right.
-    var availableModes: [CaptureMode] { CaptureMode.carouselOrder(advanced: isAdvanced) }
-
-    /// Answers the first-launch question and starts the camera. "Advanced" keeps every setting an earlier version
-    /// saved as it was; "Simple" keeps them as the snapshot the advanced switch brings back.
-    func finishWelcome(advanced: Bool) {
-        guard needsWelcome else { return }
-        var answered = settings
-        answered.interface.welcomed = true
-        answered.interface.advanced = advanced
-        if !advanced {
-            let simple = answered.simplified()
-            if simple != answered {
-                store.saveAdvancedSnapshot(settings)
-            }
-            answered = simple
-        }
-        // No camera is running yet to re-apply anything to: start() sends it everything.
-        settings = answered
-        // Saved at once, so quitting right after the answer doesn't bring the question back.
-        saveNow()
-        Task { await start() }
+    func setAdvancedSettings(_ on: Bool) {
+        guard on != showsAdvancedSettings else { return }
+        var next = settings
+        next.interface.advancedSettings = on
+        commit(next)
     }
 
-    /// Switches between the simple and the advanced interface. Going simple puts everything only the advanced
-    /// one shows back on automatic, after saving it; going advanced brings those settings back.
-    func setAdvanced(_ advanced: Bool) {
-        guard advanced != isAdvanced else { return }
-        guard canChangeInterface else {
-            let waitsForSave = !activity.isBusy && intervalometer == nil
-            showToast(waitsForSave ? "Wait for the last photo to save." : "Finish the shot first.",
-                      symbol: "exclamationmark.triangle")
-            return
-        }
-        // Nothing stays open or held that the other level has no control for: a lock, a dial, a gray card
-        // measurement still on its way.
-        releaseLock()
-        activeDial = nil
-        let grayCardPending = adoptNextWhiteBalanceReading
-        adoptNextWhiteBalanceReading = false
-        if advanced {
-            commit(settings.restoringAdvanced(from: store.loadAdvancedSnapshot()))
-        } else {
-            store.saveAdvancedSnapshot(settings)
-            commit(settings.simplified())
-        }
-        // The camera is still held on the gray card measurement, which no setting stands for any more.
-        if grayCardPending {
-            scheduleApply(.whiteBalance)
-        }
-    }
+    /// Modes in the carousel, left to right. NIGHT stands for the night shot and the long exposure scenes.
+    var availableModes: [CaptureMode] { CaptureMode.carouselOrder }
 
-    /// The level changes only between shots, like the mode: a capture keeps the settings it started with. The
-    /// switches that call setAdvanced gray out on this.
-    var canChangeInterface: Bool { canChangeMode }
+    /// Which of the two NIGHT holds was in use last, so the carousel's NIGHT comes back to it.
+    @ObservationIgnored private var lastNightFamilyMode: CaptureMode = .night
 
-    /// Drops the settings kept for the advanced interface while the simple one is on. "Reset all settings" calls
-    /// it, or the advanced switch would bring back what the reset was meant to clear.
-    func forgetAdvancedSettings() {
-        store.clearAdvancedSnapshot()
+    /// The carousel's pick. NIGHT opens the night shot or the long exposure scene used there last.
+    func selectCarouselMode(_ mode: CaptureMode) {
+        setMode(mode == .night ? lastNightFamilyMode : mode)
     }
 
     // MARK: - Mode and lens
 
     func setMode(_ mode: CaptureMode) {
         // The carousel and the Camera Control play their own clicks.
-        guard mode != settings.mode, canChangeMode, availableModes.contains(mode) else { return }
+        guard mode != settings.mode, canChangeMode, availableModes.contains(mode.carouselMode) else { return }
         releaseLock()
         if let dial = activeDial, !dialAvailable(dial, in: mode) {
             activeDial = nil
         }
+        if mode.usesStacking { lastNightFamilyMode = mode }
+        // VIDEO has no macro button to show macro or to end it, so macro stays behind: the main camera's 1x, the
+        // button that was lit, is the lens VIDEO opens on.
+        if mode == .video, isMacro, let id = macroButtonID, let wide = backLensPresets.first(where: { $0.id == id }) {
+            select(wide, haptic: false)
+        }
+        modeChangeLedByPick = false
         updateSettings { $0.mode = mode }
     }
 
@@ -942,14 +923,33 @@ final class CameraModel {
         !activity.isBusy && intervalometer == nil && photosInFlight == 0
     }
 
+    /// Says why a pick that leads to another mode did nothing (canChangeMode). The controls that send such picks stay
+    /// live while the mode can't change: PHOTO's shutter dial while a photo saves, NIGHT's scene menu and row of four
+    /// between an intervalometer's shots. A dial sends a tick many times a second, and every toast slides in anew and
+    /// is read out by VoiceOver, so one that already says this stays up as it is, with its time started over.
+    private func noteModeChangeRefused() {
+        let message = activity.isBusy || intervalometer != nil
+            ? "Finish the shot first." : "Wait for the last photo to save."
+        if let shown = toast, shown.message == message {
+            expireToast(shown)
+            return
+        }
+        showToast(message, symbol: "exclamationmark.triangle")
+    }
+
     /// Picking a manual value in PHOTO or NIGHT is a request for manual control, the way a camera's mode dial
     /// works. It goes by setMode's rules, and a lock set in the old mode goes with it. A focus or white balance pick
     /// says nothing about exposure, so keepingAutoExposure leaves MANUAL's saved shutter, ISO and aperture behind
     /// instead of bringing them back into the shot.
     private func switchToManual(keepingAutoExposure: Bool = false, _ change: (inout CameraSettings) -> Void) {
         // The simple interface has no MANUAL to land in.
-        guard isAdvanced, canChangeMode else { return }
+        guard isAdvanced else { return }
+        guard canChangeMode else {
+            noteModeChangeRefused()
+            return
+        }
         releaseLock()
+        modeChangeLedByPick = !applyingControlChange
         updateSettings { settings in
             settings.mode = .manual
             if keepingAutoExposure {
@@ -969,7 +969,13 @@ final class CameraModel {
     /// a wider one it swaps at the framing in view and zooms the new lens out. Only the swap is veiled
     /// (isSwitchingLensVisibly). The selfie camera and Reduce Motion keep the cut.
     func select(_ preset: LensPreset, haptic: Bool = true) {
-        select(preset, haptic: haptic, replaying: false)
+        // Any lens button leaves macro, the 1x button too: lit for macro, a tap on it brings the main camera back.
+        // That tap is not the second tap on a button a glide is heading to, so it goes through like a replay.
+        // A shot in progress keeps its lens, and macro with it.
+        guard !activity.isBusy else { return }
+        let leavingMacro = isMacro
+        if leavingMacro { isMacro = false }
+        select(preset, haptic: haptic, replaying: leavingMacro)
     }
 
     /// replaying: a choice that waited for a swap or a shot (applyPendingLensChange). Its button and target can still
@@ -1013,7 +1019,8 @@ final class CameraModel {
         let from = requestedDisplayZoom
         let framing = zoomTarget == nil ? from : readings.displayZoom
         let to = preset.displayZoom
-        activePresetID = preset.id
+        // Macro is 1x taken with the ultra wide camera, so the 1x button keeps the light.
+        activePresetID = isMacro ? (macroButtonID ?? preset.id) : preset.id
         settings.lensID = preset.lensID
         settings.zoom = preset.zoomFactor
         requestedDisplayZoom = to
@@ -1091,6 +1098,8 @@ final class CameraModel {
     /// chooses strictly.
     func setDisplayZoom(_ zoom: Double, animated: Bool, continuing: Bool = false) {
         guard zoom.isFinite, zoom > 0 else { return }
+        // A zoom by hand goes on from the macro framing as plain zoom.
+        if isMacro { isMacro = false }
         lastZoomCommand = Date()
         let generation = nextZoomGeneration()
         let from = requestedDisplayZoom
@@ -1544,6 +1553,42 @@ final class CameraModel {
         updateSettings { $0.longExposure.apply(scene) }
     }
 
+    /// A pick from NIGHT's scene menu: the night shot (nil), or a long exposure scene. The two are different ways of
+    /// taking the shot, so the pick changes the mode underneath while the carousel stays on NIGHT.
+    func selectNightScene(_ scene: LongExposureScene?) {
+        guard !activity.isBusy else { return }
+        let mode: CaptureMode = scene == nil ? .night : .long
+        if settings.mode != mode { setMode(mode) }
+        // setMode refuses while photos are still being saved or an intervalometer runs.
+        guard settings.mode == mode else {
+            noteModeChangeRefused()
+            return
+        }
+        if let scene { setLongExposureScene(scene) }
+    }
+
+    /// Real, Blur or Trails. Picked while the night shot is on, it starts a long exposure of the person's own making,
+    /// which is what Custom means.
+    func selectNightBlend(_ blend: StackBlend) {
+        if settings.mode == .night {
+            guard !activity.isBusy else { return }
+            setMode(.long)
+            // setMode refuses while photos are still being saved or an intervalometer runs.
+            guard settings.mode == .long else {
+                noteModeChangeRefused()
+                return
+            }
+            // The blend goes in while the scene used last is still on, so commit gives it the alignment that
+            // suits it on the way to Custom (the setter does, where that scene was Custom already). A blend that
+            // is the scene's own changes nothing there, and the scene turns into Custom with its values.
+            setLongExposureBlend(blend)
+            setLongExposureScene(.custom)
+            return
+        }
+        guard settings.mode == .long else { return }
+        setLongExposureBlend(blend)
+    }
+
     /// The scene's recipe while LONG is on with a scene chosen; nil in other modes and for Custom.
     var sceneRecipe: LongExposureRecipe? {
         settings.mode == .long ? settings.longExposure.recipe : nil
@@ -1554,7 +1599,15 @@ final class CameraModel {
     // settings go back to the scene's own whatever is written.
 
     func setLongExposureBlend(_ blend: StackBlend) {
-        updateSettings { $0.longExposure.blend = blend }
+        updateSettings {
+            // Custom has no recipe for commit to compare with. Alignment still where its blend put it (on for Blur,
+            // off for Real and Trails) was not set by hand, so it follows the new blend, as on the way out of a scene.
+            if $0.longExposure.scene == .custom, $0.longExposure.blend != blend,
+               $0.longExposure.align == ($0.longExposure.blend == .average) {
+                $0.longExposure.align = blend == .average
+            }
+            $0.longExposure.blend = blend
+        }
     }
 
     /// Shutter for each Blur or Trails frame; nil leaves it to auto exposure.
@@ -1889,22 +1942,31 @@ final class CameraModel {
         let request = makePhotoRequest(bracket: bracket, position: position)
         // Read before the shot, since the zoom can change while it is processed.
         let rawNeedsOneX = rawBlockedByZoom
+        let inMacro = isMacro
         do {
             let results = try await backend.capturePhoto(request)
             handle(results)
-            if rawNeedsOneX { noteRawLeftOut(request, results: results) }
+            if rawNeedsOneX {
+                noteRawLeftOut(request, results: results, inMacro: inMacro)
+            } else {
+                // A photo that could keep its RAW ends the run, so the next zoomed one is told again.
+                rawNoticeForMacro = nil
+            }
         } catch {
             report(error)
         }
     }
 
-    /// AVFoundation leaves Bayer RAW out of zoomed shots, so only the processed photo is saved. The RAW chip shows
-    /// it as well, so this is said once.
-    private func noteRawLeftOut(_ request: PhotoRequest, results: [CaptureResult]) {
-        guard !rawNoticeShown, !results.isEmpty, results.allSatisfy({ $0.kind == .photo && $0.savedToLibrary }) else { return }
-        rawNoticeShown = true
+    /// AVFoundation leaves Bayer RAW out of zoomed shots, so only the processed photo is saved. Said once for each
+    /// run of zoomed photos and for each reason: RAW in the quick settings shows it too, but that panel is closed
+    /// while shooting. Not worded as "needs 1x": macro is a crop with the 1x button lit, and the 8x button only needs
+    /// 4x. Worded about the photo, since the zoom may have changed by the time it is saved.
+    private func noteRawLeftOut(_ request: PhotoRequest, results: [CaptureResult], inMacro: Bool) {
+        guard rawNoticeForMacro != inMacro, !results.isEmpty, results.allSatisfy({ $0.kind == .photo && $0.savedToLibrary }) else { return }
+        rawNoticeForMacro = inMacro
         let saved = request.processedFormat == .jpeg ? "JPEG" : "HEIF"
-        showToast("RAW needs the lens at 1\u{00D7}. Saved \(saved) only.", symbol: "exclamationmark.triangle")
+        let reason = inMacro ? "No RAW in macro." : "No RAW in zoomed photos."
+        showToast("\(reason) Saved \(saved) only.", symbol: "exclamationmark.triangle")
     }
 
     private func performFocusBracket() async {
@@ -2218,10 +2280,8 @@ final class CameraModel {
 
     // MARK: - Settings
 
-    /// Mutates settings, saves them, and re-applies whatever changed to the backend. The interface level and the
-    /// answered first-launch question only change through setAdvanced and finishWelcome, so a reset to the
-    /// defaults keeps both. In the simple interface the result is simplified again, so a setting it hides can't
-    /// pick up a value.
+    /// Mutates settings, saves them, and re-applies whatever changed to the backend. The interface options only
+    /// change through their own setters, so a reset to the defaults keeps them.
     func updateSettings(_ change: (inout CameraSettings) -> Void) {
         var next = settings
         change(&next)
@@ -2229,13 +2289,11 @@ final class CameraModel {
         commit(next)
     }
 
-    /// Takes new settings, interface level included, saves them and re-applies whatever changed to the backend.
+    /// Takes new settings, interface options included, saves them and re-applies whatever changed to the backend.
     private func commit(_ proposed: CameraSettings) {
-        // Until the first-launch question is answered nothing is simplified (see init).
-        let simple = !proposed.interface.advanced && proposed.interface.welcomed
-        var next = simple ? proposed.simplified() : proposed
+        var next = proposed
         // A blend, frame, bulb or alignment that isn't the scene's own was set by hand, and that is what Custom
-        // means. Checked here for every way in: the LONG panel's setters and the rows in Settings.
+        // means. Checked here for every way in: the NIGHT panel's setters and the rows in Settings.
         let long = next.longExposure
         if let recipe = long.recipe,
            long.blend != recipe.blend || long.bulb != recipe.bulb || long.frameSeconds != recipe.frameSeconds
@@ -2270,6 +2328,11 @@ final class CameraModel {
     func showToast(_ message: String, symbol: String? = nil) {
         let item = Toast(message: message, symbol: symbol)
         toast = item
+        expireToast(item)
+    }
+
+    /// Takes the toast down after its time. Called again for a toast already up, it starts that time over.
+    private func expireToast(_ item: Toast) {
         toastTask?.cancel()
         toastTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_200_000_000)
@@ -2390,12 +2453,6 @@ final class CameraModel {
             guard !Task.isCancelled else { return }
             self?.store.save(snapshot)
         }
-    }
-
-    private func saveNow() {
-        saveTask?.cancel()
-        saveTask = nil
-        store.save(settings)
     }
 
     /// Dials can fire 60 times a second; the device only needs the latest value about 30 times a second.
@@ -2720,6 +2777,15 @@ final class CameraModel {
         // on the lens it leaves, and a zoom out names the wider lens while the device is still on the longer one.
         // releaseZoomTarget brings this back in step, while the target still shows.
         guard force || zoomTarget == nil else { return }
+        if isMacro {
+            // Macro lasts while the ultra wide camera is the one in use or on its way.
+            let heading = pendingPreset?.lensID ?? settings.lensID
+            if lenses.first(where: { $0.id == heading })?.kind == .ultraWide, let id = macroButtonID {
+                setActivePreset(id)
+                return
+            }
+            isMacro = false
+        }
         guard let lensID = backend.activeLensID ?? settings.lensID else {
             setActivePreset(lensPresets.first?.id)
             return
@@ -2747,6 +2813,7 @@ final class CameraModel {
            readings.zoomFactor.isFinite, readings.zoomFactor > 0, abs(readings.zoomFactor - settings.zoom) > 0.01 {
             // The factor belongs to the lens the camera runs, which the saved lens has to name with it.
             if let running = backend.activeLensID, settings.lensID != running { settings.lensID = running }
+            if isMacro { isMacro = false }
             settings.zoom = readings.zoomFactor
             // The next pinch or wheel turn goes on from the slider's zoom.
             if readings.displayZoom.isFinite, readings.displayZoom > 0 {
@@ -3056,11 +3123,17 @@ final class CameraModel {
 
     // MARK: Macro and close subjects
 
-    /// The ultra wide camera framing like 1x. It focuses far closer than the main camera, which is how Apple's
-    /// Camera takes its close-ups.
-    var isMacro: Bool {
-        guard let lens = lenses.first(where: { $0.id == settings.lensID }), lens.kind == .ultraWide else { return false }
-        return settings.zoom * lens.relativeZoom >= 0.95
+    /// Macro is on: the ultra wide camera framing like 1x. It focuses far closer than the main camera, which is how
+    /// Apple's Camera takes its close-ups. The 1x button stays lit for it. Any lens button leaves it, and so does a
+    /// switch to VIDEO, which has no macro button. A flag of its own, not read off the lens and zoom: a pinch
+    /// through 1x on the ultra wide camera is not macro.
+    private(set) var isMacro = false
+    @ObservationIgnored private var macroRestored = false
+
+    /// The button macro keeps lit: the main camera's 1x.
+    private var macroButtonID: String? {
+        let ones = backLensPresets.filter { abs($0.displayZoom - 1) < 0.01 }
+        return (ones.first { preset in lenses.first(where: { $0.id == preset.lensID })?.kind == .wide } ?? ones.first)?.id
     }
 
     /// The macro button shows on phones with an ultra wide camera, while a back camera is in use.
@@ -3068,16 +3141,18 @@ final class CameraModel {
         !capabilities.lens.isFront && lenses.contains { $0.kind == .ultraWide }
     }
 
-    /// Macro on: the ultra wide at the 1x framing. Off: back to the 1x button.
+    /// Macro on: the ultra wide at the 1x framing. Off: back to the main camera's 1x.
     func toggleMacro() {
         guard !activity.isBusy, macroAvailable else { return }
         if isMacro {
-            if let wide = backLensPresets.first(where: { abs($0.displayZoom - 1) < 0.01 }) { select(wide) }
+            if let id = macroButtonID, let wide = backLensPresets.first(where: { $0.id == id }) { select(wide) }
             return
         }
         guard let ultra = lenses.first(where: { $0.kind == .ultraWide }) else { return }
         let factor = clampFactor(1 / max(ultra.relativeZoom, 0.01), for: ultra)
-        select(LensPreset(lensID: ultra.id, zoomFactor: factor, displayZoom: factor * ultra.relativeZoom))
+        isMacro = true
+        select(LensPreset(lensID: ultra.id, zoomFactor: factor, displayZoom: factor * ultra.relativeZoom),
+               haptic: true, replaying: false)
         showToast("Macro", symbol: "camera.macro")
     }
 
@@ -3177,8 +3252,8 @@ final class CameraModel {
         }
     }
 
-    // Auto means auto exposure, autofocus or auto white balance picks the value as the light changes. A value a
-    // scene fixes is not auto, though the person never set it: asking for auto there goes back to the scene's.
+    // Auto means auto exposure picks the value as the light changes. A value a scene fixes is not auto, though the
+    // person never set it: asking for auto there goes back to the scene's.
 
     var isISOAuto: Bool {
         switch settings.mode {
@@ -3197,10 +3272,7 @@ final class CameraModel {
         }
     }
 
-    var isWhiteBalanceAuto: Bool { effectiveWhiteBalance.isAuto }
-    var isFocusAuto: Bool { effectiveFocus.lensPosition == nil }
-
-    /// "1/250 · ISO 100 · ƒ/1.8 · +0.3" for the readout.
+    /// The exposure on one line: "1/250 · ISO 100 · ƒ/1.8 · +0.3".
     var exposureSummary: String {
         var parts = [
             ShutterSpeed(seconds: displayShutter).label,
@@ -3360,7 +3432,7 @@ extension CameraModel: CameraBackendDelegate {
             } else {
                 setManualFocus(value)
             }
-        case .mode(let mode): setMode(mode)
+        case .mode(let mode): selectCarouselMode(mode)
         case .lens(let index):
             let presets = backLensPresets
             guard presets.indices.contains(index) else { break }

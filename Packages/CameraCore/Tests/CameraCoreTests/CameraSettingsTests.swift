@@ -119,6 +119,7 @@ final class CameraSettingsTests: XCTestCase {
         s.controls.zoomTicks = .lensValues
         s.interface.advanced = true
         s.interface.welcomed = true
+        s.interface.advancedSettings = true
         s.appearance.scheme = .dark
         s.appearance.accent = .purple
         s.accessibility.largerLabels = true
@@ -425,7 +426,13 @@ final class CameraSettingsTests: XCTestCase {
     }
 
     func testCaptureModeOrderAndTitles() {
-        XCTAssertEqual(CaptureMode.carouselOrder, [.night, .long, .photo, .manual, .video])
+        // LONG has no entry: the long exposure scenes are picked inside NIGHT.
+        XCTAssertEqual(CaptureMode.carouselOrder, [.night, .photo, .manual, .video])
+        XCTAssertEqual(CaptureMode.long.carouselMode, .night)
+        for mode in CaptureMode.allCases where mode != .long {
+            XCTAssertEqual(mode.carouselMode, mode)
+        }
+        XCTAssertEqual(Set(CaptureMode.allCases.map(\.carouselMode)), Set(CaptureMode.carouselOrder))
         XCTAssertEqual(CaptureMode.photo.title, "PHOTO")
         XCTAssertTrue(CaptureMode.night.usesStacking)
         XCTAssertTrue(CaptureMode.long.usesStacking)
@@ -434,9 +441,8 @@ final class CameraSettingsTests: XCTestCase {
 
     func testCarouselOrderForEachInterface() {
         XCTAssertEqual(CaptureMode.carouselOrder(advanced: true), CaptureMode.carouselOrder)
-        XCTAssertEqual(Set(CaptureMode.carouselOrder(advanced: true)), Set(CaptureMode.allCases))
         // The simple carousel is the same row without MANUAL, so the other modes keep their neighbours.
-        XCTAssertEqual(CaptureMode.carouselOrder(advanced: false), [.night, .long, .photo, .video])
+        XCTAssertEqual(CaptureMode.carouselOrder(advanced: false), [.night, .photo, .video])
         XCTAssertEqual(CaptureMode.carouselOrder(advanced: false), CaptureMode.carouselOrder.filter { $0 != .manual })
         // Both start on the mode a fresh install opens in.
         for advanced in [false, true] {
@@ -496,7 +502,13 @@ final class CameraSettingsTests: XCTestCase {
         let interface = InterfaceOptions()
         XCTAssertFalse(interface.advanced)
         XCTAssertFalse(interface.welcomed)
+        // Settings opens on the short list.
+        XCTAssertFalse(interface.advancedSettings)
         XCTAssertEqual(CameraSettings.default.interface, interface)
+        // Saved before the switch existed: the short list, whatever the camera's level was.
+        let earlier = CameraSettings.decoded(from: Data(#"{"interface":{"advanced":true,"welcomed":true}}"#.utf8))
+        XCTAssertTrue(earlier.interface.advanced)
+        XCTAssertFalse(earlier.interface.advancedSettings)
         // Settings saved before the interface level existed: the first-launch question is still to be asked.
         let older = CameraSettings.decoded(from: Data(#"{"mode":"manual","manual":{"iso":400}}"#.utf8))
         XCTAssertEqual(older.interface, interface)

@@ -16,8 +16,12 @@ public enum CaptureMode: String, Codable, Sendable, CaseIterable, Identifiable {
     public var id: String { rawValue }
     public var title: String { rawValue.uppercased() }
     public var usesStacking: Bool { self == .night || self == .long }
-    /// Left to right in the mode carousel; PHOTO sits in the middle like the Camera app.
-    public static let carouselOrder: [CaptureMode] = [.night, .long, .photo, .manual, .video]
+    /// Left to right in the mode carousel. NIGHT stands for both stacking modes: the night shot and the long
+    /// exposure scenes are one mode on screen, picked between inside it, so LONG has no entry of its own.
+    public static let carouselOrder: [CaptureMode] = [.night, .photo, .manual, .video]
+
+    /// The carousel entry this mode shows under: LONG lives inside NIGHT.
+    public var carouselMode: CaptureMode { self == .long ? .night : self }
 
     /// The carousel for the simple interface leaves MANUAL out: every mode it keeps runs on auto.
     public static func carouselOrder(advanced: Bool) -> [CaptureMode] {
@@ -680,20 +684,25 @@ public struct ControlOptions: Codable, Hashable, Sendable {
 
 /// How much of the camera the interface shows.
 public struct InterfaceOptions: Codable, Hashable, Sendable {
-    /// Shows MANUAL mode and every detailed control. Off keeps the screen to the basics and everything else on auto.
+    /// The camera shows MANUAL mode and every detailed control. The app now always runs this way and sets it when
+    /// it loads; settings saved by the earlier simple interface still decode as false and are brought back first.
     public var advanced: Bool = false
-    /// The first-launch question (simple or advanced) has been answered.
+    /// The first-launch question (simple or advanced) was answered, back when the app asked it.
     public var welcomed: Bool = false
+    /// Settings lists every option, in groups. Off keeps the page to the ones most people change. The camera itself
+    /// is the same either way.
+    public var advancedSettings: Bool = false
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case advanced, welcomed }
+    enum CodingKeys: String, CodingKey { case advanced, welcomed, advancedSettings }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = InterfaceOptions()
         advanced = c.value(.advanced, default: d.advanced)
         welcomed = c.value(.welcomed, default: d.welcomed)
+        advancedSettings = c.value(.advancedSettings, default: d.advancedSettings)
     }
 }
 

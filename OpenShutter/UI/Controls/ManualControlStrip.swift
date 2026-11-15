@@ -1,9 +1,10 @@
 import SwiftUI
 import CameraCore
 
-/// Chips for every manual control this camera offers, plus AE lock. Tap a chip to open its dial; touch and hold it
-/// for auto and the values people reach for most. Each chip reads the live values in its own body, so the 10 Hz
-/// readings only redraw the chip text and never the row.
+/// Chips for the manual controls this camera offers, from ISO on, plus AE lock. The shutter and the exposure
+/// compensation have their chips beside the lens buttons (LensRow), in the same place in every mode. Tap a chip to
+/// open its dial; touch and hold it for auto and the values people reach for most. Each chip reads the live values in
+/// its own body, so the 10 Hz readings only redraw the chip text and never the row.
 struct ManualControlStrip: View {
     @Bindable var model: CameraModel
 
@@ -41,8 +42,9 @@ struct ManualControlStrip: View {
         }
         // A chip that goes away takes its dial with it: tint when white balance returns to auto (Camera Control,
         // the preset row), the duration when bulb comes on, focus on a lens without manual focus. Initial covers a
-        // mode switch, which builds a new strip under a dial that was already open.
-        .onChange(of: kinds, initial: true) { _, current in
+        // mode switch, which builds a new strip under a dial that was already open. The lens row's chips count too:
+        // their dials open over this strip.
+        .onChange(of: kinds + ChipReader.lensRowKinds(for: model), initial: true) { _, current in
             guard let dial = model.activeDial, dial != .zoom, !current.contains(dial) else { return }
             withAnimation(Theme.spring) {
                 model.activeDial = nil
@@ -67,18 +69,45 @@ struct ManualControlStrip: View {
     }
 }
 
+/// The shutter's chip beside the lens buttons, in the same place in every mode: the shutter speed, or in NIGHT how
+/// long the shot runs, with a moon. In PHOTO it shows the camera's own shutter, and the first value picked on its
+/// dial leads into MANUAL. Bulb has no time to show, so the place stays empty.
+struct LensRowShutterChip: View {
+    let model: CameraModel
+
+    var body: some View {
+        let shows = ChipReader.showsShutterChip(model)
+        ZStack {
+            if shows {
+                ParameterChip(model: model, kind: .shutter, isSelected: model.activeDial == .shutter, compact: true)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
+        }
+        .frame(minWidth: 44, minHeight: 44)
+        .disabled(ChipReader.isLocked(model.activity))
+        // Like the exposure chip on the row's other side. A stack dims the whole lens row (ControlsZone), and a
+        // dimming of its own on top of that would all but hide the running shot's duration.
+        .opacity(model.activity == .saving ? 0.45 : 1)
+        .animation(Theme.snappy, value: shows)
+    }
+}
+
 // MARK: - Chips
 
-private struct ParameterChip: View {
+/// One control's chip. `compact` is the lens row's: the value alone, with a moon where it is a night shot's length,
+/// since the room beside five lens buttons is about 60 pt.
+struct ParameterChip: View {
     let model: CameraModel
     let kind: DialKind
     let isSelected: Bool
+    var compact = false
     @State private var press = PressTracker()
 
     var body: some View {
         let content = ChipReader.content(kind, model: model)
-        ChipFace(content: content, isSelected: isSelected, isPressed: press.isPressed)
-            .frame(minHeight: 44)
+        ChipFace(content: content, isSelected: isSelected, isPressed: press.isPressed, compact: compact,
+                 symbol: compact && kind == .shutter && model.settings.mode.usesStacking ? "moon.fill" : nil)
+            .frame(minWidth: compact ? 44 : nil, minHeight: 44)
             .contentShape(Rectangle())
             .onTapGesture {
                 ChipReader.toggleDial(kind, model: model)
@@ -87,7 +116,8 @@ private struct ParameterChip: View {
                 ChipTouchLayer(model: model, kind: kind, press: press)
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(kind.title))
+            // In NIGHT the shutter chip is how long the shot runs.
+            .accessibilityLabel(Text(kind == .shutter && model.settings.mode.usesStacking ? "Duration" : kind.title))
             .accessibilityValue(Text(content.spokenValue))
             .accessibilityHint(Text("Shows the dial. " + HoldMenuText.hint))
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
@@ -133,18 +163,31 @@ private struct ChipMenu: View {
         case .shutter: shutter
         case .iso: iso
         case .aperture: aperture
-        case .bias: bias
         case .whiteBalance: whiteBalance
         case .tint: tint
         case .focus: focus
-        case .zoom: EmptyView()
+        // Exposure compensation has its own chip and menu in the lens row (ExposureChip), and zoom has no chip.
+        case .bias, .zoom: EmptyView()
         }
     }
 
     @ViewBuilder
     private var shutter: some View {
         let settings = model.settings
-        if settings.mode == .long {
+        if settings.mode == .night {
+            // Inside the planner's 1 to 30 s, like the dial.
+            let manual = settings.night.seconds
+            Section("Duration") {
+                HoldMenuChoice("Auto", isOn: manual == nil) {
+                    model.setNightSeconds(nil)
+                }
+                ForEach(ChipPresets.nightDurations, id: \.self) { value in
+                    HoldMenuChoice(HoldMenuText.time(value), isOn: manual.map { ChipPresets.isSame($0, value) } ?? false) {
+                        model.setNightSeconds(value)
+                    }
+                }
+            }
+        } else if settings.mode == .long {
             // LONG's chip is the total time, which has no auto.
             let seconds = settings.longExposure.seconds
             Section("Duration") {
@@ -212,19 +255,6 @@ private struct ChipMenu: View {
         }
     }
 
-    private var bias: some View {
-        let settings = model.settings
-        let current = settings.mode == .night ? settings.night.biasEV : settings.manual.bias
-        let range = model.capabilities.biasRange
-        return Section(kind.title) {
-            ForEach(ChipPresets.biases.filter { range.contains($0) }, id: \.self) { value in
-                HoldMenuChoice(EVFormat.label(value) + " EV", isOn: abs(current - value) < 0.05) {
-                    model.setBias(value)
-                }
-            }
-        }
-    }
-
     @ViewBuilder
     private var whiteBalance: some View {
         let holder = ControlHolder.of(kind, model: model)
@@ -281,10 +311,10 @@ private struct ChipMenu: View {
 /// The values the chip menus offer. Each list is cut to what the camera and the mode can do before it shows.
 private enum ChipPresets {
     static let shutters: [Double] = [1.0 / 1000, 1.0 / 250, 1.0 / 60, 1.0 / 15, 1.0 / 4, 1, 4, 30]
-    static let longDurations: [Double] = [1, 4, 15, 30, 60, 300]
+    /// From the shortest time worth stacking to the dial's longest.
+    static let longDurations: [Double] = [1, 2, 4, 8, 15, 30, 60, 300, 600, 1800]
+    static let nightDurations: [Double] = [3, 5, 10, 15, 30]
     static let isos: [Double] = [100, 400, 800, 1600, 3200]
-    /// Zero first, where the other menus have Auto: it gives the value back.
-    static let biases: [Double] = [0, -2, -1, 1, 2]
     /// The dial's own preset row without Auto, which leads the menu. Candle sits below the 2000 K the camera can
     /// lock to.
     static let whiteBalance: [WhiteBalancePreset] = [.daylight, .cloudy, .shade, .tungsten, .fluorescent, .flash]
@@ -350,24 +380,37 @@ private struct ChipFace: View {
     let content: ChipContent
     let isSelected: Bool
     let isPressed: Bool
+    var compact = false
+    var symbol: String? = nil
 
     var body: some View {
         HStack(spacing: 4) {
-            HStack(spacing: content.hugsTitle ? 1 : 4) {
-                Text(content.title)
-                    .opacity(0.8)
+            if compact {
+                // White for the camera's value, the accent for one set by hand: no room for the title or the badge.
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                }
                 Text(content.value)
                     .contentTransition(.numericText(value: content.numeric))
-            }
-            if content.tone == .auto {
-                AutoBadge()
+            } else {
+                HStack(spacing: content.hugsTitle ? 1 : 4) {
+                    Text(content.title)
+                        .opacity(0.8)
+                    Text(content.value)
+                        .contentTransition(.numericText(value: content.numeric))
+                }
+                if content.tone == .auto {
+                    AutoBadge()
+                }
             }
         }
         .font(Theme.chipFont)
         .foregroundStyle(content.tone == .manual ? Theme.accent : Theme.primaryText)
         .lineLimit(1)
         .fixedSize()
-        .padding(.horizontal, 10)
+        .padding(.horizontal, compact ? 9 : 10)
         .frame(height: 30)
         .cameraGlass(in: Capsule())
         .overlay {
@@ -443,17 +486,9 @@ private enum ChipReader {
     /// The chips this camera and mode can use. Controls the hardware can't drive are left out, not shown dead.
     static func kinds(for model: CameraModel) -> [DialKind] {
         let caps = model.capabilities
-        let settings = model.settings
         var kinds: [DialKind] = []
-        if settings.mode == .long {
-            // In LONG the shutter chip is the total duration, which bulb replaces with the hold.
-            if !settings.longExposure.bulb { kinds.append(.shutter) }
-        } else if caps.supportsCustomExposure {
-            kinds.append(.shutter)
-        }
         if caps.supportsCustomExposure { kinds.append(.iso) }
         if caps.supportsVariableAperture { kinds.append(.aperture) }
-        kinds.append(.bias)
         if caps.supportsCustomWhiteBalance {
             kinds.append(.whiteBalance)
             // By the white balance the camera runs: a scene that fixes the temperature leaves a tint to set.
@@ -461,6 +496,22 @@ private enum ChipReader {
         }
         if caps.supportsManualFocus { kinds.append(.focus) }
         return kinds
+    }
+
+    /// The chips beside the lens buttons: the shutter where this camera and mode have one to set, and the exposure
+    /// compensation.
+    static func lensRowKinds(for model: CameraModel) -> [DialKind] {
+        showsShutterChip(model) ? [.shutter, .bias] : [.bias]
+    }
+
+    /// In a long exposure the shutter chip is the total duration, which bulb replaces with the hold. A night shot's
+    /// is how long it runs. Elsewhere it needs a camera that takes a shutter speed.
+    static func showsShutterChip(_ model: CameraModel) -> Bool {
+        switch model.settings.mode {
+        case .long: return !model.settings.longExposure.bulb
+        case .night: return true
+        case .photo, .manual, .video: return model.capabilities.supportsCustomExposure
+        }
     }
 
     /// Exposure changes in the middle of a shot or a stack would end up in the picture.
@@ -564,7 +615,11 @@ private enum ChipReader {
     static func reset(_ kind: DialKind, model: CameraModel) {
         switch kind {
         case .shutter:
-            model.setShutter(nil)
+            if model.settings.mode == .night {
+                model.setNightSeconds(nil)
+            } else {
+                model.setShutter(nil)
+            }
         case .iso:
             model.setISO(nil)
         case .aperture:
@@ -585,6 +640,14 @@ private enum ChipReader {
 
     private static func shutter(model: CameraModel, settings: CameraSettings) -> ChipContent {
         let title = DialKind.shutter.shortTitle
+        if settings.mode == .night {
+            // A night shot's chip is how long it runs: the camera's own choice from the light, or a time set by hand.
+            let manual = settings.night.seconds
+            let seconds = manual ?? model.nightAutoSeconds
+            let text = Formatting.compactDuration(seconds)
+            return ChipContent(title: title, value: text, numeric: seconds, tone: manual == nil ? .auto : .manual,
+                               canReset: manual != nil, spokenValue: manual == nil ? text + ", auto" : text)
+        }
         if settings.mode == .long {
             // LONG has no auto shutter: the chip is the total duration the frames add up to.
             if settings.longExposure.bulb {

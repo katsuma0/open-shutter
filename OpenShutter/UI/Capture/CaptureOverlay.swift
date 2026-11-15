@@ -329,8 +329,8 @@ private struct BracketStatusLine: View {
     static func text(_ bracket: BracketPlan, focusCenter: Double, frame: Int, stopping: Bool = false) -> String {
         let title: String
         let total: Int
-        // Counted the way the top bar's badge counts them. A focus spread wider than the lens travel piles frames on
-        // its ends, so its count depends on the center, which the badge only knows under manual focus.
+        // Counted the way the top bar's Timer button counts them. A focus spread wider than the lens travel piles
+        // frames on its ends, so its count depends on the center, which the button only knows under manual focus.
         switch bracket.kind {
         case .focus:
             title = "Focus bracket"

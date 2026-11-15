@@ -1,8 +1,9 @@
 import SwiftUI
 import CameraCore
 
-/// VIDEO mode quick settings: resolution, frame rate, codec, color, stabilization, sound and the shutter angle.
-/// Every menu only offers what the active lens's formats can record.
+/// VIDEO mode quick settings: resolution, frame rate, codec, color, stabilization and sound. Every menu only offers
+/// what the active lens's formats can record. The shutter, as a speed or an angle, has its one chip beside the lens
+/// buttons (LensRowShutterChip).
 struct VideoControls: View {
     @Bindable var model: CameraModel
     @State private var cache = VideoOptionsCache()
@@ -34,7 +35,6 @@ struct VideoControls: View {
                     colorMenu(video, options: options)
                     stabilizationMenu(video, options: options)
                     audioButton(video)
-                    ShutterAngleChip(model: model, isSelected: model.activeDial == .shutter)
                 }
                 .padding(.horizontal, 16)
                 .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
@@ -146,7 +146,7 @@ struct VideoControls: View {
             UprightImage(model: model, systemName: video.audio ? "mic.fill" : "mic.slash.fill")
                 .frame(width: 18)
         }
-        .buttonStyle(VideoChipStyle(tint: video.audio ? Theme.primaryText : Theme.secondaryText, isSelected: false))
+        .buttonStyle(VideoChipStyle(tint: video.audio ? Theme.primaryText : Theme.secondaryText))
         .accessibilityLabel(Text("Sound"))
         .accessibilityValue(Text(video.audio ? "On" : "Off"))
     }
@@ -231,56 +231,6 @@ struct VideoControls: View {
     }
 }
 
-// MARK: - Shutter angle
-
-/// Reads the live shutter on its own, so the 10 Hz readings only redraw this chip.
-private struct ShutterAngleChip: View {
-    let model: CameraModel
-    let isSelected: Bool
-
-    var body: some View {
-        let fps = model.recordedVideo.frameRate
-        // The shared manual shutter can be longer than a frame (it comes from MANUAL); the camera clamps it to
-        // 1/fps, so the angle never reads past 360°.
-        let seconds = fps.isFinite ? min(model.displayShutter, 1 / max(fps, 1)) : model.displayShutter
-        let angle = ExposureMath.shutterAngle(seconds: seconds, fps: fps)
-        // Checked and bounded before the Int conversion, which traps on NaN and on huge values.
-        let degrees = angle.isFinite ? Int(min(max(angle, 0), 3600).rounded()) : 0
-        let auto = model.isShutterAuto
-        Button {
-            Haptics.tick()
-            withAnimation(Theme.spring) {
-                model.activeDial = model.activeDial == .shutter ? nil : .shutter
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text("\(degrees)\u{00B0}")
-                    .contentTransition(.numericText(value: Double(degrees)))
-                if auto {
-                    AutoBadge()
-                }
-            }
-        }
-        .buttonStyle(VideoChipStyle(tint: auto ? Theme.primaryText : Theme.accent, isSelected: isSelected))
-        // Keyed to auto, not the angle: auto exposure moves the angle with every 10 Hz reading.
-        .animation(Theme.snappy, value: auto)
-        .accessibilityLabel(Text("Shutter angle"))
-        .accessibilityValue(Text("\(degrees) degrees" + (auto ? ", auto" : "")))
-        .accessibilityHint(Text("Shows the shutter dial."))
-    }
-}
-
-private struct AutoBadge: View {
-    var body: some View {
-        Text("A")
-            .font(.system(size: 8, weight: .heavy))
-            .foregroundStyle(Color.black)
-            .frame(width: 11, height: 11)
-            .background(Circle().fill(Theme.primaryText.opacity(0.85)))
-            .accessibilityHidden(true)
-    }
-}
-
 // MARK: - Chip looks
 
 private struct MenuChip: View {
@@ -323,7 +273,6 @@ private struct UprightImage: View {
 
 private struct VideoChipStyle: ButtonStyle {
     var tint: Color
-    var isSelected: Bool
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -334,13 +283,8 @@ private struct VideoChipStyle: ButtonStyle {
             .padding(.horizontal, 10)
             .frame(height: 30)
             .cameraGlass(in: Capsule())
-            .overlay {
-                Capsule()
-                    .strokeBorder(Theme.accent.opacity(isSelected ? 0.8 : 0), lineWidth: 1)
-            }
             .scaleEffect(configuration.isPressed ? 0.94 : 1)
             .animation(Theme.snappy, value: configuration.isPressed)
-            .animation(Theme.spring, value: isSelected)
             .frame(minWidth: 44, minHeight: 44)
             .contentShape(Rectangle())
     }

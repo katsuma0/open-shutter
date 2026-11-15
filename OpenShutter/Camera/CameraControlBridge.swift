@@ -430,7 +430,7 @@ final class CameraControlBridge: NSObject, AVCaptureSessionControlsDelegate, @un
             case .aperture:
                 return pickerIndex(for: state.aperture, stops: entry.stops).map { (entry, .index($0)) }
             case .mode:
-                return CaptureMode.carouselOrder.firstIndex(of: state.mode).map { (entry, .index($0)) }
+                return CaptureMode.carouselOrder.firstIndex(of: state.mode.carouselMode).map { (entry, .index($0)) }
             case .lens:
                 // An index past the picker's titles raises; the selfie camera has no spot on it.
                 guard let index = state.lensIndex, state.lensTitles.indices.contains(index) else { return nil }

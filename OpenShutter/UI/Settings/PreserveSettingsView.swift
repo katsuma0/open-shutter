@@ -7,9 +7,6 @@ struct PreserveSettingsView: View {
     let model: CameraModel
 
     var body: some View {
-        // The simple interface calls exposure compensation brightness, as on its chip and dial.
-        let advanced = model.isAdvanced
-
         Form {
             Section {
                 Toggle("Camera mode", isOn: model.settingBinding(\.startup.keepMode))
@@ -24,12 +21,10 @@ struct PreserveSettingsView: View {
             }
 
             Section {
-                Toggle(advanced ? "Exposure" : "Brightness", isOn: model.settingBinding(\.startup.keepBrightness))
+                Toggle("Exposure", isOn: model.settingBinding(\.startup.keepBrightness))
             } footer: {
                 SettingsFooter([
-                    advanced
-                        ? "Keeps the exposure compensation you set, Night mode's too, instead of going back to 0."
-                        : "Keeps the brightness you set, Night mode's too, instead of going back to normal.",
+                    "Keeps the exposure compensation you set, the night shot's too, instead of going back to 0.",
                     "These apply each time Open Shutter starts. Coming back to it from another app keeps everything as it was.",
                 ])
             }

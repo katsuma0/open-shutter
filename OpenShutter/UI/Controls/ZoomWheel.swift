@@ -14,8 +14,9 @@ enum ZoomWheelTouch {
     case hold, surface
 }
 
-/// The wheel's state, owned by LensRow. A reference, so a drag reaches only the views that draw it: the row and the
-/// buttons read `isOpen`, the ruler reads `rawZoom`, the readout reads `shownZoom`.
+/// The wheel's state, owned by the controls zone (CameraScreen), which fades the rows above the lens row while the
+/// wheel is open. A reference, so a drag reaches only the views that draw it: the zone, the row and the buttons read
+/// `isOpen`, the ruler reads `rawZoom`, the readout reads `shownZoom`.
 @MainActor
 @Observable
 final class ZoomWheelModel {
@@ -573,7 +574,7 @@ private struct ZoomReadoutBubble: View {
 }
 
 /// Takes new touches while the wheel lingers after a lift, so the next stroke needs no hold. Over the ruler only:
-/// the readout above it sits on the picture, which keeps its tap to focus.
+/// a touch on the readout above it goes through to the picture, which keeps its tap to focus.
 private struct ZoomWheelSurface: View {
     let model: CameraModel
     let wheel: ZoomWheelModel
