@@ -855,14 +855,20 @@ final class CameraModel {
         let presets = backend.lensPresets
         if presets != lensPresets { lensPresets = presets }
         // A camera left in macro opens in macro: the saved lens and zoom say so once the lenses are known. Only in
-        // the modes that have the macro button; elsewhere macro never follows (setMode) and the same lens and zoom
-        // were reached by hand.
+        // the modes that have the macro button. NIGHT gave its place to the scenes, and a save from the build
+        // before can still hold NIGHT in macro: it opens on the main camera's 1x, as entering NIGHT leaves macro
+        // (setMode). Parked, because the camera is still starting here, and startBackend ends with the replay. With
+        // lens switching off the same lens and zoom were reached by hand and stay, as they do in VIDEO.
         if !macroRestored, !lenses.isEmpty {
             macroRestored = true
-            if Self.offersMacro(settings.mode),
-               let lens = lenses.first(where: { $0.id == settings.lensID }), lens.kind == .ultraWide,
+            if let lens = lenses.first(where: { $0.id == settings.lensID }), lens.kind == .ultraWide,
                abs(settings.zoom * lens.relativeZoom - 1) < 0.02 {
-                isMacro = true
+                if Self.offersMacro(settings.mode) {
+                    isMacro = true
+                } else if settings.mode.usesStacking, settings.controls.autoLensSwitching, let id = macroButtonID,
+                          let wide = backLensPresets.first(where: { $0.id == id }) {
+                    pendingPreset = wide
+                }
             }
         }
         updateActivePreset()
