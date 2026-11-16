@@ -854,11 +854,12 @@ final class CameraModel {
         if lenses != self.lenses { self.lenses = lenses }
         let presets = backend.lensPresets
         if presets != lensPresets { lensPresets = presets }
-        // A camera left in macro opens in macro: the saved lens and zoom say so once the lenses are known. Not in
-        // VIDEO, where macro never follows (setMode) and the same lens and zoom were reached by hand.
+        // A camera left in macro opens in macro: the saved lens and zoom say so once the lenses are known. Only in
+        // the modes that have the macro button; elsewhere macro never follows (setMode) and the same lens and zoom
+        // were reached by hand.
         if !macroRestored, !lenses.isEmpty {
             macroRestored = true
-            if settings.mode != .video,
+            if Self.offersMacro(settings.mode),
                let lens = lenses.first(where: { $0.id == settings.lensID }), lens.kind == .ultraWide,
                abs(settings.zoom * lens.relativeZoom - 1) < 0.02 {
                 isMacro = true
@@ -917,9 +918,10 @@ final class CameraModel {
             activeDial = nil
         }
         if mode.usesStacking { lastNightFamilyMode = mode }
-        // VIDEO has no macro button to show macro or to end it, so macro stays behind: the main camera's 1x, the
-        // button that was lit, is the lens VIDEO opens on.
-        if mode == .video, isMacro, let id = macroButtonID, let wide = backLensPresets.first(where: { $0.id == id }) {
+        // VIDEO and NIGHT have no macro button to show macro or to end it, so macro stays behind: the main
+        // camera's 1x, the button that was lit, is the lens they open on.
+        if !Self.offersMacro(mode), isMacro, let id = macroButtonID,
+           let wide = backLensPresets.first(where: { $0.id == id }) {
             select(wide, haptic: false)
         }
         modeChangeLedByPick = false
@@ -3135,8 +3137,8 @@ final class CameraModel {
 
     /// Macro is on: the ultra wide camera framing like 1x. It focuses far closer than the main camera, which is how
     /// Apple's Camera takes its close-ups. The 1x button stays lit for it. Any lens button leaves it, and so does a
-    /// switch to VIDEO, which has no macro button. A flag of its own, not read off the lens and zoom: a pinch
-    /// through 1x on the ultra wide camera is not macro.
+    /// switch to VIDEO or NIGHT, which have no macro button. A flag of its own, not read off the lens and zoom: a
+    /// pinch through 1x on the ultra wide camera is not macro.
     private(set) var isMacro = false
     @ObservationIgnored private var macroRestored = false
 
@@ -3146,14 +3148,25 @@ final class CameraModel {
         return (ones.first { preset in lenses.first(where: { $0.id == preset.lensID })?.kind == .wide } ?? ones.first)?.id
     }
 
-    /// The macro button shows on phones with an ultra wide camera, while a back camera is in use.
+    /// Macro can run on phones with an ultra wide camera, while a back camera is in use.
     var macroAvailable: Bool {
         !capabilities.lens.isFront && lenses.contains { $0.kind == .ultraWide }
     }
 
+    /// The modes with a macro button. In NIGHT its place beside the shutter is the scene menu's, and VIDEO has
+    /// neither.
+    private static func offersMacro(_ mode: CaptureMode) -> Bool {
+        mode == .photo || mode == .manual
+    }
+
+    /// Whether the macro button shows: a phone and camera that can, in a mode that has the button.
+    var macroOffered: Bool {
+        macroAvailable && Self.offersMacro(settings.mode)
+    }
+
     /// Macro on: the ultra wide at the 1x framing. Off: back to the main camera's 1x.
     func toggleMacro() {
-        guard !activity.isBusy, macroAvailable else { return }
+        guard !activity.isBusy, macroOffered else { return }
         if isMacro {
             if let id = macroButtonID, let wide = backLensPresets.first(where: { $0.id == id }) { select(wide) }
             return

@@ -916,7 +916,7 @@ private struct ShutterRow: View {
         let drawerHeld = CameraLayout.keepsDrawerClosed(model)
         ZStack {
             HStack(spacing: 0) {
-                if model.macroAvailable, model.settings.mode != .video {
+                if model.macroOffered {
                     ShutterSideButton(symbol: "camera.macro", isActive: model.isMacro,
                                       label: model.isMacro ? "Macro, on" : "Macro") {
                         model.toggleMacro()
@@ -987,7 +987,7 @@ private struct BottomRow: View {
                 } else {
                     ThumbnailButton(model: model)
                 }
-                if model.macroAvailable, model.settings.mode != .video {
+                if model.macroOffered {
                     ShutterSideButton(symbol: "camera.macro", isActive: model.isMacro,
                                       label: model.isMacro ? "Macro, on" : "Macro", size: 44) {
                         model.toggleMacro()
