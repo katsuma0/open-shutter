@@ -802,13 +802,15 @@ private struct ControlsZone: View {
         .animation(Theme.spring, value: dial)
         .animation(Theme.spring, value: mode)
         .animation(Theme.spring, value: isStacking)
-        // Without a band the stack with a dial on top reaches up into the open quick settings panel, so the two take
-        // turns there: opening one closes the other.
+        // The stack with a dial on top reaches up into the open quick settings panel: on a phone without the band
+        // with any dial, and on the others in a long exposure scene, where NIGHT's row stays under the dial, or with
+        // the white balance dial's row of presets. So the two take turns on every phone: opening one closes the
+        // other.
         .onChange(of: dial) { _, opened in
-            guard opened != nil, !modeRowInBand, model.isDrawerOpen else { return }
+            guard opened != nil, model.isDrawerOpen else { return }
             withAnimation(Theme.spring) { model.isDrawerOpen = false }
         }
-        .onChange(of: !modeRowInBand && model.isDrawerOpen) { _, isOpen in
+        .onChange(of: model.isDrawerOpen) { _, isOpen in
             guard isOpen, model.activeDial != nil else { return }
             withAnimation(Theme.spring) { model.activeDial = nil }
         }
