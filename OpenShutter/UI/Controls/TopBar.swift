@@ -356,7 +356,8 @@ private struct RecordingCapsule: View {
                 .fill(Theme.primaryText)
                 .frame(width: 7, height: 7)
             Text(Self.timecode(seconds))
-                .font(Theme.valueFont)
+                // Medium, like the rest of the bar's text.
+                .font(Theme.valueFont.weight(.medium))
                 .contentTransition(.numericText(value: Double(seconds)))
         }
         .foregroundStyle(Theme.primaryText)
