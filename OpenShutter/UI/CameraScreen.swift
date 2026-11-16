@@ -749,16 +749,7 @@ private struct ControlsZone: View {
                         // As tall as the strip of chips: when PHOTO's shutter dial leads into MANUAL at its first
                         // tick, the strip takes this row over and the dial stays where the finger is.
                         ReadoutHUD(model: model)
-                            .frame(maxWidth: .infinity)
                             .frame(height: 44)
-                            // The line takes no touches, so a tap on its row goes through to the picture. With the
-                            // quick settings open that tap is meant to close them, as it does anywhere else under
-                            // the panel, and not to move the focus behind it.
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(Theme.spring) { model.isDrawerOpen = false }
-                            }
-                            .allowsHitTesting(model.isDrawerOpen)
                             .transition(.opacity)
                     } else if dial == .shutter {
                         // With the readout switched off the row is kept free for that dial, for the same reason.
@@ -795,6 +786,19 @@ private struct ControlsZone: View {
         }
         .padding(.bottom, modeRowInBand ? 0 : 4)
         .frame(maxWidth: .infinity)
+        // The gaps between the controls let a touch through to the picture. With the quick settings open a tap there
+        // is meant to close them, as it does above the controls (DrawerLayer), and not to move the focus behind
+        // the panel. The controls in front keep their own touches.
+        .background {
+            if model.isDrawerOpen {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(Theme.spring) { model.isDrawerOpen = false }
+                    }
+                    .accessibilityHidden(true)
+            }
+        }
         // VoiceOver's two-finger scrub closes an open dial from whichever control has the focus: the lens row's
         // chips open dials too, and have no escape of their own.
         .accessibilityElement(children: .contain)
