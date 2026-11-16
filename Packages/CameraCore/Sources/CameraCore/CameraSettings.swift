@@ -525,7 +525,8 @@ public struct DisplaySettings: Codable, Hashable, Sendable {
 public struct NightSettings: Codable, Hashable, Sendable {
     /// nil = automatic duration from the light level.
     public var seconds: Double? = nil
-    public var stability: NightStabilityChoice = .automatic
+    /// A tripod unless Settings says otherwise: the camera screen has no control for it.
+    public var stability: NightStabilityChoice = .tripod
     public var alignFrames: Bool = true
     public var maxISO: Double = 3200
     public var biasEV: Double = 0

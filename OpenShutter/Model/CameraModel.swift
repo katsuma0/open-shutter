@@ -633,6 +633,16 @@ final class CameraModel {
             store.save(stored)
             store.clearAdvancedSnapshot()
         }
+        // The night shot plans for a tripod unless Settings says otherwise, and the camera screen no longer has
+        // the picker. A save from before that is moved to tripod once, whatever it held: with no control on screen,
+        // an old Handheld would only show as shots that come out differently.
+        if !store.nightMovedToTripod {
+            if stored.night.stability != .tripod {
+                stored.night.stability = .tripod
+                store.save(stored)
+            }
+            store.nightMovedToTripod = true
+        }
         // What the startup options don't keep goes back to where a fresh install starts, after the restore, so a
         // MANUAL it brings back doesn't open a camera that is set to start in PHOTO.
         var loaded = stored.applyingStartupOptions()

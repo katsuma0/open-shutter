@@ -75,7 +75,7 @@ private struct NightShotSection: View {
 
     private static func notes(night: NightSettings, caps: CameraCapabilities) -> [String?] {
         var notes: [String?] = [
-            "Auto uses longer frames while the phone is held still. Tripod uses the longest frames the camera allows.",
+            "Stability starts at Tripod, which uses the longest frames the camera allows. Handheld keeps the frames short and lines them up. Auto follows the motion sensor.",
             "Align frames lines up the frames to undo small hand movements. A night shot keeps each frame at or below the maximum ISO.",
         ]
         let deviceMax = caps.exposure.iso.upperBound
