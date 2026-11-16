@@ -38,8 +38,8 @@ struct NightModePanel: View {
 // MARK: - Scene
 
 /// The rows of the scene menu, for the button left of the shutter: the night shot first, then the long exposure
-/// scenes, then Custom. Picking a long exposure scene loads its blend, time and frame; changing one of those by hand
-/// makes the scene Custom.
+/// scenes, then Custom. Picking a long exposure scene loads its blend, time, bulb, frame and alignment; changing any
+/// of those but the time by hand makes the scene Custom.
 struct NightSceneMenuItems: View {
     let model: CameraModel
     /// nil is the night shot.

@@ -215,9 +215,8 @@ private struct SteadyIconView: View {
     }
 }
 
-/// SF Symbols has no tripod, so one is drawn here: a camera head on three legs, in the foreground style. Shared by
-/// the pill and the panels.
-struct TripodGlyph: View {
+/// SF Symbols has no tripod, so one is drawn here: a camera head on three legs, in the foreground style.
+private struct TripodGlyph: View {
     var body: some View {
         Canvas { context, size in
             let width = size.width

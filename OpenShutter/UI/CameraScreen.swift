@@ -930,8 +930,8 @@ private struct ModeRow: View {
     }
 }
 
-/// The shutter, with macro on its left and quick settings on its right, as in Apple's Camera, when the thumbnail and
-/// the flip button have the mode row.
+/// The shutter, with macro or NIGHT's scene menu on its left and quick settings on its right, as in Apple's Camera,
+/// when the thumbnail and the flip button have the mode row.
 private struct ShutterRow: View {
     let model: CameraModel
 

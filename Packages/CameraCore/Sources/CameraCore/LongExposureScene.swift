@@ -184,7 +184,7 @@ public enum LongExposureScene: String, Codable, Sendable, CaseIterable, Identifi
         }
     }
 
-    /// One line under the scene picker: what the scene does and what it needs.
+    /// One line on what the scene does and what it needs. VoiceOver reads it as the scene button's hint.
     public var tip: String {
         switch self {
         case .water: return "Smooths moving water. Hold still or use a tripod."
