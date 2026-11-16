@@ -113,8 +113,8 @@ final class LongExposureSceneTests: XCTestCase {
     }
 
     func testTipsLeaveStartingAndStoppingToThePanel() {
-        // Under a scene without a set time the panel has its own line on how it starts and stops. A tip that said
-        // it too would put the same sentence on screen twice.
+        // The bulb switch's hint says how a scene without a set time starts and stops. A tip that said it too
+        // would have VoiceOver say it twice.
         let untimed = presetRecipes().filter(\.recipe.bulb)
         XCTAssertEqual(untimed.map(\.scene), [.lightPainting])
         for (scene, _) in untimed {
@@ -132,8 +132,7 @@ final class LongExposureSceneTests: XCTestCase {
     }
 
     func testTipsFitTheTwoLinesUnderTheScenes() {
-        // Two lines of a 375 point wide phone hold about 90 characters at the largest text the panel allows,
-        // shrunk as far as it lets them.
+        // A hint VoiceOver reads after the scene's name, kept to about 90 characters.
         for scene in LongExposureScene.allCases {
             XCTAssertLessThanOrEqual(scene.tip.count, 90, scene.tip)
         }

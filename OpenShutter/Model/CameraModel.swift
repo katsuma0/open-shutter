@@ -469,8 +469,8 @@ final class CameraModel {
                              isOffTarget: drift.isTracking && drift.isOffTarget, wasBumped: drift.wasBumped)
     }
 
-    /// What the shot in view asks of the person holding the phone: the one rule the pill, the panels and the
-    /// metadata share (SteadyAdvice). nil outside NIGHT, LONG and a stacked MANUAL shutter.
+    /// What the shot in view asks of the person holding the phone: the one rule the pill and the metadata share
+    /// (SteadyAdvice). nil outside NIGHT, LONG and a stacked MANUAL shutter.
     private var liveSteadyNeed: SteadyNeed? {
         switch settings.mode {
         case .night:
@@ -1558,7 +1558,8 @@ final class CameraModel {
         updateSettings { $0.longExposure.seconds = min(max(seconds, 0.25), 1800) }
     }
 
-    /// Picks what LONG mode is pointed at and loads that scene's blend, time and frame. Custom keeps the values.
+    /// Picks what LONG mode is pointed at and loads that scene's blend, time, bulb, frame and alignment. Custom keeps
+    /// the values.
     func setLongExposureScene(_ scene: LongExposureScene) {
         // The scene already on has nothing to load, and Custom is not a scene of the simple interface.
         guard !activity.isBusy, scene != settings.longExposure.scene, isAdvanced || scene.recipe != nil else { return }
@@ -1586,9 +1587,8 @@ final class CameraModel {
         settings.mode == .long ? settings.longExposure.recipe : nil
     }
 
-    // A blend, frame or bulb set by hand is no longer the scene's recipe, so a change in one of these three leaves
-    // the scene for Custom (commit). The simple interface has no Custom and no control for any of them: there the
-    // settings go back to the scene's own whatever is written.
+    // A blend, frame, bulb or alignment set by hand is no longer the scene's recipe, so a change in one of them
+    // leaves the scene for Custom (commit).
 
     func setLongExposureBlend(_ blend: StackBlend) {
         updateSettings {

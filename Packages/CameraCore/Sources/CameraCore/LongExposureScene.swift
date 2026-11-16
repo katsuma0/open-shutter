@@ -152,8 +152,8 @@ public enum LongExposureScene: String, Codable, Sendable, CaseIterable, Identifi
 
     public var id: String { rawValue }
 
-    /// The scenes the picker offers, in order. Star trails keeps its recipe so a saved choice still opens, but it is
-    /// no longer offered: a shot that runs for many minutes with the screen on wasn't worth its place in the strip.
+    /// The scenes the scene menu lists, in order. Star trails keeps its recipe so a saved choice still opens, but it
+    /// is no longer offered: a shot that runs for many minutes with the screen on wasn't worth its place in the list.
     public static let presets: [LongExposureScene] = [.water, .lightTrails, .stars, .northernLights, .fireworks, .lightPainting]
 
     public var title: String {
@@ -194,7 +194,7 @@ public enum LongExposureScene: String, Codable, Sendable, CaseIterable, Identifi
         // Locking the phone ends the exposure early, and half an hour invites it.
         case .starTrails: return "Stars draw arcs across the sky. Tripod, charger, screen on. Tap again to stop early."
         case .fireworks: return "Start as the rocket goes up. Needs a tripod."
-        // The panel's own line already says how a scene without a set time starts and stops. Focus is held from
+        // The bulb switch's hint already says how a scene without a set time starts and stops. Focus is held from
         // the moment the shot starts, and in the dark autofocus has little to find, so it is set beforehand.
         case .lightPainting: return "Draws the path of a moving light. Tripod. Touch and hold where you'll stand to set focus."
         case .custom: return "Your own blend, frame and exposure."
