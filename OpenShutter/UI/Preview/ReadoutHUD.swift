@@ -9,21 +9,17 @@ struct ReadoutHUD: View {
 
     var body: some View {
         let items = readoutItems()
-        // Narrow phones with Larger labels drop focus first, then white balance, rather than shrinking every value.
-        ViewThatFits(in: .horizontal) {
-            ReadoutLine(items: items)
-            ReadoutLine(items: items.filter { $0.kind != .focus })
-            ReadoutLine(items: items.filter { $0.kind != .focus && $0.kind != .kelvin })
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .cameraGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        // Nothing to tap: a touch goes through to the picture.
-        .allowsHitTesting(false)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Exposure readout")
-        .accessibilityValue(Self.spokenSummary(items))
-        .accessibilityAddTraits(.updatesFrequently)
+        // Four values fit the narrowest phone with Larger labels on, so the line needs no shorter form.
+        ReadoutLine(items: items)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .cameraGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            // Nothing to tap: a touch goes through to the picture.
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Exposure readout")
+            .accessibilityValue(Self.spokenSummary(items))
+            .accessibilityAddTraits(.updatesFrequently)
     }
 
     // MARK: Values
