@@ -112,7 +112,26 @@ private struct FrameMenu<Face: View>: View {
     let model: CameraModel
     let frameSeconds: Double?
     let range: ClosedRange<Double>
-    @ViewBuilder let face: () -> Face
+    // Built once in init: a stored closure never compares equal, and the pill that builds this follows the 10 Hz
+    // readings, so the menu would be rebuilt with every one of them.
+    @ViewBuilder let face: Face
+
+    var body: some View {
+        Menu {
+            FrameMenuRows(model: model, frameSeconds: frameSeconds, range: range)
+        } label: {
+            face
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+    }
+}
+
+/// The rows of the frame shutter menu. Their own view, so a change of the pill's text leaves them as they are.
+private struct FrameMenuRows: View {
+    let model: CameraModel
+    let frameSeconds: Double?
+    let range: ClosedRange<Double>
 
     var body: some View {
         let ascending = ShutterSpeed.scale(minSeconds: range.lowerBound, maxSeconds: range.upperBound, step: .full)
@@ -121,21 +140,15 @@ private struct FrameMenu<Face: View>: View {
         // The model clamps to the lens's range, which can leave the value just off a stop; the nearest one is checked.
         let clamped = frameSeconds.map { min(max($0, range.lowerBound), range.upperBound) }
         let checked = clamped.map { ShutterSpeed(seconds: $0).nearest(in: speeds).seconds }
-        Menu {
-            // The checked stop can stand for a scene's frame that sits between stops. Picking it again keeps the
-            // scene instead of turning it into Custom at that stop.
-            Picker("Frame shutter", selection: Binding(get: { checked }, set: { if $0 != checked { select($0) } })) {
-                Text("Auto").tag(Double?.none)
-                ForEach(speeds, id: \.self) { speed in
-                    Text(speed.label).tag(Double?.some(speed.seconds))
-                }
+        // The checked stop can stand for a scene's frame that sits between stops. Picking it again keeps the
+        // scene instead of turning it into Custom at that stop.
+        Picker("Frame shutter", selection: Binding(get: { checked }, set: { if $0 != checked { select($0) } })) {
+            Text("Auto").tag(Double?.none)
+            ForEach(speeds, id: \.self) { speed in
+                Text(speed.label).tag(Double?.some(speed.seconds))
             }
-            .pickerStyle(.inline)
-        } label: {
-            face()
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
+        .pickerStyle(.inline)
     }
 
     private func select(_ seconds: Double?) {
