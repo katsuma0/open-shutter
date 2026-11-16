@@ -749,7 +749,16 @@ private struct ControlsZone: View {
                         // As tall as the strip of chips: when PHOTO's shutter dial leads into MANUAL at its first
                         // tick, the strip takes this row over and the dial stays where the finger is.
                         ReadoutHUD(model: model)
+                            .frame(maxWidth: .infinity)
                             .frame(height: 44)
+                            // The line takes no touches, so a tap on its row goes through to the picture. With the
+                            // quick settings open that tap is meant to close them, as it does anywhere else under
+                            // the panel, and not to move the focus behind it.
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(Theme.spring) { model.isDrawerOpen = false }
+                            }
+                            .allowsHitTesting(model.isDrawerOpen)
                             .transition(.opacity)
                     } else if dial == .shutter {
                         // With the readout switched off the row is kept free for that dial, for the same reason.
