@@ -1606,7 +1606,14 @@ final class CameraModel {
     func setLongExposureFrameSeconds(_ seconds: Double?) {
         let range = capabilities.exposure.seconds
         let frame = seconds.map { min(max($0, range.lowerBound), range.upperBound) }
-        updateSettings { $0.longExposure.frameSeconds = frame }
+        // Behind a closed iris a scene runs a longer frame than the one it stores (longFrameSeconds). Picking the
+        // stored one then changes nothing in the settings, so commit can't tell it was picked by hand: the scene
+        // would stay and the pick would do nothing. A pick that differs from the frame in force leaves the scene.
+        let leavesScene = sceneRecipe != nil && frame != longFrameSeconds
+        updateSettings {
+            $0.longExposure.frameSeconds = frame
+            if leavesScene { $0.longExposure.scene = .custom }
+        }
     }
 
     func setBulb(_ enabled: Bool) {
