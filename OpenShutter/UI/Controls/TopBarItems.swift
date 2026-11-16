@@ -451,9 +451,9 @@ private struct ScheduleFace: View {
             } else if let text = timer ?? frames {
                 VStack(spacing: 0) {
                     Image(systemName: timer == nil ? "square.stack.3d.up" : "timer")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 11, weight: .regular))
                     Text(text)
-                        .font(.system(size: 10 * scale, weight: .bold).monospacedDigit())
+                        .font(.system(size: 10 * scale, weight: .medium).monospacedDigit())
                 }
             }
         }
@@ -465,9 +465,9 @@ private struct ScheduleFace: View {
     private static func row(symbol: String, text: String, scale: CGFloat) -> some View {
         HStack(spacing: 1.5) {
             Image(systemName: symbol)
-                .font(.system(size: 8, weight: .bold))
+                .font(.system(size: 8, weight: .medium))
             Text(text)
-                .font(.system(size: 9.5 * scale, weight: .bold).monospacedDigit())
+                .font(.system(size: 9.5 * scale, weight: .medium).monospacedDigit())
         }
     }
 }
@@ -635,7 +635,7 @@ private struct ItemText: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: size * Theme.labelScale, weight: .bold).monospacedDigit())
+            .font(.system(size: size * Theme.labelScale, weight: .medium).monospacedDigit())
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             .padding(.horizontal, 4)
