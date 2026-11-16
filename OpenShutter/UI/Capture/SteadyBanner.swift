@@ -38,8 +38,8 @@ private struct SteadyBannerSlot: View {
                 // between moving and steady.
                 SteadyPill(message: message, pulse: model.motion.isAvailable ? model.motionPulse : nil)
                     // At once, too. A fade between two states draws the words of both over each other for as long
-                    // as it runs, and that is the frame a screenshot catches. A pick in NIGHT's panel changes the
-                    // state inside the panel's own animation, which must not reach the pill either.
+                    // as it runs, and that is the frame a screenshot catches. A control that changes the state
+                    // inside an animation of its own must not reach the pill either.
                     .animation(nil, value: message)
                     .modifier(PersonsTop(degrees: degrees, sideways: turns % 2 != 0))
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.96)))

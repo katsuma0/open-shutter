@@ -724,9 +724,9 @@ private struct ControlsZone: View {
         let showsPanel = mode != .photo
         // PHOTO has no chips of its own, so its line of live values has the row the other modes give theirs.
         let showsReadout = mode == .photo && model.settings.display.showReadout
-        // An open dial folds the mode's own panel away to keep the stack short. Without a band (iPhone SE) the quick
-        // settings panel reaches down to that panel, so it folds while the quick settings are open too.
-        let showsSecondary = dial == nil && (modeRowInBand || !model.isDrawerOpen)
+        // Without a band (iPhone SE) the quick settings panel reaches down to the mode's own row above the chips, so
+        // that row folds while the quick settings are open.
+        let hasRoomForModeRow = modeRowInBand || !model.isDrawerOpen
 
         VStack(spacing: 6) {
             // A stack can't change mid-capture, so its panels fold away and the progress has the screen.
@@ -740,7 +740,8 @@ private struct ControlsZone: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                     if showsPanel {
-                        ModePanels(model: model, mode: mode, showsSecondary: showsSecondary, isRecording: isRecording)
+                        ModePanels(model: model, mode: mode, hasRoom: hasRoomForModeRow, dialOpen: dial != nil,
+                                   isRecording: isRecording)
                             // NIGHT's two kinds of shot are one mode on screen, so its panel changes in place.
                             .id(mode.carouselMode)
                             .transition(.opacity)
@@ -815,11 +816,14 @@ private struct ControlsZone: View {
 }
 
 /// The controls each mode adds above the lens row. The manual chips sit directly over the lens buttons in every mode
-/// that has them, with the mode's own panel above. That panel folds away while `showsSecondary` is false.
+/// that has them, with the mode's own row above.
 private struct ModePanels: View {
     let model: CameraModel
     let mode: CaptureMode
-    let showsSecondary: Bool
+    /// False while the quick settings panel is open on a phone without the band, where it reaches down to the
+    /// mode's own row.
+    let hasRoom: Bool
+    let dialOpen: Bool
     let isRecording: Bool
 
     var body: some View {
@@ -828,7 +832,8 @@ private struct ModePanels: View {
             case .manual:
                 ManualControlStrip(model: model)
             case .night, .long:
-                if showsSecondary {
+                // One row, so it stays under an open dial: the frames can be read while the duration is turned.
+                if hasRoom {
                     NightModePanel(model: model)
                 }
                 // A long exposure scene takes ISO, aperture, white balance and focus by hand. The night shot sets
@@ -837,7 +842,8 @@ private struct ModePanels: View {
                     ManualControlStrip(model: model)
                 }
             case .video:
-                if showsSecondary {
+                // An open dial folds VIDEO's row of format chips away to keep the stack short.
+                if hasRoom, !dialOpen {
                     // A format change mid-recording would reconfigure the session under the movie file.
                     VideoControls(model: model)
                         .disabled(isRecording)
@@ -923,7 +929,12 @@ private struct ShutterRow: View {
         let drawerHeld = CameraLayout.keepsDrawerClosed(model)
         ZStack {
             HStack(spacing: 0) {
-                if model.macroOffered {
+                // Left of the shutter: NIGHT's scenes in NIGHT, macro in PHOTO and MANUAL, nothing in VIDEO.
+                if model.settings.mode.usesStacking {
+                    SceneSideButton(model: model)
+                        .disabled(busy)
+                        .opacity(busy ? 0.4 : 1)
+                } else if model.macroOffered {
                     ShutterSideButton(symbol: "camera.macro", isActive: model.isMacro,
                                       label: model.isMacro ? "Macro, on" : "Macro") {
                         model.toggleMacro()
@@ -964,16 +975,53 @@ private struct ShutterSideButton: View {
             Haptics.tap()
             action()
         } label: {
-            Image(systemName: symbol)
-                .font(.system(size: size * 0.38, weight: .semibold))
-                .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
-                .frame(width: size, height: size)
-                .cameraGlass(in: Circle())
-                .overlay(Circle().strokeBorder(isActive ? Theme.accent : Color.clear, lineWidth: 2))
-                .contentShape(Circle())
+            ShutterSideFace(image: Image(systemName: symbol), isActive: isActive, size: size)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(label))
+    }
+}
+
+/// The look of a round button beside the shutter: a glass circle, with the glyph and a ring in the accent while its
+/// feature is on.
+private struct ShutterSideFace: View {
+    let image: Image
+    let isActive: Bool
+    let size: CGFloat
+
+    var body: some View {
+        image
+            .font(.system(size: size * 0.38, weight: .semibold))
+            .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
+            .frame(width: size, height: size)
+            .cameraGlass(in: Circle())
+            .overlay(Circle().strokeBorder(isActive ? Theme.accent : Color.clear, lineWidth: 2))
+            .contentShape(Circle())
+    }
+}
+
+/// NIGHT's button left of the shutter, in the place macro has in PHOTO and MANUAL: the scene the shot uses, shown by
+/// its symbol, and a tap lists them all. Never lit: a scene is always chosen, so there is no off to tell it from.
+private struct SceneSideButton: View {
+    let model: CameraModel
+    var size: CGFloat = ShutterSideButton.standardSize
+
+    var body: some View {
+        // nil is the night shot.
+        let scene: LongExposureScene? = model.settings.mode == .long ? model.settings.longExposure.scene : nil
+        let symbol: Image = scene.map { SceneSymbols.image(for: $0) } ?? Image(systemName: NightText.nightSymbol)
+        Menu {
+            NightSceneMenuItems(model: model, scene: scene)
+        } label: {
+            ShutterSideFace(image: symbol, isActive: false, size: size)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        // In the list's order whichever way the menu opens: the night shot first, Custom last.
+        .menuOrder(.fixed)
+        .accessibilityLabel(Text("Scene"))
+        .accessibilityValue(Text(scene?.title ?? NightText.nightTitle))
+        .accessibilityHint(Text(scene?.tip ?? NightText.nightDetail))
     }
 }
 
@@ -986,15 +1034,19 @@ private struct BottomRow: View {
         let busy = model.activity.isBusy
         let drawerHeld = CameraLayout.keepsDrawerClosed(model)
         ZStack {
-            // Macro and the quick settings sit between the outer buttons and the shutter, as they flank the shutter
-            // on a phone with a band: without them this phone would have no way to either.
+            // Macro, or NIGHT's scenes, and the quick settings sit between the outer buttons and the shutter, as
+            // they flank the shutter on a phone with a band: without them this phone would have no way to them.
             HStack(spacing: 6) {
                 if leftHanded {
                     FlipButton(model: model)
                 } else {
                     ThumbnailButton(model: model)
                 }
-                if model.macroOffered {
+                if model.settings.mode.usesStacking {
+                    SceneSideButton(model: model, size: 44)
+                        .disabled(busy)
+                        .opacity(busy ? 0.4 : 1)
+                } else if model.macroOffered {
                     ShutterSideButton(symbol: "camera.macro", isActive: model.isMacro,
                                       label: model.isMacro ? "Macro, on" : "Macro", size: 44) {
                         model.toggleMacro()

@@ -936,8 +936,8 @@ final class CameraModel {
     }
 
     /// Says why a pick that leads to another mode did nothing (canChangeMode). The controls that send such picks stay
-    /// live while the mode can't change: PHOTO's shutter dial while a photo saves, NIGHT's scene menu and row of four
-    /// between an intervalometer's shots. A dial sends a tick many times a second, and every toast slides in anew and
+    /// live while the mode can't change: PHOTO's shutter dial while a photo saves, NIGHT's scene menu between an
+    /// intervalometer's shots. A dial sends a tick many times a second, and every toast slides in anew and
     /// is read out by VoiceOver, so one that already says this stays up as it is, with its time started over.
     private func noteModeChangeRefused() {
         let message = activity.isBusy || intervalometer != nil
@@ -1546,10 +1546,6 @@ final class CameraModel {
         updateSettings { $0.night.seconds = seconds.map { min(max($0, range.lowerBound), range.upperBound) } }
     }
 
-    func setNightStability(_ choice: NightStabilityChoice) {
-        updateSettings { $0.night.stability = choice }
-    }
-
     /// The time stays the scene's own to change: every scene offers several. The simple interface keeps to those,
     /// so there another value lands on the closest one.
     func setLongExposureSeconds(_ seconds: Double) {
@@ -1577,28 +1573,6 @@ final class CameraModel {
             return
         }
         if let scene { setLongExposureScene(scene) }
-    }
-
-    /// Real, Blur or Trails. Picked while the night shot is on, it starts a long exposure of the person's own making,
-    /// which is what Custom means.
-    func selectNightBlend(_ blend: StackBlend) {
-        if settings.mode == .night {
-            guard !activity.isBusy else { return }
-            setMode(.long)
-            // setMode refuses while photos are still being saved or an intervalometer runs.
-            guard settings.mode == .long else {
-                noteModeChangeRefused()
-                return
-            }
-            // The blend goes in while the scene used last is still on, so commit gives it the alignment that
-            // suits it on the way to Custom (the setter does, where that scene was Custom already). A blend that
-            // is the scene's own changes nothing there, and the scene turns into Custom with its values.
-            setLongExposureBlend(blend)
-            setLongExposureScene(.custom)
-            return
-        }
-        guard settings.mode == .long else { return }
-        setLongExposureBlend(blend)
     }
 
     /// The scene's recipe while LONG is on with a scene chosen; nil in other modes and for Custom.
