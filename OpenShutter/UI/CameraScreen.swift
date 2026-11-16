@@ -722,6 +722,8 @@ private struct ControlsZone: View {
         let isStacking = activity == .stacking
         let isRecording = activity == .recording
         let showsPanel = mode != .photo
+        // PHOTO has no chips of its own, so its line of live values has the row the other modes give theirs.
+        let showsReadout = mode == .photo && model.settings.display.showReadout
         // An open dial folds the mode's own panel away to keep the stack short. Without a band (iPhone SE) the quick
         // settings panel reaches down to that panel, so it folds while the quick settings are open too.
         let showsSecondary = dial == nil && (modeRowInBand || !model.isDrawerOpen)
@@ -742,9 +744,14 @@ private struct ControlsZone: View {
                             // NIGHT's two kinds of shot are one mode on screen, so its panel changes in place.
                             .id(mode.carouselMode)
                             .transition(.opacity)
+                    } else if showsReadout {
+                        // As tall as the strip of chips: when PHOTO's shutter dial leads into MANUAL at its first
+                        // tick, the strip takes this row over and the dial stays where the finger is.
+                        ReadoutHUD(model: model)
+                            .frame(height: 44)
+                            .transition(.opacity)
                     } else if dial == .shutter {
-                        // PHOTO's shutter dial leads into MANUAL at its first tick. The strip's row is free from the
-                        // start, so the strip fades into it and the dial stays where the finger is.
+                        // With the readout switched off the row is kept free for that dial, for the same reason.
                         Color.clear
                             .frame(height: 44)
                             .accessibilityHidden(true)
