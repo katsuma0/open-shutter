@@ -41,4 +41,15 @@ final class SettingsStore {
     func clearAdvancedSnapshot() {
         defaults.removeObject(forKey: snapshotKey)
     }
+
+    // MARK: - Night on a tripod
+
+    /// The night shot's hand or tripod choice left the camera screen and now starts at tripod. A save from before
+    /// that is moved there once; this says it has been, so a choice made in Settings afterwards is kept.
+    private var nightTripodKey: String { key + ".nightTripod" }
+
+    var nightMovedToTripod: Bool {
+        get { defaults.bool(forKey: nightTripodKey) }
+        set { defaults.set(newValue, forKey: nightTripodKey) }
+    }
 }

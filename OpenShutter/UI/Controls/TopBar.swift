@@ -213,7 +213,8 @@ private struct VideoFormatChip: View {
             .disabled(!Self.canStep(rates, from: video.frameRate, matches: Self.sameRate))
         }
         .buttonStyle(.plain)
-        .font(Theme.chipFont)
+        // Medium, like the other text in the bar: the bare glyphs beside it are drawn in thin lines.
+        .font(Theme.chipFont.weight(.medium))
         // Its two slots hold "1080p · 29.97" on the narrowest phone; with Larger labels the text shrinks to fit them
         // rather than reach its neighbours.
         .lineLimit(1)
@@ -355,7 +356,8 @@ private struct RecordingCapsule: View {
                 .fill(Theme.primaryText)
                 .frame(width: 7, height: 7)
             Text(Self.timecode(seconds))
-                .font(Theme.valueFont)
+                // Medium, like the rest of the bar's text.
+                .font(Theme.valueFont.weight(.medium))
                 .contentTransition(.numericText(value: Double(seconds)))
         }
         .foregroundStyle(Theme.primaryText)
@@ -387,8 +389,9 @@ private struct RecordingCapsule: View {
 // MARK: - Styles and helpers
 
 /// A bar button's look: the glyph alone in a 44 pt touch area, white, or the accent while its setting is on. No
-/// circle behind it, as in Apple's Camera, so it carries a shadow to read over a bright picture. With Solid buttons
-/// the dark circle is back. The name is from when each sat in a glass circle.
+/// circle behind it, as in Apple's Camera, so it carries a shadow to read over a bright picture. Regular weight:
+/// without a circle around them, heavier lines made the row look bold. With Solid buttons the dark circle is back.
+/// The name is from when each sat in a glass circle.
 struct BarCircleStyle: ButtonStyle {
     var isActive = false
     /// A press on the button's touch and hold layer.
@@ -397,7 +400,7 @@ struct BarCircleStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let pressed = configuration.isPressed || isPressed
         configuration.label
-            .font(.system(size: 18 * Theme.labelScale, weight: .semibold))
+            .font(.system(size: 18 * Theme.labelScale, weight: .regular))
             .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
             .shadow(color: .black.opacity(0.5), radius: 3)
             .frame(width: 44, height: 44)

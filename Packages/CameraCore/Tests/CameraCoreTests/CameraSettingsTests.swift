@@ -87,7 +87,7 @@ final class CameraSettingsTests: XCTestCase {
         s.display.clippingWarnings = false
         s.display.dimDuringLongShots = true
         s.night.seconds = 12.5
-        s.night.stability = .tripod
+        s.night.stability = .handheld
         s.night.alignFrames = false
         s.night.maxISO = 1600
         s.night.biasEV = 0.3
@@ -218,6 +218,9 @@ final class CameraSettingsTests: XCTestCase {
         // Its frame shape was saved with it, so it stays 4:3; everything added since starts at its default.
         var expected = CameraSettings.default
         expected.capture.aspect = .fourThree
+        // Night's hand or tripod choice was saved too, as the Auto it started at then. Decoding keeps it; the app
+        // moves a save like this to the tripod default once, when it launches.
+        expected.night.stability = .automatic
         XCTAssertEqual(loaded, expected)
     }
 

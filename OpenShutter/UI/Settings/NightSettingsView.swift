@@ -35,6 +35,8 @@ private struct NightShotSection: View {
             SettingsPicker("Stability", selection: model.settingBinding(\.night.stability),
                          options: NightStabilityChoice.allCases, label: \.title)
             Toggle("Align frames", isOn: model.settingBinding(\.night.alignFrames))
+                // A tripod plan never lines frames up, so the switch has nothing to act on there.
+                .disabled(night.stability == .tripod)
             SettingsPicker("Maximum ISO", selection: model.settingBinding(\.night.maxISO),
                          options: pickerNumbers(Self.maxISOChoices, current: night.maxISO), label: ISOScale.label)
             Stepper(value: biasBinding(range: biasRange), in: biasRange, step: 1.0 / 3.0) {
@@ -75,8 +77,10 @@ private struct NightShotSection: View {
 
     private static func notes(night: NightSettings, caps: CameraCapabilities) -> [String?] {
         var notes: [String?] = [
-            "Auto uses longer frames while the phone is held still. Tripod uses the longest frames the camera allows.",
-            "Align frames lines up the frames to undo small hand movements. A night shot keeps each frame at or below the maximum ISO.",
+            "Stability starts at Tripod, which uses the longest frames the camera allows. Handheld keeps the frames short and lines them up. Auto follows the motion sensor.",
+            night.stability == .tripod
+                ? "On Tripod the frames are not lined up, so Align frames has nothing to do. A night shot keeps each frame at or below the maximum ISO."
+                : "Align frames lines up the frames to undo small hand movements. A night shot keeps each frame at or below the maximum ISO.",
         ]
         let deviceMax = caps.exposure.iso.upperBound
         if night.maxISO > deviceMax {

@@ -10,7 +10,7 @@ public enum SteadyNeed: String, Codable, Sendable, Hashable, CaseIterable {
     case tripod
 }
 
-/// The one rule for whether a shot needs a tripod, shared by the status pill, the panels and the photo's metadata.
+/// The one rule for whether a shot needs a tripod, shared by the status pill and the photo's metadata.
 public enum SteadyAdvice {
     /// NIGHT shots longer than this need a tripod: the longest automatic time the planner gives steady hands.
     public static let nightHandheldSeconds = NightModePlanner.recommendedMaxSeconds(for: .steady)

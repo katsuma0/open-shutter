@@ -469,8 +469,8 @@ final class CameraModel {
                              isOffTarget: drift.isTracking && drift.isOffTarget, wasBumped: drift.wasBumped)
     }
 
-    /// What the shot in view asks of the person holding the phone: the one rule the pill, the panels and the
-    /// metadata share (SteadyAdvice). nil outside NIGHT, LONG and a stacked MANUAL shutter.
+    /// What the shot in view asks of the person holding the phone: the one rule the pill and the metadata share
+    /// (SteadyAdvice). nil outside NIGHT, LONG and a stacked MANUAL shutter.
     private var liveSteadyNeed: SteadyNeed? {
         switch settings.mode {
         case .night:
@@ -632,6 +632,16 @@ final class CameraModel {
             stored = stored.restoringAdvanced(from: store.loadAdvancedSnapshot())
             store.save(stored)
             store.clearAdvancedSnapshot()
+        }
+        // The night shot plans for a tripod unless Settings says otherwise, and the camera screen no longer has
+        // the picker. A save from before that is moved to tripod once, whatever it held: with no control on screen,
+        // an old Handheld would only show as shots that come out differently.
+        if !store.nightMovedToTripod {
+            if stored.night.stability != .tripod {
+                stored.night.stability = .tripod
+                store.save(stored)
+            }
+            store.nightMovedToTripod = true
         }
         // What the startup options don't keep goes back to where a fresh install starts, after the restore, so a
         // MANUAL it brings back doesn't open a camera that is set to start in PHOTO.
@@ -844,14 +854,21 @@ final class CameraModel {
         if lenses != self.lenses { self.lenses = lenses }
         let presets = backend.lensPresets
         if presets != lensPresets { lensPresets = presets }
-        // A camera left in macro opens in macro: the saved lens and zoom say so once the lenses are known. Not in
-        // VIDEO, where macro never follows (setMode) and the same lens and zoom were reached by hand.
+        // A camera left in macro opens in macro: the saved lens and zoom say so once the lenses are known. Only in
+        // the modes that have the macro button. NIGHT gave its place to the scenes, and a save from the build
+        // before can still hold NIGHT in macro: it opens on the main camera's 1x, as entering NIGHT leaves macro
+        // (setMode). Parked, because the camera is still starting here, and startBackend ends with the replay. With
+        // lens switching off the same lens and zoom were reached by hand and stay, as they do in VIDEO.
         if !macroRestored, !lenses.isEmpty {
             macroRestored = true
-            if settings.mode != .video,
-               let lens = lenses.first(where: { $0.id == settings.lensID }), lens.kind == .ultraWide,
+            if let lens = lenses.first(where: { $0.id == settings.lensID }), lens.kind == .ultraWide,
                abs(settings.zoom * lens.relativeZoom - 1) < 0.02 {
-                isMacro = true
+                if Self.offersMacro(settings.mode) {
+                    isMacro = true
+                } else if settings.mode.usesStacking, settings.controls.autoLensSwitching, let id = macroButtonID,
+                          let wide = backLensPresets.first(where: { $0.id == id }) {
+                    pendingPreset = wide
+                }
             }
         }
         updateActivePreset()
@@ -907,9 +924,10 @@ final class CameraModel {
             activeDial = nil
         }
         if mode.usesStacking { lastNightFamilyMode = mode }
-        // VIDEO has no macro button to show macro or to end it, so macro stays behind: the main camera's 1x, the
-        // button that was lit, is the lens VIDEO opens on.
-        if mode == .video, isMacro, let id = macroButtonID, let wide = backLensPresets.first(where: { $0.id == id }) {
+        // VIDEO and NIGHT have no macro button to show macro or to end it, so macro stays behind: the main
+        // camera's 1x, the button that was lit, is the lens they open on.
+        if !Self.offersMacro(mode), isMacro, let id = macroButtonID,
+           let wide = backLensPresets.first(where: { $0.id == id }) {
             select(wide, haptic: false)
         }
         modeChangeLedByPick = false
@@ -924,8 +942,8 @@ final class CameraModel {
     }
 
     /// Says why a pick that leads to another mode did nothing (canChangeMode). The controls that send such picks stay
-    /// live while the mode can't change: PHOTO's shutter dial while a photo saves, NIGHT's scene menu and row of four
-    /// between an intervalometer's shots. A dial sends a tick many times a second, and every toast slides in anew and
+    /// live while the mode can't change: PHOTO's shutter dial while a photo saves, NIGHT's scene menu between an
+    /// intervalometer's shots. A dial sends a tick many times a second, and every toast slides in anew and
     /// is read out by VoiceOver, so one that already says this stays up as it is, with its time started over.
     private func noteModeChangeRefused() {
         let message = activity.isBusy || intervalometer != nil
@@ -1534,17 +1552,14 @@ final class CameraModel {
         updateSettings { $0.night.seconds = seconds.map { min(max($0, range.lowerBound), range.upperBound) } }
     }
 
-    func setNightStability(_ choice: NightStabilityChoice) {
-        updateSettings { $0.night.stability = choice }
-    }
-
     /// The time stays the scene's own to change: every scene offers several. The simple interface keeps to those,
     /// so there another value lands on the closest one.
     func setLongExposureSeconds(_ seconds: Double) {
         updateSettings { $0.longExposure.seconds = min(max(seconds, 0.25), 1800) }
     }
 
-    /// Picks what LONG mode is pointed at and loads that scene's blend, time and frame. Custom keeps the values.
+    /// Picks what LONG mode is pointed at and loads that scene's blend, time, bulb, frame and alignment. Custom keeps
+    /// the values.
     func setLongExposureScene(_ scene: LongExposureScene) {
         // The scene already on has nothing to load, and Custom is not a scene of the simple interface.
         guard !activity.isBusy, scene != settings.longExposure.scene, isAdvanced || scene.recipe != nil else { return }
@@ -1567,36 +1582,13 @@ final class CameraModel {
         if let scene { setLongExposureScene(scene) }
     }
 
-    /// Real, Blur or Trails. Picked while the night shot is on, it starts a long exposure of the person's own making,
-    /// which is what Custom means.
-    func selectNightBlend(_ blend: StackBlend) {
-        if settings.mode == .night {
-            guard !activity.isBusy else { return }
-            setMode(.long)
-            // setMode refuses while photos are still being saved or an intervalometer runs.
-            guard settings.mode == .long else {
-                noteModeChangeRefused()
-                return
-            }
-            // The blend goes in while the scene used last is still on, so commit gives it the alignment that
-            // suits it on the way to Custom (the setter does, where that scene was Custom already). A blend that
-            // is the scene's own changes nothing there, and the scene turns into Custom with its values.
-            setLongExposureBlend(blend)
-            setLongExposureScene(.custom)
-            return
-        }
-        guard settings.mode == .long else { return }
-        setLongExposureBlend(blend)
-    }
-
     /// The scene's recipe while LONG is on with a scene chosen; nil in other modes and for Custom.
     var sceneRecipe: LongExposureRecipe? {
         settings.mode == .long ? settings.longExposure.recipe : nil
     }
 
-    // A blend, frame or bulb set by hand is no longer the scene's recipe, so a change in one of these three leaves
-    // the scene for Custom (commit). The simple interface has no Custom and no control for any of them: there the
-    // settings go back to the scene's own whatever is written.
+    // A blend, frame, bulb or alignment set by hand is no longer the scene's recipe, so a change in one of them
+    // leaves the scene for Custom (commit).
 
     func setLongExposureBlend(_ blend: StackBlend) {
         updateSettings {
@@ -1614,7 +1606,14 @@ final class CameraModel {
     func setLongExposureFrameSeconds(_ seconds: Double?) {
         let range = capabilities.exposure.seconds
         let frame = seconds.map { min(max($0, range.lowerBound), range.upperBound) }
-        updateSettings { $0.longExposure.frameSeconds = frame }
+        // Behind a closed iris a scene runs a longer frame than the one it stores (longFrameSeconds). Picking the
+        // stored one then changes nothing in the settings, so commit can't tell it was picked by hand: the scene
+        // would stay and the pick would do nothing. A pick that differs from the frame in force leaves the scene.
+        let leavesScene = sceneRecipe != nil && frame != longFrameSeconds
+        updateSettings {
+            $0.longExposure.frameSeconds = frame
+            if leavesScene { $0.longExposure.scene = .custom }
+        }
     }
 
     func setBulb(_ enabled: Bool) {
@@ -3125,8 +3124,8 @@ final class CameraModel {
 
     /// Macro is on: the ultra wide camera framing like 1x. It focuses far closer than the main camera, which is how
     /// Apple's Camera takes its close-ups. The 1x button stays lit for it. Any lens button leaves it, and so does a
-    /// switch to VIDEO, which has no macro button. A flag of its own, not read off the lens and zoom: a pinch
-    /// through 1x on the ultra wide camera is not macro.
+    /// switch to VIDEO or NIGHT, which have no macro button. A flag of its own, not read off the lens and zoom: a
+    /// pinch through 1x on the ultra wide camera is not macro.
     private(set) var isMacro = false
     @ObservationIgnored private var macroRestored = false
 
@@ -3136,14 +3135,25 @@ final class CameraModel {
         return (ones.first { preset in lenses.first(where: { $0.id == preset.lensID })?.kind == .wide } ?? ones.first)?.id
     }
 
-    /// The macro button shows on phones with an ultra wide camera, while a back camera is in use.
+    /// Macro can run on phones with an ultra wide camera, while a back camera is in use.
     var macroAvailable: Bool {
         !capabilities.lens.isFront && lenses.contains { $0.kind == .ultraWide }
     }
 
+    /// The modes with a macro button. In NIGHT its place beside the shutter is the scene menu's, and VIDEO has
+    /// neither.
+    private static func offersMacro(_ mode: CaptureMode) -> Bool {
+        mode == .photo || mode == .manual
+    }
+
+    /// Whether the macro button shows: a phone and camera that can, in a mode that has the button.
+    var macroOffered: Bool {
+        macroAvailable && Self.offersMacro(settings.mode)
+    }
+
     /// Macro on: the ultra wide at the 1x framing. Off: back to the main camera's 1x.
     func toggleMacro() {
-        guard !activity.isBusy, macroAvailable else { return }
+        guard !activity.isBusy, macroOffered else { return }
         if isMacro {
             if let id = macroButtonID, let wide = backLensPresets.first(where: { $0.id == id }) { select(wide) }
             return

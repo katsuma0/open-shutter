@@ -84,7 +84,7 @@ final class InterfaceLevelTests: XCTestCase {
         s.display.clippingWarnings = false
         s.display.dimDuringLongShots = true
         s.night.seconds = 12.5
-        s.night.stability = .tripod
+        s.night.stability = .handheld
         s.night.alignFrames = false
         s.night.maxISO = 1600
         s.night.biasEV = 0.3

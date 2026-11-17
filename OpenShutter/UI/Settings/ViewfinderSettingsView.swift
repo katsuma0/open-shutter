@@ -13,9 +13,11 @@ struct ViewfinderSettingsView: View {
             Section {
                 SettingsPicker("Histogram", selection: model.settingBinding(\.display.histogram),
                              options: HistogramStyle.allCases, label: \.title)
+                Toggle("Exposure readout", isOn: model.settingBinding(\.display.showReadout))
                 Toggle("Clipping warning", isOn: model.settingBinding(\.display.clippingWarnings))
             } footer: {
                 SettingsFooter([
+                    "The readout is Photo's line above the zoom buttons: ISO, aperture, white balance and focus. Manual, Video and the long exposure scenes have chips for the ones you can set there.",
                     "The clipping warning appears when highlights lose detail.",
                     "The grid and the level are on the first page of Settings, under Camera.",
                 ])
