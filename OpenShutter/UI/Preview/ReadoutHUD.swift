@@ -1,8 +1,8 @@
 import SwiftUI
 import CameraCore
 
-/// PHOTO's line of live values: ISO, aperture, white balance and focus, and under it the white balance on a scale
-/// from warm to cool, live. The shutter and the exposure compensation
+/// PHOTO's line of live values: ISO, aperture, white balance and focus, and under it the light meter: how far the
+/// picture is from what the meter wants, -3 to +3 EV, live. The shutter and the exposure compensation
 /// are not in it: they are the chips beside the lens buttons. The other modes show these four on chips of their own
 /// or plan them for the shot, so the line is PHOTO's alone, in the row where MANUAL has its chips.
 struct ReadoutHUD: View {
@@ -10,13 +10,11 @@ struct ReadoutHUD: View {
 
     var body: some View {
         let items = readoutItems()
-        let kelvin = items.first { $0.kind == .kelvin }?.value
+        let meter = model.meterOffset
         VStack(spacing: 3) {
             // Four values fit the narrowest phone with Larger labels on, so the line needs no shorter form.
             ReadoutLine(items: items)
-            if let kelvin {
-                WhiteBalanceMeter(kelvin: kelvin)
-            }
+            LightMeter(offset: meter)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
@@ -25,7 +23,7 @@ struct ReadoutHUD: View {
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Exposure readout")
-        .accessibilityValue(Self.spokenSummary(items))
+        .accessibilityValue(Self.spokenSummary(items) + ". Meter " + EVFormat.label(meter))
         .accessibilityAddTraits(.updatesFrequently)
     }
 
@@ -168,46 +166,90 @@ private struct ReadoutValue: View {
     }
 }
 
-// MARK: - White balance meter
+// MARK: - Meter
 
-/// The light's colour temperature on a strip from amber (2000 K, candles and sodium lamps) through white (daylight)
-/// to blue (10000 K, shade and blue hour), with a needle at the value the camera is using: the live reading under
-/// auto white balance, the set value otherwise. On a log scale, so daylight sits right of the middle and the warm
-/// end, where indoor light differs most, has room.
-private struct WhiteBalanceMeter: View {
-    let kelvin: Double
+/// A camera's exposure scale: -3 to +3 EV in thirds, filled from zero to the reading, with a needle.
+private struct LightMeter: View {
+    let offset: Double
 
-    private static let range: ClosedRange<Double> = 2000...10000
-    private static let width: CGFloat = 150
-    private static let height: CGFloat = 5
-    private static let colors: [Color] = [
-        Color(red: 1.0, green: 0.55, blue: 0.15),
-        Color(red: 1.0, green: 0.76, blue: 0.47),
-        Color(red: 1.0, green: 1.0, blue: 1.0),
-        Color(red: 0.76, green: 0.86, blue: 1.0),
-        Color(red: 0.55, green: 0.70, blue: 1.0),
-    ]
+    private static let range = 3.0
+    private static let width: CGFloat = 160
+    private static let height: CGFloat = 14
+    /// Room at each end for the minus and plus marks.
+    private static let inset: CGFloat = 11
 
     var body: some View {
-        Capsule()
-            .fill(LinearGradient(colors: Self.colors, startPoint: .leading, endPoint: .trailing))
-            .opacity(0.85)
+        let value = offset.isFinite ? min(max(offset, -Self.range), Self.range) : 0
+        // Read here rather than in the renderer, which runs outside the body: a new accent, or Increase Contrast,
+        // then redraws the scale.
+        let accent = Theme.accent
+        let marks = Theme.secondaryText
+        HStack(spacing: 6) {
+            Canvas { context, size in
+                Self.drawScale(in: &context, size: size, value: value, accent: accent, marks: marks)
+            }
             .frame(width: Self.width, height: Self.height)
             .overlay(alignment: .leading) {
-                // Not animated: under auto white balance the reading moves ten times a second.
+                // Not animated: the reading moves ten times a second, so a glide would never come to rest.
                 Capsule()
-                    .fill(Theme.primaryText)
-                    .frame(width: 2, height: Self.height + 6)
-                    .shadow(color: .black.opacity(0.7), radius: 1.5)
-                    .offset(x: Self.position(kelvin) * Self.width - 1)
+                    .fill(Self.needleColor(value))
+                    .frame(width: 2, height: Self.height)
+                    .offset(x: Self.position(of: value, width: Self.width) - 1)
             }
-            .frame(height: Self.height + 6)
-            .accessibilityHidden(true)
+            ZStack {
+                Text("+0.0").hidden()
+                Text(EVFormat.label(value))
+                    .foregroundStyle(abs(value) < 1.0 / 6.0 ? Theme.primaryText : Theme.accent)
+            }
+            .font(Theme.readoutFont)
+            .lineLimit(1)
+            .fixedSize()
+        }
     }
 
-    private static func position(_ kelvin: Double) -> CGFloat {
-        guard kelvin.isFinite, kelvin > 0 else { return 0.5 }
-        let clamped = min(max(kelvin, range.lowerBound), range.upperBound)
-        return CGFloat(log(clamped / range.lowerBound) / log(range.upperBound / range.lowerBound))
+    private static func position(of value: Double, width: CGFloat) -> CGFloat {
+        inset + CGFloat((value + range) / (2 * range)) * (width - 2 * inset)
+    }
+
+    /// White near zero, yellow off the mark, red when the reading runs past the end of the scale.
+    private static func needleColor(_ value: Double) -> Color {
+        if abs(value) >= range - 0.01 { return Theme.recording }
+        return abs(value) < 1.0 / 6.0 ? Theme.primaryText : Theme.accent
+    }
+
+    private static func drawScale(in context: inout GraphicsContext, size: CGSize, value: Double, accent: Color,
+                                  marks: Color) {
+        let steps = 18
+        var plain = Path()
+        var lit = Path()
+        for index in 0...steps {
+            let ev = -range + Double(index) / 3
+            let x = position(of: ev, width: size.width)
+            let tick: CGFloat
+            if index == steps / 2 {
+                tick = size.height
+            } else if index % 3 == 0 {
+                tick = size.height * 0.6
+            } else {
+                tick = size.height * 0.3
+            }
+            let top = (size.height - tick) / 2
+            // Ticks between zero and the reading light up, so the size of the error reads at a glance.
+            let isLit = value >= 0 ? (ev > 0.01 && ev <= value + 0.01) : (ev < -0.01 && ev >= value - 0.01)
+            var line = Path()
+            line.move(to: CGPoint(x: x, y: top))
+            line.addLine(to: CGPoint(x: x, y: top + tick))
+            if isLit {
+                lit.addPath(line)
+            } else {
+                plain.addPath(line)
+            }
+        }
+        context.stroke(plain, with: .color(.white.opacity(0.55)), lineWidth: 1)
+        context.stroke(lit, with: .color(accent), lineWidth: 1.5)
+        let minus = context.resolve(Text("-").font(.system(size: 9, weight: .semibold)).foregroundStyle(marks))
+        let plus = context.resolve(Text("+").font(.system(size: 9, weight: .semibold)).foregroundStyle(marks))
+        context.draw(minus, at: CGPoint(x: 0, y: size.height / 2), anchor: .leading)
+        context.draw(plus, at: CGPoint(x: size.width, y: size.height / 2), anchor: .trailing)
     }
 }
