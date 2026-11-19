@@ -14,9 +14,9 @@ final class MotionMonitor {
     /// cross is in the right place when the screen lights up again.
     var pausesDriftAngles = false
     /// How much the phone is moving, 0 to 1 (MotionPulse.level), for the steady pill's meter. Called only when the
-    /// level changes by a step worth drawing, at most about ten times a second.
+    /// level changes by a step worth drawing, at most about twenty times a second.
     var onPulse: ((Double) -> Void)?
-    /// The level as last smoothed: up at once, down slowly, so a single twitch is seen and the bars don't flicker.
+    /// The level as last smoothed: up quickly, down slowly, so a twitch is seen and the bars don't flicker.
     private var pulse = 0.0
     private var publishedPulse = 0.0
     private var lastPulseTime: TimeInterval?
@@ -126,13 +126,15 @@ final class MotionMonitor {
         }
     }
 
-    /// Rises with the movement at once and falls back over about half a second. Published in steps of a tenth, no
-    /// more than ten times a second, so a hand's tremor costs the screen ten small redraws a second and a tripod none.
+    /// Rises halfway to the movement with each sample and falls back over about a second, so the meter glides
+    /// instead of jumping. Published in twentieths, no more than twenty times a second: a hand's tremor costs the
+    /// screen that many small redraws, and a tripod none.
     private func publishPulse(speed: Double, at time: TimeInterval) {
-        pulse = max(MotionPulse.level(forSpeed: speed), pulse * 0.86)
-        let stepped = (pulse * 10).rounded() / 10
+        let level = MotionPulse.level(forSpeed: speed)
+        pulse = level > pulse ? pulse + (level - pulse) * 0.5 : max(level, pulse * 0.92)
+        let stepped = (pulse * 20).rounded() / 20
         guard stepped != publishedPulse else { return }
-        if let last = lastPulseTime, time >= last, time - last < 0.1, stepped != 0 { return }
+        if let last = lastPulseTime, time >= last, time - last < 0.05, stepped != 0 { return }
         lastPulseTime = time
         publishedPulse = stepped
         onPulse?(stepped)

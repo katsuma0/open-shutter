@@ -136,7 +136,6 @@ private struct SteadyPill: View {
             .minimumScaleFactor(0.8)
             if let pulse {
                 MotionMeter(pulse: pulse)
-                    .foregroundStyle(ink)
             }
         }
         .padding(.horizontal, 14)
@@ -173,8 +172,9 @@ private struct SteadyPill: View {
 }
 
 /// Five small bars at the end of the pill that rise with the phone's movement and settle again: proof that the
-/// sensor feels even a light touch, before the pill's words change. Small and soft on purpose. The words are the
-/// status; this only shows the phone is listening.
+/// sensor feels even a light touch, before the pill's words change. They are coloured by how much it moves, green
+/// when still, then yellow, orange and red, on a dark backing of their own so the colours read on the yellow
+/// warning pill too.
 private struct MotionMeter: View {
     let pulse: MotionPulse
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -185,15 +185,20 @@ private struct MotionMeter: View {
     var body: some View {
         let level = pulse.level
         let still = systemReduceMotion || AppearanceStore.shared.reduceMotion
+        let rgb = MotionPulse.color(for: level)
         HStack(alignment: .center, spacing: 2) {
             ForEach(Self.weights.indices, id: \.self) { index in
                 Capsule()
-                    .frame(width: 2.5, height: 3 + CGFloat(level * Self.weights[index]) * 12)
+                    .frame(width: 3, height: 4 + CGFloat(level * Self.weights[index]) * 12)
             }
         }
-        .frame(width: 22, height: 16)
-        .opacity(0.7)
-        .animation(still ? nil : .easeOut(duration: 0.2), value: level)
+        .foregroundStyle(Color(red: rgb.red, green: rgb.green, blue: rgb.blue))
+        .frame(width: 25, height: 16)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(Color.black.opacity(0.45)))
+        // Long enough to join the samples into one movement, short enough to follow the hand.
+        .animation(still ? nil : .easeOut(duration: 0.15), value: level)
         .accessibilityHidden(true)
     }
 }
