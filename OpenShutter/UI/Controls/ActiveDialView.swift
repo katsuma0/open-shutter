@@ -450,7 +450,7 @@ private enum DialValues {
             if settings.mode == .night {
                 let manual = settings.night.seconds
                 // The header's A badge and lit AUTO button already say auto, so the value is the bare duration.
-                return Readout(title: "Duration", value: Formatting.compactDuration(manual ?? model.nightAutoSeconds),
+                return Readout(title: "Duration", value: DialScales.durationLabel(manual ?? model.nightAutoSeconds),
                                isAuto: manual == nil, offersAuto: true, isStacked: false)
             }
             if settings.mode == .long {
@@ -772,10 +772,15 @@ private enum DialScales {
         var candidates: [LabelCandidate] = []
         for (index, seconds) in values.enumerated() where labelled.contains(seconds) {
             let isEnd = index == 0 || index == values.count - 1
-            candidates.append(LabelCandidate(index: index, text: Formatting.compactDuration(seconds), priority: isEnd ? 2 : 1))
+            candidates.append(LabelCandidate(index: index, text: durationLabel(seconds), priority: isEnd ? 2 : 1))
         }
-        let spoken = values.map { Formatting.compactDuration($0) }
+        let spoken = values.map(durationLabel)
         return DialScale(values: values, spoken: spoken, candidates: candidates, spacing: 12, metric: .linear)
+    }
+
+    /// "1/8" below a second, where the length is a shutter speed, and "30s" or "5m" above.
+    static func durationLabel(_ seconds: Double) -> String {
+        seconds < 1 ? ShutterSpeed(seconds: seconds).label : Formatting.compactDuration(seconds)
     }
 
     private static func iso(_ values: [Double]) -> DialScale {

@@ -646,7 +646,7 @@ private enum ChipReader {
             // A night shot's chip is how long it runs: the camera's own choice from the light, or a time set by hand.
             let manual = settings.night.seconds
             let seconds = manual ?? model.nightAutoSeconds
-            let text = Formatting.compactDuration(seconds)
+            let text = seconds < 1 ? ShutterSpeed(seconds: seconds).label : Formatting.compactDuration(seconds)
             return ChipContent(title: title, value: text, numeric: seconds, tone: manual == nil ? .auto : .manual,
                                canReset: manual != nil, spokenValue: manual == nil ? text + ", auto" : text)
         }
