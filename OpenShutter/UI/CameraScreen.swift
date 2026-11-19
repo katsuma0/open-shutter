@@ -479,7 +479,7 @@ private struct HistogramSlot: View {
             // Under the battery saver's black layer the analysis isn't read, so nothing here redraws.
             if style != .off, !model.dimmer.isDimmed, let histogram = model.analysis?.histogram {
                 HistogramView(histogram: histogram, style: style)
-                    .frame(width: 120, height: 60)
+                    .frame(width: HistogramView.size.width, height: HistogramView.size.height)
                     .padding(.leading, 12)
                     .padding(.top, 12 + topShift)
                     .transition(.opacity)

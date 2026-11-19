@@ -1,9 +1,12 @@
 import SwiftUI
 import CameraCore
 
-/// The live histogram in a small glass panel: luma as a white area, RGB as three channels that add up to
-/// white where they overlap.
+/// The live histogram, drawn straight on the picture with no panel: luma as a soft grey hill, RGB as three
+/// translucent channels that add up to white where they overlap. Its bottom and both ends fade into the picture, so
+/// it sits on the scene instead of covering a box of it.
 struct HistogramView: View {
+    static let size = CGSize(width: 190, height: 64)
+
     let histogram: Histogram
     let style: HistogramStyle
 
@@ -12,10 +15,19 @@ struct HistogramView: View {
             Canvas { context, size in
                 HistogramPlot(histogram: histogram, style: style).draw(in: &context, size: size)
             }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 6)
-            .frame(width: 120, height: 60)
-            .cameraGlass(in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(width: Self.size.width, height: Self.size.height)
+            // Ends and bottom fade out; the top keeps its full strength, where the peaks are read.
+            .mask {
+                LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.12),
+                                       .init(color: .black, location: 0.88), .init(color: .clear, location: 1)],
+                               startPoint: .leading, endPoint: .trailing)
+                    .mask {
+                        LinearGradient(colors: [.black, .black, .black.opacity(0.15)], startPoint: .top,
+                                       endPoint: .bottom)
+                    }
+            }
+            // A soft shade under the curves, so a white curve still reads over a white sky.
+            .shadow(color: .black.opacity(0.35), radius: 3)
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(style == .rgb ? "RGB histogram" : "Histogram")
@@ -40,7 +52,6 @@ private struct HistogramPlot {
 
     func draw(in context: inout GraphicsContext, size: CGSize) {
         guard size.width > 1, size.height > 1 else { return }
-        drawGuides(in: &context, size: size)
         switch style {
         case .off:
             return
@@ -56,7 +67,9 @@ private struct HistogramPlot {
             // Additive blending turns overlapping channels white, so a neutral scene reads as a white curve.
             context.blendMode = .plusLighter
             for (values, channel) in zip(heights, Self.channels) {
-                context.fill(Self.area(values, size: size), with: .color(channel.1.opacity(0.85)))
+                let area = Self.area(values, size: size)
+                context.fill(area, with: .color(channel.1.opacity(0.45)))
+                context.stroke(Self.curve(values, size: size), with: .color(channel.1.opacity(0.9)), lineWidth: 1)
             }
         }
     }
@@ -64,18 +77,9 @@ private struct HistogramPlot {
     private func drawLuma(in context: inout GraphicsContext, size: CGSize) {
         let heights = Self.heights([histogram.bucketed(.luma, count: Self.bucketCount)])
         guard let luma = heights.first else { return }
-        context.fill(Self.area(luma, size: size), with: .color(.white.opacity(0.8)))
-    }
-
-    /// Quarter, half and three quarter marks, the way a camera's histogram is ruled.
-    private func drawGuides(in context: inout GraphicsContext, size: CGSize) {
-        var guides = Path()
-        for fraction in [0.25, 0.5, 0.75] {
-            let x = size.width * fraction
-            guides.move(to: CGPoint(x: x, y: 0))
-            guides.addLine(to: CGPoint(x: x, y: size.height))
-        }
-        context.stroke(guides, with: .color(.white.opacity(0.12)), lineWidth: 0.5)
+        // Grey rather than white: a white hill was the brightest thing on a night scene.
+        context.fill(Self.area(luma, size: size), with: .color(.white.opacity(0.32)))
+        context.stroke(Self.curve(luma, size: size), with: .color(.white.opacity(0.7)), lineWidth: 1)
     }
 
     /// Square roots keep dark tails visible next to a tall peak. Scaling to the tallest inner bucket stops
@@ -96,18 +100,40 @@ private struct HistogramPlot {
             }
         }
         guard peak > 0 else { return [] }
-        return compressed.map { values in values.map { CGFloat(min($0 / peak, 1)) } }
+        return compressed.map { values in smoothed(values.map { CGFloat(min($0 / peak, 1)) }) }
     }
 
-    private static func area(_ heights: [CGFloat], size: CGSize) -> Path {
+    /// A light blur across neighbouring buckets, so sampling noise reads as a curve rather than a comb.
+    private static func smoothed(_ values: [CGFloat]) -> [CGFloat] {
+        guard values.count > 2 else { return values }
+        return values.indices.map { index in
+            let left = values[max(index - 1, 0)]
+            let right = values[min(index + 1, values.count - 1)]
+            return (left + 2 * values[index] + right) / 4
+        }
+    }
+
+    /// The top edge as a smooth curve: each bucket joined to the next through their midpoint.
+    private static func curve(_ heights: [CGFloat], size: CGSize) -> Path {
         var path = Path()
         guard heights.count > 1 else { return path }
         let step = size.width / CGFloat(heights.count - 1)
-        path.move(to: CGPoint(x: 0, y: size.height))
-        for (index, height) in heights.enumerated() {
-            path.addLine(to: CGPoint(x: CGFloat(index) * step, y: size.height * (1 - height)))
+        let points = heights.enumerated().map { CGPoint(x: CGFloat($0.offset) * step, y: size.height * (1 - $0.element)) }
+        path.move(to: points[0])
+        for index in 1..<points.count {
+            let previous = points[index - 1]
+            let mid = CGPoint(x: (previous.x + points[index].x) / 2, y: (previous.y + points[index].y) / 2)
+            path.addQuadCurve(to: mid, control: previous)
         }
+        path.addLine(to: points[points.count - 1])
+        return path
+    }
+
+    private static func area(_ heights: [CGFloat], size: CGSize) -> Path {
+        var path = curve(heights, size: size)
+        guard !path.isEmpty else { return path }
         path.addLine(to: CGPoint(x: size.width, y: size.height))
+        path.addLine(to: CGPoint(x: 0, y: size.height))
         path.closeSubpath()
         return path
     }
