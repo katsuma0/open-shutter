@@ -6,28 +6,37 @@ import CameraCore
 /// its frames for a clean picture in low light. The long exposure scenes, and Custom, combine them the scene's way:
 /// added like one long shutter, averaged into blur, or the brightest kept for trails.
 ///
-/// The scene is chosen from the button left of the shutter (NightSceneMenuItems). How long a shot runs is the moon
-/// chip's, beside the lens buttons (LensRowShutterChip). Whether the shot needs a tripod, and whether the phone is
+/// The scene is chosen from the button left of the shutter (NightSceneMenuItems). How long a shot runs is the row of
+/// durations above the pill, or for any other length the moon chip's, beside the lens buttons (LensRowShutterChip). Whether the shot needs a tripod, and whether the phone is
 /// steady, is the status pill's over the picture (SteadyBanner).
 struct NightModePanel: View {
     let model: CameraModel
+    /// The row of durations. Folded away while a dial is open, which sets the same thing finer.
+    var showsDurations = true
 
     var body: some View {
         let isLong = model.settings.mode == .long
         let long = model.settings.longExposure
         let locked = model.activity.isBusy
-        HStack(spacing: 8) {
-            // Centred in the room the bulb switch leaves. The switch is pinned to the edge, so it keeps its place
-            // under the finger when a tap on it changes the pill's text.
-            NightPlanPill(model: model, isLong: isLong)
-                .frame(maxWidth: .infinity)
-            if isLong {
-                BulbButton(model: model, isOn: long.bulb)
+        VStack(spacing: 6) {
+            // The lengths people reach for most, one tap each. Bulb's length is the hold, so it has none.
+            if showsDurations, !(isLong && long.bulb) {
+                DurationPresets(model: model, isLong: isLong)
                     .transition(.opacity)
             }
+            HStack(spacing: 8) {
+                // Centred in the room the bulb switch leaves. The switch is pinned to the edge, so it keeps its
+                // place under the finger when a tap on it changes the pill's text.
+                NightPlanPill(model: model, isLong: isLong)
+                    .frame(maxWidth: .infinity)
+                if isLong {
+                    BulbButton(model: model, isOn: long.bulb)
+                        .transition(.opacity)
+                }
+            }
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, minHeight: 44)
         .disabled(locked)
         .opacity(locked ? 0.45 : 1)
         .animation(Theme.snappy, value: isLong)
@@ -37,8 +46,8 @@ struct NightModePanel: View {
 
 // MARK: - Scene
 
-/// The rows of the scene menu, for the button left of the shutter: the night shot first, then the long exposure
-/// scenes, then Custom. Picking a long exposure scene loads its blend, time, bulb, frame and alignment; changing any
+/// The rows of the scene menu, for the button left of the shutter: the night shot first, then Manual night (the
+/// Custom scene, with every control by hand), then the long exposure scenes. Picking a long exposure scene loads its blend, time, bulb, frame and alignment; changing any
 /// of those but the time by hand makes the scene Custom.
 struct NightSceneMenuItems: View {
     let model: CameraModel
@@ -52,15 +61,15 @@ struct NightSceneMenuItems: View {
             }
         }
         Section {
+            HoldMenuChoice(NightText.manualNightTitle, icon: SceneSymbols.image(for: .custom), isOn: scene == .custom) {
+                model.selectNightScene(.custom)
+            }
+        }
+        Section {
             ForEach(LongExposureScene.presets) { preset in
                 HoldMenuChoice(preset.title, icon: SceneSymbols.image(for: preset), isOn: preset == scene) {
                     model.selectNightScene(preset)
                 }
-            }
-        }
-        Section {
-            HoldMenuChoice(LongExposureScene.custom.title, icon: SceneSymbols.image(for: .custom), isOn: scene == .custom) {
-                model.selectNightScene(.custom)
             }
         }
     }
@@ -173,7 +182,8 @@ private struct NightPlanPill: View {
         let bulbLimit = isLong && long.bulb ? long.maxBulbSeconds : nil
         let text = NightText.plan(plan, bulbLimit: bulbLimit)
         let spoken = NightText.plan(plan, bulbLimit: bulbLimit, spoken: true)
-        if isLong, long.blend != .additive {
+        // The frame shutter is a shutter speed, which only the phones with manual shutter speeds offer.
+        if isLong, long.blend != .additive, model.allowsManualShutter {
             // The frame the shot will use, which for a scene that closes the iris is longer than its own.
             let frame = model.longFrameSeconds
             FrameMenu(model: model, frameSeconds: frame, range: model.capabilities.exposure.seconds) {
@@ -253,6 +263,27 @@ private struct NightChipStyle: ButtonStyle {
 enum NightText {
     /// The night shot's name in the scene menu.
     static let nightTitle = "Night"
+    /// The Custom scene's name in NIGHT: a long exposure with the chips of MANUAL and NIGHT's own controls.
+    static let manualNightTitle = "Manual night"
+
+    /// The scene's name in a word, under the button left of the shutter. nil is the night shot.
+    static func shortName(_ scene: LongExposureScene?) -> String {
+        guard let scene else { return nightTitle }
+        switch scene {
+        case .lightTrails: return "Trails"
+        case .northernLights: return "Aurora"
+        case .lightPainting: return "Painting"
+        case .starTrails: return "Star trails"
+        case .custom: return "Manual"
+        default: return scene.title
+        }
+    }
+
+    /// The scene's full name, with Custom as NIGHT calls it.
+    static func title(_ scene: LongExposureScene?) -> String {
+        guard let scene else { return nightTitle }
+        return scene == .custom ? manualNightTitle : scene.title
+    }
     /// The night shot's symbol, in the menu and on the button that opens it.
     static let nightSymbol = "moon.fill"
     /// What the night shot does, for VoiceOver.
@@ -270,5 +301,51 @@ enum NightText {
         }
         let frames = plan.frameCount == 1 ? "1 frame" : "\(plan.frameCount) frames"
         return "\(frames) \u{00D7} \(shutter) \u{00B7} \(iso)"
+    }
+}
+
+// MARK: - Durations
+
+/// One tap to the lengths people use most for a night or long exposure. The moon chip and its dial set any other.
+private struct DurationPresets: View {
+    let model: CameraModel
+    let isLong: Bool
+
+    private static let night: [Double] = [3, 10, 30, 60, 300, 1800]
+    private static let long: [Double] = [2, 10, 30, 60, 300, 1800]
+
+    var body: some View {
+        let night = model.settings.night.seconds
+        let long = model.settings.longExposure.seconds
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                if !isLong {
+                    preset("Auto", spoken: "Automatic", isOn: night == nil) { model.setNightSeconds(nil) }
+                }
+                ForEach(isLong ? Self.long : Self.night, id: \.self) { seconds in
+                    let isOn = isLong ? abs(long - seconds) < 0.01 : night.map { abs($0 - seconds) < 0.01 } ?? false
+                    preset(Formatting.compactDuration(seconds), spoken: HoldMenuText.spokenTime(seconds), isOn: isOn) {
+                        if isLong { model.setLongExposureSeconds(seconds) } else { model.setNightSeconds(seconds) }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .frame(height: 44)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Duration"))
+    }
+
+    private func preset(_ title: String, spoken: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            guard !isOn else { return }
+            Haptics.tick()
+            withAnimation(Theme.snappy) { action() }
+        } label: {
+            Text(title)
+        }
+        .buttonStyle(NightChipStyle(isActive: isOn))
+        .accessibilityLabel(Text(spoken))
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }

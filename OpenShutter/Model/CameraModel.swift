@@ -1601,7 +1601,27 @@ final class CameraModel {
             noteModeChangeRefused()
             return
         }
-        if let scene { setLongExposureScene(scene) }
+        sceneMenuUsed = true
+        guard let scene else { return }
+        let fromScene = settings.longExposure.scene != .custom
+        setLongExposureScene(scene)
+        // Manual night is a long exposure of the person's own making. Picked from a scene, it starts as a long
+        // shutter would (frames added, Real), not as the scene's blur or trails; picked again, it keeps what was set.
+        if scene == .custom, fromScene { setLongExposureBlend(.additive) }
+    }
+
+    /// The scene menu has been used at least once. Until then the button that opens it asks to be tapped.
+    var sceneMenuUsed: Bool {
+        get {
+            access(keyPath: \.sceneMenuUsed)
+            return UserDefaults.standard.bool(forKey: "night.sceneMenuUsed")
+        }
+        set {
+            guard newValue != sceneMenuUsed else { return }
+            withMutation(keyPath: \.sceneMenuUsed) {
+                UserDefaults.standard.set(newValue, forKey: "night.sceneMenuUsed")
+            }
+        }
     }
 
     /// The scene's recipe while LONG is on with a scene chosen; nil in other modes and for Custom.
