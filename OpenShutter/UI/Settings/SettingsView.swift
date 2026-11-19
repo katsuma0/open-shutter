@@ -24,6 +24,7 @@ struct SettingsView: View {
                 SettingsListSections(model: model, locationAccess: locationAccess)
                 LookAndControlsSection(model: model)
                 PhotoToolsSection()
+                PhoneSection(model: model)
                 AboutSection(model: model)
             }
             .formStyle(.grouped)
@@ -187,6 +188,28 @@ private struct MenuRowLabel: View {
         } icon: {
             Image(systemName: symbol)
                 .foregroundStyle(Theme.accent)
+        }
+    }
+}
+
+// MARK: - Phone
+
+/// Which iPhones the app is made for, and what this one gets. Every iPhone that runs it takes the night shot and the
+/// long exposures; manual shutter speeds need the iPhone 18 Pro (CameraModel.allowsManualShutter).
+private struct PhoneSection: View {
+    let model: CameraModel
+
+    var body: some View {
+        Section {
+            LabeledContent("Recommended", value: "iPhone 11 or later")
+            LabeledContent("Best", value: "iPhone 18 Pro")
+            LabeledContent("This iPhone", value: model.allowsManualShutter ? "Every control" : "Night and long exposures")
+        } header: {
+            Text("Phone")
+        } footer: {
+            Text(model.allowsManualShutter
+                 ? "Night mode, the long exposure scenes and manual shutter speeds all work on this phone."
+                 : "Night mode and the long exposure scenes work on any iPhone 11 or later, with durations up to 30 minutes. Manual shutter speeds need an iPhone 18 Pro.")
         }
     }
 }

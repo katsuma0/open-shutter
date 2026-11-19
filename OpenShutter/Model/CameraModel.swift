@@ -648,6 +648,11 @@ final class CameraModel {
         var loaded = stored.applyingStartupOptions()
         loaded.interface.advanced = true
         loaded.interface.welcomed = true
+        // A shutter speed saved on a phone that no longer offers them, or by a build before the rule, would go on
+        // running with no chip to show it or turn it off.
+        let manualShutter = backend.isSimulated || PhoneModel.isProShutterPhone || PhoneModel.variableApertureSeen
+        if !manualShutter { loaded.manual.shutter = nil }
+        self.allowsManualShutter = manualShutter
         self.settings = loaded
         lastNightFamilyMode = loaded.mode == .long ? .long : .night
         mirrorHaptics()
@@ -1295,6 +1300,8 @@ final class CameraModel {
     /// nil = auto. Values longer than the hardware maximum become stacked exposures.
     func setShutter(_ seconds: Double?) {
         let value = seconds.map { max($0, 1.0 / 1_000_000) }
+        // A long exposure's shutter is its duration, which every phone sets. Elsewhere it is a shutter speed.
+        guard settings.mode == .long || allowsManualShutter else { return }
         switch settings.mode {
         case .long:
             guard let value else { return }
@@ -1546,16 +1553,31 @@ final class CameraModel {
 
     // MARK: - Night and long exposure
 
+    /// Manual shutter speeds: the shutter chip and dial in PHOTO, MANUAL and VIDEO, the Camera Control's shutter,
+    /// the frame shutter of Blur and Trails, and night shots and long exposures shorter than a second. The iPhone 18
+    /// Pro and later Pros only; the Simulator's camera too, so every control can be tried there.
+    private(set) var allowsManualShutter: Bool
+
+    /// What the night shot's duration can be set to: up to half an hour on every phone, and below a second where
+    /// manual shutter speeds are offered.
+    var nightSecondsRange: ClosedRange<Double> {
+        let range = NightModePlanner.secondsRange
+        return allowsManualShutter ? NightModePlanner.shortestManualSeconds...range.upperBound : range
+    }
+
+    /// The shortest long exposure. Below a second it is a shutter speed more than a duration.
+    var shortestLongSeconds: Double { allowsManualShutter ? 0.25 : 1 }
+
     /// nil = automatic duration from the light level.
     func setNightSeconds(_ seconds: Double?) {
-        let range = NightModePlanner.secondsRange
+        let range = nightSecondsRange
         updateSettings { $0.night.seconds = seconds.map { min(max($0, range.lowerBound), range.upperBound) } }
     }
 
     /// The time stays the scene's own to change: every scene offers several. The simple interface keeps to those,
     /// so there another value lands on the closest one.
     func setLongExposureSeconds(_ seconds: Double) {
-        updateSettings { $0.longExposure.seconds = min(max(seconds, 0.25), 1800) }
+        updateSettings { $0.longExposure.seconds = min(max(seconds, shortestLongSeconds), 1800) }
     }
 
     /// Picks what LONG mode is pointed at and loads that scene's blend, time, bulb, frame and alignment. Custom keeps
@@ -1579,7 +1601,27 @@ final class CameraModel {
             noteModeChangeRefused()
             return
         }
-        if let scene { setLongExposureScene(scene) }
+        sceneMenuUsed = true
+        guard let scene else { return }
+        let fromScene = settings.longExposure.scene != .custom
+        setLongExposureScene(scene)
+        // Manual night is a long exposure of the person's own making. Picked from a scene, it starts as a long
+        // shutter would (frames added, Real), not as the scene's blur or trails; picked again, it keeps what was set.
+        if scene == .custom, fromScene { setLongExposureBlend(.additive) }
+    }
+
+    /// The scene menu has been used at least once. Until then the button that opens it asks to be tapped.
+    var sceneMenuUsed: Bool {
+        get {
+            access(keyPath: \.sceneMenuUsed)
+            return UserDefaults.standard.bool(forKey: "night.sceneMenuUsed")
+        }
+        set {
+            guard newValue != sceneMenuUsed else { return }
+            withMutation(keyPath: \.sceneMenuUsed) {
+                UserDefaults.standard.set(newValue, forKey: "night.sceneMenuUsed")
+            }
+        }
     }
 
     /// The scene's recipe while LONG is on with a scene chosen; nil in other modes and for Custom.
@@ -2508,7 +2550,10 @@ final class CameraModel {
     private func applyCameraControls() {
         let state = CameraControlState(
             // The simple interface has no MANUAL to land in, so its Camera Control carries nothing that leads there.
-            items: isAdvanced ? settings.controls.cameraControlItems : CameraSettings.simpleCameraControlItems,
+            items: (isAdvanced ? settings.controls.cameraControlItems : CameraSettings.simpleCameraControlItems)
+                // Without manual shutter speeds the shutter picker could only set a long exposure's time, and in
+                // the other modes it would do nothing.
+                .filter { allowsManualShutter || $0 != .shutter },
             shutterStops: shutterScale.map(\.seconds),
             // LONG's shutter picker sets the duration, which Blur and Trails have as well; it is never Auto there.
             shutter: settings.mode == .long ? settings.longExposure.seconds : (isShutterAuto ? nil : displayShutter),
@@ -2865,6 +2910,8 @@ final class CameraModel {
     private func dialAvailable(_ dial: DialKind, in mode: CaptureMode) -> Bool {
         switch dial {
         case .aperture: return capabilities.supportsVariableAperture
+        // NIGHT's shutter dial sets a duration, which every phone has.
+        case .shutter: return mode.usesStacking || allowsManualShutter
         case .tint: return !effectiveWhiteBalance.isAuto
         default: return true
         }
@@ -2895,7 +2942,7 @@ final class CameraModel {
         case .manual:
             return ShutterSpeed.scale(minSeconds: hardware.lowerBound, maxSeconds: 1800)
         case .long:
-            return ShutterSpeed.scale(minSeconds: max(hardware.lowerBound, 0.25), maxSeconds: 1800)
+            return ShutterSpeed.scale(minSeconds: max(hardware.lowerBound, shortestLongSeconds), maxSeconds: 1800)
         case .video:
             let fps = max(recordedVideo.frameRate, 1)
             let limit = max(min(hardware.upperBound, 1.0 / fps), hardware.lowerBound)
@@ -3318,6 +3365,11 @@ extension CameraModel: CameraBackendDelegate {
     }
 
     func cameraBackend(_ backend: CameraBackend, didUpdateCapabilities capabilities: CameraCapabilities) {
+        // Only the iPhone 18 Pro's main camera has an iris, so seeing one settles which phone this is.
+        if capabilities.supportsVariableAperture, !allowsManualShutter {
+            PhoneModel.variableApertureSeen = true
+            allowsManualShutter = true
+        }
         let previous = self.capabilities
         self.capabilities = capabilities
         // The new lens's format may run without the analysis output (over the hardware budget), and the old lens's

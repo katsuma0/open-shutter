@@ -175,13 +175,14 @@ private struct ChipMenu: View {
     private var shutter: some View {
         let settings = model.settings
         if settings.mode == .night {
-            // Inside the planner's 1 to 30 s, like the dial.
+            // Inside the range the dial offers on this phone.
             let manual = settings.night.seconds
+            let range = model.nightSecondsRange
             Section("Duration") {
                 HoldMenuChoice("Auto", isOn: manual == nil) {
                     model.setNightSeconds(nil)
                 }
-                ForEach(ChipPresets.nightDurations, id: \.self) { value in
+                ForEach(ChipPresets.nightDurations.filter { range.contains($0) }, id: \.self) { value in
                     HoldMenuChoice(HoldMenuText.time(value), isOn: manual.map { ChipPresets.isSame($0, value) } ?? false) {
                         model.setNightSeconds(value)
                     }
@@ -191,7 +192,7 @@ private struct ChipMenu: View {
             // LONG's chip is the total time, which has no auto.
             let seconds = settings.longExposure.seconds
             Section("Duration") {
-                ForEach(ChipPresets.longDurations, id: \.self) { value in
+                ForEach(ChipPresets.longDurations.filter { $0 >= model.shortestLongSeconds }, id: \.self) { value in
                     HoldMenuChoice(HoldMenuText.time(value), isOn: ChipPresets.isSame(seconds, value)) {
                         model.setShutter(value)
                     }
@@ -313,7 +314,7 @@ private enum ChipPresets {
     static let shutters: [Double] = [1.0 / 1000, 1.0 / 250, 1.0 / 60, 1.0 / 15, 1.0 / 4, 1, 4, 30]
     /// From the shortest time worth stacking to the dial's longest.
     static let longDurations: [Double] = [1, 2, 4, 8, 15, 30, 60, 300, 600, 1800]
-    static let nightDurations: [Double] = [3, 5, 10, 15, 30]
+    static let nightDurations: [Double] = [0.5, 3, 5, 10, 15, 30, 60, 300, 600, 1800]
     static let isos: [Double] = [100, 400, 800, 1600, 3200]
     /// The dial's own preset row without Auto, which leads the menu. Candle sits below the 2000 K the camera can
     /// lock to.
@@ -510,7 +511,8 @@ private enum ChipReader {
         switch model.settings.mode {
         case .long: return !model.settings.longExposure.bulb
         case .night: return true
-        case .photo, .manual, .video: return model.capabilities.supportsCustomExposure
+        // A shutter speed, which only the phones with manual shutter speeds offer (CameraModel.allowsManualShutter).
+        case .photo, .manual, .video: return model.allowsManualShutter && model.capabilities.supportsCustomExposure
         }
     }
 
@@ -644,7 +646,7 @@ private enum ChipReader {
             // A night shot's chip is how long it runs: the camera's own choice from the light, or a time set by hand.
             let manual = settings.night.seconds
             let seconds = manual ?? model.nightAutoSeconds
-            let text = Formatting.compactDuration(seconds)
+            let text = seconds < 1 ? ShutterSpeed(seconds: seconds).label : Formatting.compactDuration(seconds)
             return ChipContent(title: title, value: text, numeric: seconds, tone: manual == nil ? .auto : .manual,
                                canReset: manual != nil, spokenValue: manual == nil ? text + ", auto" : text)
         }

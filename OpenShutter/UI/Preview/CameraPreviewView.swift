@@ -136,8 +136,9 @@ final class ViewfinderInteraction {
     @ObservationIgnored private var dragQuarterTurns = 0
     @ObservationIgnored private var lingerTask: Task<Void, Never>?
 
-    /// Vertical travel per EV. The sun moves the same distance, so it stays under the finger.
-    static let pointsPerEV: CGFloat = 36
+    /// Vertical travel per EV: about two finger widths a stop, so a small slip moves the exposure a little. The sun
+    /// moves the same distance, so it stays under the finger.
+    static let pointsPerEV: CGFloat = 80
     private static let doubleTapInterval: CFTimeInterval = 0.3
     private static let doubleTapSlop = 40.0
     /// A tap this close outside the frame still counts as one on its edge.
@@ -949,7 +950,7 @@ private struct SunSliderGraphic: View {
 
     /// Half the focus square drawn by ViewfinderOverlays (72 pt) plus a gap.
     static let sunDistance: CGFloat = 36 + 18
-    private static let trackHalf: CGFloat = 80
+    private static let trackHalf: CGFloat = 120
     private static let trackGap: CGFloat = 14
 
     var body: some View {

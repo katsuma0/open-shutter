@@ -450,7 +450,7 @@ private enum DialValues {
             if settings.mode == .night {
                 let manual = settings.night.seconds
                 // The header's A badge and lit AUTO button already say auto, so the value is the bare duration.
-                return Readout(title: "Duration", value: Formatting.compactDuration(manual ?? model.nightAutoSeconds),
+                return Readout(title: "Duration", value: DialScales.durationLabel(manual ?? model.nightAutoSeconds),
                                isAuto: manual == nil, offersAuto: true, isStacked: false)
             }
             if settings.mode == .long {
@@ -702,7 +702,8 @@ private enum DialScales {
         switch kind {
         case .shutter:
             numbers = [caps.exposure.seconds.lowerBound, caps.exposure.seconds.upperBound,
-                       settings.mode == .video ? model.recordedVideo.frameRate : 0]
+                       settings.mode == .video ? model.recordedVideo.frameRate : 0,
+                       model.allowsManualShutter ? 1 : 0]
         case .iso:
             numbers = [caps.exposure.iso.lowerBound, caps.exposure.iso.upperBound]
         case .aperture:
@@ -722,7 +723,8 @@ private enum DialScales {
     static func build(_ kind: DialKind, model: CameraModel) -> DialScale {
         switch kind {
         case .shutter:
-            return model.settings.mode == .night ? nightDuration() : shutter(model.shutterScale.map(\.seconds))
+            return model.settings.mode == .night ? nightDuration(model.nightSecondsRange)
+                : shutter(model.shutterScale.map(\.seconds))
         case .iso: return iso(model.isoScale)
         case .aperture: return aperture(model.apertureScale)
         case .bias: return bias(model.biasScale)
@@ -748,27 +750,37 @@ private enum DialScales {
 
     /// A night shot's length: half seconds where they matter (under 10 s), whole seconds above, over the planner's 1
     /// to 30 s.
-    private static func nightDuration() -> DialScale {
-        let range = NightModePlanner.secondsRange
-        var values: [Double] = []
-        var halves = Int((range.lowerBound * 2).rounded(.up))
+    /// Below a second in shutter stops (where the phone takes them), then half seconds to 10 s, whole seconds to
+    /// 30 s, and longer steps out to half an hour, so the whole range is a few turns of the dial and the short end,
+    /// where a second matters, still has fine steps.
+    private static func nightDuration(_ range: ClosedRange<Double>) -> DialScale {
+        var values: [Double] = [0.125, 0.25, 0.5].filter { range.contains($0) }
+        var halves = Int((max(range.lowerBound, 1) * 2).rounded(.up))
         while Double(halves) / 2 < min(10, range.upperBound) {
             values.append(Double(halves) / 2)
             halves += 1
         }
-        var whole = Int(max(10, range.lowerBound).rounded(.up))
-        while Double(whole) <= range.upperBound {
+        var whole = 10
+        while whole <= min(30, Int(range.upperBound)) {
             values.append(Double(whole))
             whole += 1
         }
-        let labelled: Set<Double> = [1, 3, 5, 7, 10, 15, 20, 25, 30]
+        let longer: [Double] = [35, 40, 45, 50, 55, 60, 75, 90, 105, 120, 150, 180, 210, 240, 270, 300,
+                                360, 420, 480, 540, 600, 720, 900, 1080, 1200, 1500, 1800]
+        values += longer.filter { range.contains($0) }
+        let labelled: Set<Double> = [0.125, 0.5, 1, 3, 5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1800]
         var candidates: [LabelCandidate] = []
         for (index, seconds) in values.enumerated() where labelled.contains(seconds) {
             let isEnd = index == 0 || index == values.count - 1
-            candidates.append(LabelCandidate(index: index, text: Formatting.compactDuration(seconds), priority: isEnd ? 2 : 1))
+            candidates.append(LabelCandidate(index: index, text: durationLabel(seconds), priority: isEnd ? 2 : 1))
         }
-        let spoken = values.map { Formatting.compactDuration($0) }
+        let spoken = values.map(durationLabel)
         return DialScale(values: values, spoken: spoken, candidates: candidates, spacing: 12, metric: .linear)
+    }
+
+    /// "1/8" below a second, where the length is a shutter speed, and "30s" or "5m" above.
+    static func durationLabel(_ seconds: Double) -> String {
+        seconds < 1 ? ShutterSpeed(seconds: seconds).label : Formatting.compactDuration(seconds)
     }
 
     private static func iso(_ values: [Double]) -> DialScale {
