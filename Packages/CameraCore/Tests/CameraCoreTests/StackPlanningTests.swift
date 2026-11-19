@@ -253,9 +253,9 @@ final class StackPlanningTests: XCTestCase {
     // MARK: - NightModePlanner
 
     func testNightConstants() {
-        XCTAssertEqual(NightModePlanner.maxFrames, 900)
+        XCTAssertEqual(NightModePlanner.maxFrames, 54_000)
         XCTAssertEqual(NightModePlanner.frameInterval, 1.0 / 30)
-        XCTAssertEqual(NightModePlanner.secondsRange, 1...30)
+        XCTAssertEqual(NightModePlanner.secondsRange, 1...1800)
         XCTAssertEqual(NightModePlanner.recommendedMaxSeconds(for: .handheld), 3)
         XCTAssertEqual(NightModePlanner.recommendedMaxSeconds(for: .steady), 10)
         XCTAssertEqual(NightModePlanner.recommendedMaxSeconds(for: .tripod), 30)
@@ -419,7 +419,7 @@ final class StackPlanningTests: XCTestCase {
         XCTAssertEqual(twenty.frameCount, 20)
         // The user may go past the recommended handheld maximum.
         XCTAssertEqual(night(darkerBy: 4, stability: .handheld, requestedSeconds: 10).frameCount, 80)
-        XCTAssertEqual(night(darkerBy: 4, stability: .tripod, requestedSeconds: 5000).frameCount, 900)
+        XCTAssertEqual(night(darkerBy: 4, stability: .tripod, requestedSeconds: 5000).frameCount, 3600)
         let tiny = night(darkerBy: 4, stability: .tripod, requestedSeconds: 0.01)
         XCTAssertEqual(tiny.frameSeconds, 0.1, accuracy: 1e-15)
         XCTAssertEqual(tiny.frameCount, 1)
@@ -452,23 +452,24 @@ final class StackPlanningTests: XCTestCase {
     }
 
     func testNightLengthensFramesPastTheCapInsteadOfCuttingTheDuration() {
-        // An hour of 1/8 s frames would be 28800 of them; 4 s frames keep the whole hour within 900.
+        // An hour of preview-rate frames would be 108000 of them; 1/15 s frames keep the whole hour within the cap.
         let slow = ExposureRanges(seconds: (1.0 / 8000)...10, iso: 50...6400, aperture: 1.78...1.78)
         let plan = NightModePlanner.plan(NightModeInput(meteredProduct: metered(darkerBy: 8), requestedSeconds: 3600,
                                                         stability: .handheld, ranges: slow, aperture: aperture,
-                                                        handheldFrameLimit: 0.125, maxISO: 3200))
-        XCTAssertEqual(plan.frameSeconds, 4, accuracy: 1e-12)
+                                                        handheldFrameLimit: 1.0 / 60, maxISO: 3200))
+        XCTAssertEqual(plan.frameSeconds, 3600.0 / Double(NightModePlanner.maxFrames), accuracy: 1e-12)
         XCTAssertEqual(plan.frameCount, NightModePlanner.maxFrames)
         XCTAssertEqual(plan.estimatedDuration(), 3600, accuracy: 1e-9)
-        XCTAssertEqual(plan.iso, 400.0 / 30 * 256 / 4, accuracy: 1e-6)
-        // The longest hardware shutter still bounds a frame: the phone's 1 s frames cover 900 s.
-        let phonePlan = night(darkerBy: 8, stability: .handheld, requestedSeconds: 3600)
-        XCTAssertEqual(phonePlan.frameSeconds, 1)
-        XCTAssertEqual(phonePlan.frameCount, NightModePlanner.maxFrames)
-        // A bright scene keeps its short frames even past the cap, because a longer frame would overexpose.
+        XCTAssertEqual(plan.iso, 3200, accuracy: 1e-6)
+        // Half an hour on a tripod is the phone's longest frame, once a second, for the whole time.
+        let tripod = night(darkerBy: 8, stability: .tripod, requestedSeconds: 1800)
+        XCTAssertEqual(tripod.frameSeconds, 1)
+        XCTAssertEqual(tripod.frameCount, 1800)
+        XCTAssertEqual(tripod.estimatedDuration(), 1800, accuracy: 1e-9)
+        // A bright scene keeps its short frames, because a longer frame would overexpose.
         let bright = night(darkerBy: -4, stability: .tripod, requestedSeconds: 60)
         XCTAssertEqual(bright.frameSeconds, 1.0 / 60, accuracy: 1e-12)
-        XCTAssertEqual(bright.frameCount, NightModePlanner.maxFrames)
+        XCTAssertEqual(bright.frameCount, 1800)
         XCTAssertEqual(bright.iso, 50, accuracy: 1e-9)
     }
 

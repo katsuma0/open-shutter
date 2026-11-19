@@ -158,13 +158,16 @@ public struct NightModeInput: Hashable, Sendable {
 
 /// Night mode: many short, sharp frames averaged into one clean exposure.
 public enum NightModePlanner {
-    /// The longest dial setting, 30 s, at the 30 fps the preview delivers. Frames merge into one accumulator, so
+    /// The longest dial setting, 30 min, at the 30 fps the preview delivers. Frames merge into one accumulator, so
     /// the cap is not there for memory; past it, frames get longer instead of the shot ending early.
-    public static let maxFrames = 900
+    public static let maxFrames = 54_000
     /// Frames shorter than this still arrive one preview frame apart.
     static let frameInterval = 1.0 / 30
     /// What the UI dial offers, any value.
-    public static let secondsRange: ClosedRange<Double> = 1...30
+    public static let secondsRange: ClosedRange<Double> = 1...1800
+    /// The shortest night shot on a phone that takes manual shutter speeds: below a second the shot is a few
+    /// frames, chosen like a shutter.
+    public static let shortestManualSeconds = 0.125
 
     /// Reference "normal" scene product = 1/30 s at ISO 400 at the given aperture.
     /// darkness = log2(metered / reference). darkness <= 0 -> 1 s.
@@ -182,7 +185,8 @@ public enum NightModePlanner {
         return ExposureMath.clamp(seconds, 1, cap)
     }
 
-    /// The recommended maximum for a stability level (3 / 10 / 30). The user may still pick up to 30.
+    /// The recommended maximum for a stability level (3 / 10 / 30), and the longest automatic duration. The user
+    /// may still pick up to 30 minutes.
     public static func recommendedMaxSeconds(for stability: NightStability) -> Double {
         switch stability {
         case .handheld: return 3
