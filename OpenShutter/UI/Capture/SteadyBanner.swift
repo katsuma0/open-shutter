@@ -98,27 +98,29 @@ private struct QuarterTurnLayout: Layout {
     }
 }
 
-// MARK: - The pill
+// MARK: - The sign
 
-/// One state of the pill. A warning is filled with the accent and lettered in the colour that reads on it; the rest
-/// are dark with white text. A calm state fades to 70 percent after 3 s, and every new state starts at full strength.
+/// One state of the steady sign, drawn straight on the picture like the histogram: no box behind it, the words and
+/// the icon carried by a soft shadow, and a live trace of the phone's movement beside them. A warning shows in its
+/// colour (orange, the words and the icon) rather than on a filled block. A calm state fades to 70 percent after
+/// 3 s, and every new state starts at full strength.
 private struct SteadyPill: View {
     let message: SteadyMessage
     /// The live movement, where a sensor reports it.
     let pulse: MotionPulse?
     @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @ScaledMetric(relativeTo: .headline) private var iconSize: CGFloat = 22
     @State private var isQuiet = false
 
+    /// Orange, not the accent: the accent is yellow by default, and a yellow word over a lit street is lost.
+    static let warningInk = Color(red: 1.0, green: 0.62, blue: 0.2)
+
     var body: some View {
         let warning = message.isWarning
-        let ink = warning ? Theme.onAccent : Theme.primaryText
+        let ink = warning ? Self.warningInk : Theme.primaryText
         let iconInk = warning ? ink : (message.isIconAccented ? Theme.accent : Theme.primaryText)
-        // Glass tints itself after the scene and can't promise contrast for the one thing that has to be read.
-        // White on 60 percent black over a white sky is about 5.7:1.
-        let backing = contrast == .increased || reduceTransparency || AppearanceStore.shared.solidControls ? 0.85 : 0.6
-        let shape = RoundedRectangle(cornerRadius: message.detail == nil ? 20 : 16, style: .continuous)
+        // With no backing, the shadow is what keeps white words apart from a white sky.
+        let shade = contrast == .increased || AppearanceStore.shared.solidControls ? 0.95 : 0.75
         HStack(spacing: 10) {
             SteadyIconView(icon: message.icon, size: iconSize)
                 .foregroundStyle(iconInk)
@@ -128,34 +130,25 @@ private struct SteadyPill: View {
                 if let detail = message.detail {
                     Text(detail)
                         .font(.footnote.weight(.medium))
-                        .opacity(0.85)
+                        .opacity(0.9)
                 }
             }
             .foregroundStyle(ink)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             if let pulse {
-                MotionMeter(pulse: pulse)
+                MotionTrace(pulse: pulse)
             }
         }
+        .shadow(color: .black.opacity(shade), radius: 3)
+        .shadow(color: .black.opacity(shade * 0.5), radius: 10)
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
         .frame(minHeight: 40)
-        .background {
-            if warning {
-                // The border and the shadow keep a yellow pill apart from a yellow scene: sodium lamps, sunsets.
-                shape.fill(Theme.accent)
-                    .overlay { shape.strokeBorder(Color.black.opacity(0.25), lineWidth: 0.5) }
-                    .shadow(color: .black.opacity(0.35), radius: 8)
-            } else {
-                shape.fill(Color.black.opacity(backing))
-                    .overlay { shape.strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5) }
-            }
-        }
         .opacity(isQuiet ? 0.7 : 1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(message.spoken))
-        // The pill stays while its state changes, so every state starts its own count at full strength.
+        // The sign stays while its state changes, so every state starts its own count at full strength.
         .task(id: message) {
             if isQuiet { isQuiet = false }
             guard Self.quietens(message) else { return }
@@ -171,35 +164,56 @@ private struct SteadyPill: View {
     }
 }
 
-/// Five small bars at the end of the pill that rise with the phone's movement and settle again: proof that the
-/// sensor feels even a light touch, before the pill's words change. They are coloured by how much it moves, green
-/// when still, then yellow, orange and red, on a dark backing of their own so the colours read on the yellow
-/// warning pill too.
-private struct MotionMeter: View {
+/// The last two seconds of the phone's movement as a small hill, drawn like the histogram: a smooth translucent
+/// area with no box, its old end and its bottom fading out. It is coloured by how much the phone moves now, green
+/// when still, then yellow, orange and red, so a glance says whether it is ready.
+private struct MotionTrace: View {
     let pulse: MotionPulse
-    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
 
-    /// The middle bars swing the most, like the trace of a small tremor.
-    private static let weights: [Double] = [0.4, 0.75, 1, 0.75, 0.4]
+    private static let size = CGSize(width: 64, height: 24)
 
     var body: some View {
-        let level = pulse.level
-        let still = systemReduceMotion || AppearanceStore.shared.reduceMotion
-        let rgb = MotionPulse.color(for: level)
-        HStack(alignment: .center, spacing: 2) {
-            ForEach(Self.weights.indices, id: \.self) { index in
-                Capsule()
-                    .frame(width: 3, height: 4 + CGFloat(level * Self.weights[index]) * 12)
-            }
+        let history = pulse.history
+        let rgb = MotionPulse.color(for: pulse.level)
+        let color = Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
+        Canvas { context, size in
+            let curve = Self.curve(history, size: size)
+            var area = curve
+            area.addLine(to: CGPoint(x: size.width, y: size.height))
+            area.addLine(to: CGPoint(x: 0, y: size.height))
+            area.closeSubpath()
+            context.fill(area, with: .color(color.opacity(0.45)))
+            context.stroke(curve, with: .color(color), lineWidth: 1.5)
         }
-        .foregroundStyle(Color(red: rgb.red, green: rgb.green, blue: rgb.blue))
-        .frame(width: 25, height: 16)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 3)
-        .background(Capsule().fill(Color.black.opacity(0.45)))
-        // Long enough to join the samples into one movement, short enough to follow the hand.
-        .animation(still ? nil : .easeOut(duration: 0.15), value: level)
+        .frame(width: Self.size.width, height: Self.size.height)
+        .mask {
+            // Old movement fades out to the left, and the hill fades into the picture at its foot.
+            LinearGradient(colors: [.clear, .black, .black], startPoint: .leading, endPoint: .trailing)
+                .mask {
+                    LinearGradient(colors: [.black, .black.opacity(0.2)], startPoint: .top, endPoint: .bottom)
+                }
+        }
         .accessibilityHidden(true)
+    }
+
+    /// A still phone draws a flat line just above the foot; any movement lifts it. Joined through midpoints, so it
+    /// reads as one smooth trace.
+    private static func curve(_ values: [Double], size: CGSize) -> Path {
+        var path = Path()
+        guard values.count > 1 else { return path }
+        let step = size.width / CGFloat(values.count - 1)
+        let floor = size.height - 2
+        let points = values.enumerated().map { index, value in
+            CGPoint(x: CGFloat(index) * step, y: floor - CGFloat(min(max(value, 0), 1)) * (floor - 2))
+        }
+        path.move(to: points[0])
+        for index in 1..<points.count {
+            let previous = points[index - 1]
+            let mid = CGPoint(x: (previous.x + points[index].x) / 2, y: (previous.y + points[index].y) / 2)
+            path.addQuadCurve(to: mid, control: previous)
+        }
+        path.addLine(to: points[points.count - 1])
+        return path
     }
 }
 

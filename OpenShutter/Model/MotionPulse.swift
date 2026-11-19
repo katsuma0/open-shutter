@@ -7,10 +7,16 @@ import Foundation
 @Observable
 final class MotionPulse {
     private(set) var level: Double = 0
+    /// The last levels, oldest first, for the trace on the steady sign: about two seconds at the rate they arrive.
+    private(set) var history: [Double] = Array(repeating: 0, count: MotionPulse.historyCount)
+    static let historyCount = 40
 
     /// Observation tells every reader of a write even when the value is the same.
     func set(_ value: Double) {
-        if level != value { level = value }
+        guard level != value else { return }
+        level = value
+        history.append(value)
+        if history.count > Self.historyCount { history.removeFirst(history.count - Self.historyCount) }
     }
 
     /// The turning speed the sensor reports, in radians a second, as a level. On a logarithmic scale, so the tremor
