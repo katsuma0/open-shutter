@@ -35,6 +35,8 @@ struct TopBarItemButton: View {
             BarFormat(model: model)
         case .histogram:
             BarHistogram(model: model)
+        case .exposureLock:
+            BarExposureLock(model: model)
         default:
             // The bar draws the six above and nothing else. CameraCore keeps the other cases for its stored layout.
             EmptyView()
@@ -54,6 +56,9 @@ struct TopBarItemButton: View {
             return QuickActions.timerApplies(model)
         case .format:
             return QuickActions.canChangeFormat(model)
+        case .exposureLock:
+            // With every value set by hand there is no auto exposure to hold, but a lock that is on can be undone.
+            return (QuickActions.aeLockApplies(model) || model.aeLocked) && !QuickActions.exposureIsBusy(model.activity)
         default:
             // The shape and the histogram work on every camera, and the other cases are never asked about.
             return true
@@ -559,7 +564,9 @@ private struct BarHistogram: View {
             QuickActions.stepHistogram(model)
         } label: {
             Upright(model: model) {
-                ItemSymbol.image(.histogram)
+                // Outlined bars at a light weight: the filled chart was the heaviest glyph on the bar.
+                Image(systemName: "chart.bar")
+                    .fontWeight(.light)
                     .marksOn(style != .off)
             }
         }
@@ -570,6 +577,28 @@ private struct BarHistogram: View {
         .overlay {
             ItemTouchLayer(model: model, control: .histogram, press: press)
         }
+    }
+}
+
+/// AE lock: holds the auto exposure where it is. It was the last chip on MANUAL's strip; here it is in reach in every
+/// mode that has auto exposure, and dims where every value is set by hand.
+private struct BarExposureLock: View {
+    let model: CameraModel
+
+    var body: some View {
+        let locked = model.aeLocked && QuickActions.aeLockApplies(model)
+        Button {
+            Haptics.tap()
+            model.toggleAELock()
+        } label: {
+            Upright(model: model) {
+                Image(systemName: locked ? "lock.fill" : "lock.open")
+            }
+        }
+        .buttonStyle(BarCircleStyle(isActive: locked))
+        .accessibilityLabel("Auto exposure lock")
+        .accessibilityValue(locked ? "On" : "Off")
+        .accessibilityHint("Holds the current auto exposure.")
     }
 }
 

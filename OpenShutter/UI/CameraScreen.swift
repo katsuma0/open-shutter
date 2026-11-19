@@ -479,7 +479,7 @@ private struct HistogramSlot: View {
             // Under the battery saver's black layer the analysis isn't read, so nothing here redraws.
             if style != .off, !model.dimmer.isDimmed, let histogram = model.analysis?.histogram {
                 HistogramView(histogram: histogram, style: style)
-                    .frame(width: 120, height: 60)
+                    .frame(width: HistogramView.size.width, height: HistogramView.size.height)
                     .padding(.leading, 12)
                     .padding(.top, 12 + topShift)
                     .transition(.opacity)
@@ -849,12 +849,15 @@ private struct ModePanels: View {
             case .night, .long:
                 // One row, so it stays under an open dial: the frames can be read while the duration is turned.
                 if hasRoom {
-                    NightModePanel(model: model, showsDurations: !dialOpen)
+                    NightModePanel(model: model)
                 }
-                // A long exposure scene takes ISO, aperture, white balance and focus by hand. The night shot sets
-                // its own, so it has no chips to offer.
-                if mode == .long {
+                // Manual night takes ISO, aperture, white balance and focus by hand. The night shot and the scenes
+                // set their own, so they show what they chose, on PHOTO's readout line.
+                if mode == .long, model.settings.longExposure.scene == .custom {
                     ManualControlStrip(model: model)
+                } else if model.settings.display.showReadout {
+                    ReadoutHUD(model: model)
+                        .frame(height: 44)
                 }
             case .video:
                 // An open dial folds VIDEO's row of format chips away to keep the stack short.
@@ -1016,49 +1019,19 @@ private struct ShutterSideFace: View {
 }
 
 /// NIGHT's button left of the shutter, in the place macro has in PHOTO and MANUAL: the scene the shot uses, by its
-/// symbol and a word under it, and a tap lists them all. A chevron on the circle says it opens a list, and until the
-/// list has been used once a ring pulses around it, so the other scenes are found.
+/// symbol, and a tap lists them all. Lit like macro when it is on, since a scene is always in force here.
 private struct SceneSideButton: View {
     let model: CameraModel
     var size: CGFloat = ShutterSideButton.standardSize
-    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
 
     var body: some View {
         // nil is the night shot.
         let scene: LongExposureScene? = model.settings.mode == .long ? model.settings.longExposure.scene : nil
         let symbol: Image = scene.map { SceneSymbols.image(for: $0) } ?? Image(systemName: NightText.nightSymbol)
-        let invites = !model.sceneMenuUsed
         Menu {
             NightSceneMenuItems(model: model, scene: scene)
         } label: {
-            ShutterSideFace(image: symbol, isActive: false, size: size)
-                .overlay(alignment: .topTrailing) {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(Theme.onAccent)
-                        .frame(width: 16, height: 16)
-                        .background(Circle().fill(Theme.accent))
-                        .offset(x: 2, y: -2)
-                }
-                .background {
-                    if invites {
-                        InviteRing(still: systemReduceMotion || AppearanceStore.shared.reduceMotion)
-                            .frame(width: size, height: size)
-                    }
-                }
-                // Under the circle, outside the row's layout, so the shutter row keeps its height.
-                .overlay(alignment: .bottom) {
-                    Text(NightText.shortName(scene))
-                        .font(.system(size: 10 * Theme.labelScale, weight: .semibold))
-                        .foregroundStyle(Theme.primaryText)
-                        .shadow(color: .black.opacity(0.6), radius: 2)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .frame(width: size + 24)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .offset(y: 15)
-                        .allowsHitTesting(false)
-                }
+            ShutterSideFace(image: symbol, isActive: true, size: size)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -1067,26 +1040,6 @@ private struct SceneSideButton: View {
         .accessibilityLabel(Text("Scene"))
         .accessibilityValue(Text(NightText.title(scene)))
         .accessibilityHint(Text((scene?.tip ?? NightText.nightDetail) + " Shows the other scenes."))
-    }
-}
-
-/// A ring in the accent that grows and fades, over and over, to ask for a first tap. With Reduce Motion it holds
-/// still.
-private struct InviteRing: View {
-    let still: Bool
-    @State private var expanded = false
-
-    var body: some View {
-        Circle()
-            .strokeBorder(Theme.accent, lineWidth: 2)
-            .scaleEffect(still ? 1 : (expanded ? 1.45 : 1))
-            .opacity(still ? 1 : (expanded ? 0 : 0.9))
-            .onAppear {
-                guard !still else { return }
-                withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { expanded = true }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
     }
 }
 

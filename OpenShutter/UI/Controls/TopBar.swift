@@ -10,8 +10,8 @@ struct TopBar: View {
     /// Set to show the timer sheet, which the camera screen presents.
     @Binding var timerSheetRequested: Bool
 
-    /// Left to right. The gear takes the seventh slot.
-    private static let items: [TopBarItem] = [.flash, .aspect, .timer, .format, .histogram, .livePhoto]
+    /// Left to right. The gear takes the eighth slot.
+    private static let items: [TopBarItem] = [.flash, .aspect, .timer, .format, .histogram, .exposureLock, .livePhoto]
 
     var body: some View {
         let mode = model.settings.mode
@@ -69,14 +69,14 @@ struct TopBar: View {
 
 // MARK: - Slots
 
-/// Seven equal slots across the bar on every iPhone: six buttons and the gear. The same seven places on every phone
-/// keep each button where the thumb expects it, and the narrowest phone still gives each a 44 pt touch area with room
-/// between, so neighbours never crowd or overlap.
+/// Eight equal slots across the bar on every iPhone: seven buttons and the gear. The same eight places on every phone
+/// keep each button where the thumb expects it, and the narrowest phone still gives each a 44 pt touch area (45 pt
+/// at 375 pt wide), so neighbours never overlap.
 private struct BarSlots: Layout {
-    static let count = 7
-    static let gear = 6
-    /// While filming, the red capsule takes the middle three slots.
-    static let recording = 2...4
+    static let count = 8
+    static let gear = 7
+    /// While filming, the red capsule takes the middle four slots.
+    static let recording = 2...5
     /// VIDEO's format chip, about 90 pt wide, takes the timer's slot and its own.
     static let format = 2...3
     static let height: CGFloat = 48

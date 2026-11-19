@@ -6,24 +6,17 @@ import CameraCore
 /// its frames for a clean picture in low light. The long exposure scenes, and Custom, combine them the scene's way:
 /// added like one long shutter, averaged into blur, or the brightest kept for trails.
 ///
-/// The scene is chosen from the button left of the shutter (NightSceneMenuItems). How long a shot runs is the row of
-/// durations above the pill, or for any other length the moon chip's, beside the lens buttons (LensRowShutterChip). Whether the shot needs a tripod, and whether the phone is
+/// The scene is chosen from the button left of the shutter (NightSceneMenuItems). How long a shot runs is the moon
+/// chip's, beside the lens buttons (LensRowShutterChip). Whether the shot needs a tripod, and whether the phone is
 /// steady, is the status pill's over the picture (SteadyBanner).
 struct NightModePanel: View {
     let model: CameraModel
-    /// The row of durations. Folded away while a dial is open, which sets the same thing finer.
-    var showsDurations = true
 
     var body: some View {
         let isLong = model.settings.mode == .long
         let long = model.settings.longExposure
         let locked = model.activity.isBusy
         VStack(spacing: 6) {
-            // The lengths people reach for most, one tap each. Bulb's length is the hold, so it has none.
-            if showsDurations, !(isLong && long.bulb) {
-                DurationPresets(model: model, isLong: isLong)
-                    .transition(.opacity)
-            }
             HStack(spacing: 8) {
                 // Centred in the room the bulb switch leaves. The switch is pinned to the edge, so it keeps its
                 // place under the finger when a tap on it changes the pill's text.
@@ -266,19 +259,6 @@ enum NightText {
     /// The Custom scene's name in NIGHT: a long exposure with the chips of MANUAL and NIGHT's own controls.
     static let manualNightTitle = "Manual night"
 
-    /// The scene's name in a word, under the button left of the shutter. nil is the night shot.
-    static func shortName(_ scene: LongExposureScene?) -> String {
-        guard let scene else { return nightTitle }
-        switch scene {
-        case .lightTrails: return "Trails"
-        case .northernLights: return "Aurora"
-        case .lightPainting: return "Painting"
-        case .starTrails: return "Star trails"
-        case .custom: return "Manual"
-        default: return scene.title
-        }
-    }
-
     /// The scene's full name, with Custom as NIGHT calls it.
     static func title(_ scene: LongExposureScene?) -> String {
         guard let scene else { return nightTitle }
@@ -304,48 +284,3 @@ enum NightText {
     }
 }
 
-// MARK: - Durations
-
-/// One tap to the lengths people use most for a night or long exposure. The moon chip and its dial set any other.
-private struct DurationPresets: View {
-    let model: CameraModel
-    let isLong: Bool
-
-    private static let night: [Double] = [3, 10, 30, 60, 300, 1800]
-    private static let long: [Double] = [2, 10, 30, 60, 300, 1800]
-
-    var body: some View {
-        let night = model.settings.night.seconds
-        let long = model.settings.longExposure.seconds
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                if !isLong {
-                    preset("Auto", spoken: "Automatic", isOn: night == nil) { model.setNightSeconds(nil) }
-                }
-                ForEach(isLong ? Self.long : Self.night, id: \.self) { seconds in
-                    let isOn = isLong ? abs(long - seconds) < 0.01 : night.map { abs($0 - seconds) < 0.01 } ?? false
-                    preset(Formatting.compactDuration(seconds), spoken: HoldMenuText.spokenTime(seconds), isOn: isOn) {
-                        if isLong { model.setLongExposureSeconds(seconds) } else { model.setNightSeconds(seconds) }
-                    }
-                }
-            }
-            .padding(.horizontal, 16)
-        }
-        .frame(height: 44)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text("Duration"))
-    }
-
-    private func preset(_ title: String, spoken: String, isOn: Bool, action: @escaping () -> Void) -> some View {
-        Button {
-            guard !isOn else { return }
-            Haptics.tick()
-            withAnimation(Theme.snappy) { action() }
-        } label: {
-            Text(title)
-        }
-        .buttonStyle(NightChipStyle(isActive: isOn))
-        .accessibilityLabel(Text(spoken))
-        .accessibilityAddTraits(isOn ? .isSelected : [])
-    }
-}

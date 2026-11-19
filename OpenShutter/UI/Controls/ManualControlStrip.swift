@@ -1,8 +1,8 @@
 import SwiftUI
 import CameraCore
 
-/// Chips for the manual controls this camera offers, from ISO on, plus AE lock. The shutter and the exposure
-/// compensation have their chips beside the lens buttons (LensRow), in the same place in every mode. Tap a chip to
+/// Chips for the manual controls this camera offers, from ISO on. The shutter and the exposure compensation have
+/// their chips beside the lens buttons (LensRow), in the same place in every mode, and AE lock is on the top bar. Tap a chip to
 /// open its dial; touch and hold it for auto and the values people reach for most. Each chip reads the live values in
 /// its own body, so the 10 Hz readings only redraw the chip text and never the row.
 struct ManualControlStrip: View {
@@ -12,34 +12,15 @@ struct ManualControlStrip: View {
         let kinds = ChipReader.kinds(for: model)
         let locked = ChipReader.isLocked(model.activity)
         let dimmed = ChipReader.isDimmed(model.activity)
-        GeometryReader { proxy in
-            ScrollViewReader { reader in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(kinds) { kind in
-                            ParameterChip(model: model, kind: kind, isSelected: model.activeDial == kind)
-                                .id(kind)
-                                .transition(.opacity.combined(with: .scale(scale: 0.85)))
-                        }
-                        AELockChip(model: model)
-                    }
-                    .padding(.horizontal, 16)
-                    // Centered when everything fits, scrollable when it doesn't (iPhone SE, Pro with aperture).
-                    .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
-                }
-                .onAppear {
-                    if let dial = model.activeDial, kinds.contains(dial) {
-                        reader.scrollTo(dial, anchor: .center)
-                    }
-                }
-                .onChange(of: model.activeDial) { _, dial in
-                    guard let dial, kinds.contains(dial) else { return }
-                    withAnimation(Theme.spring) {
-                        reader.scrollTo(dial, anchor: .center)
-                    }
-                }
+        // Fixed in place and sharing the width evenly, with the screen's margins: at most five chips (ISO,
+        // aperture, white balance, tint, focus), each narrowing its text a little before it would crowd.
+        HStack(spacing: 8) {
+            ForEach(kinds) { kind in
+                ParameterChip(model: model, kind: kind, isSelected: model.activeDial == kind)
+                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
         }
+        .padding(.horizontal, 16)
         // A chip that goes away takes its dial with it: tint when white balance returns to auto (Camera Control,
         // the preset row), the duration when bulb comes on, focus on a lens without manual focus. Initial covers a
         // mode switch, which builds a new strip under a dial that was already open. The lens row's chips count too:
@@ -340,43 +321,6 @@ private enum ChipPresets {
     }
 }
 
-private struct AELockChip: View {
-    let model: CameraModel
-
-    var body: some View {
-        let locked = model.aeLocked
-        let applies = ChipReader.aeLockApplies(model)
-        Button {
-            model.toggleAELock()
-        } label: {
-            HStack(spacing: 4) {
-                LockGlyph(model: model, locked: locked)
-                Text("AE-L")
-            }
-        }
-        .buttonStyle(StripButtonStyle(isActive: locked))
-        // Manual exposure ignores the lock, but a lock that is on can always be turned off.
-        .disabled(!applies && !locked)
-        .opacity(applies || locked ? 1 : 0.45)
-        .accessibilityLabel(Text("Auto exposure lock"))
-        .accessibilityValue(Text(locked ? "On" : "Off"))
-        .accessibilityHint(Text(applies ? "Holds the current auto exposure." : "Has no effect while exposure is manual."))
-    }
-}
-
-private struct LockGlyph: View {
-    let model: CameraModel
-    let locked: Bool
-
-    var body: some View {
-        Image(systemName: locked ? "lock.fill" : "lock.open")
-            .font(.system(size: 10, weight: .bold))
-            .frame(width: 12)
-            .uprightRotation(model.motion.iconRotationDegrees)
-            .accessibilityHidden(true)
-    }
-}
-
 private struct ChipFace: View {
     let content: ChipContent
     let isSelected: Bool
@@ -410,8 +354,12 @@ private struct ChipFace: View {
         .font(Theme.chipFont)
         .foregroundStyle(content.tone == .manual ? Theme.accent : Theme.primaryText)
         .lineLimit(1)
-        .fixedSize()
-        .padding(.horizontal, compact ? 9 : 10)
+        // The lens row's chip keeps its own width. The strip's share the row, so they shrink their text a little
+        // instead of pushing a neighbour off the screen.
+        .minimumScaleFactor(0.7)
+        .fixedSize(horizontal: compact, vertical: false)
+        .padding(.horizontal, compact ? 9 : 6)
+        .frame(maxWidth: compact ? nil : .infinity)
         .frame(height: 30)
         .cameraGlass(in: Capsule())
         .overlay {
@@ -435,26 +383,6 @@ private struct AutoBadge: View {
             .frame(width: 11, height: 11)
             .background(Circle().fill(Theme.primaryText.opacity(0.85)))
             .accessibilityHidden(true)
-    }
-}
-
-/// Capsule chip with a 44 pt tall hit area around a 30 pt visible capsule.
-private struct StripButtonStyle: ButtonStyle {
-    var isActive: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(Theme.chipFont)
-            .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
-            .lineLimit(1)
-            .fixedSize()
-            .padding(.horizontal, 10)
-            .frame(height: 30)
-            .cameraGlass(in: Capsule())
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .animation(Theme.snappy, value: configuration.isPressed)
-            .frame(minWidth: 44, minHeight: 44)
-            .contentShape(Rectangle())
     }
 }
 
