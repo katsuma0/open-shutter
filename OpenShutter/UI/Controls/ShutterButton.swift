@@ -40,8 +40,6 @@ struct ShutterButton: View {
     private static let holdDelay: UInt64 = 350_000_000
     /// Sliding this far off the button cancels the tap, like UIButton.
     private static let touchSlop: CGFloat = 28
-    /// The moon reads as yellow but stays visible on the white disc, which the accent yellow would not.
-    private static let nightGlyph = Color(red: 0.74, green: 0.52, blue: 0.02)
 
     private enum Kind: Equatable {
         case photo, video, recording, stacking, night, long, countdown
@@ -151,12 +149,8 @@ struct ShutterButton: View {
 
     @ViewBuilder
     private var glyph: some View {
-        if kind == .night {
-            Image(systemName: "moon.fill")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(Self.nightGlyph)
-                .transition(.opacity.combined(with: .scale(scale: 0.6)))
-        } else if showsBulbGlyph {
+        // NIGHT's shutter is the plain white disc: the mode is already named in the carousel and on the scene button.
+        if showsBulbGlyph {
             Image(systemName: "lightbulb.fill")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Color.black.opacity(0.55))
