@@ -1601,26 +1601,28 @@ final class CameraModel {
             noteModeChangeRefused()
             return
         }
-        sceneMenuUsed = true
-        guard let scene else { return }
+        guard let scene else {
+            clearHandSetValues()
+            return
+        }
         let fromScene = settings.longExposure.scene != .custom
         setLongExposureScene(scene)
+        // Every choice but Manual night is automatic: the scene, or the camera, sets ISO, aperture, white balance
+        // and focus, and there are no chips to show values set by hand.
+        if scene != .custom { clearHandSetValues() }
         // Manual night is a long exposure of the person's own making. Picked from a scene, it starts as a long
         // shutter would (frames added, Real), not as the scene's blur or trails; picked again, it keeps what was set.
         if scene == .custom, fromScene { setLongExposureBlend(.additive) }
     }
 
-    /// The scene menu has been used at least once. Until then the button that opens it asks to be tapped.
-    var sceneMenuUsed: Bool {
-        get {
-            access(keyPath: \.sceneMenuUsed)
-            return UserDefaults.standard.bool(forKey: "night.sceneMenuUsed")
-        }
-        set {
-            guard newValue != sceneMenuUsed else { return }
-            withMutation(keyPath: \.sceneMenuUsed) {
-                UserDefaults.standard.set(newValue, forKey: "night.sceneMenuUsed")
-            }
+    /// ISO, aperture, white balance and focus back to auto. They are MANUAL's too, so its setup goes with them;
+    /// in NIGHT nothing but Manual night has a chip to show them.
+    private func clearHandSetValues() {
+        updateSettings {
+            $0.manual.iso = nil
+            $0.manual.aperture = nil
+            $0.whiteBalance = .auto
+            $0.focus = .auto
         }
     }
 
