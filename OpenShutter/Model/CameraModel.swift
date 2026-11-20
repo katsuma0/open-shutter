@@ -1371,17 +1371,6 @@ final class CameraModel {
         scheduleApply(.exposure)
     }
 
-    func resetExposureToAuto() {
-        releaseLock()
-        updateSettings {
-            $0.manual.shutter = nil
-            $0.manual.iso = nil
-            $0.manual.aperture = nil
-            $0.manual.bias = 0
-        }
-        Haptics.tap()
-    }
-
     // MARK: - Focus
 
     /// nil = continuous autofocus, or in LONG the distance the scene holds.
@@ -3329,20 +3318,6 @@ final class CameraModel {
         case .long: return settings.manual.aperture == nil && sceneAperture == nil
         case .photo, .night: return true
         }
-    }
-
-    /// The exposure on one line: "1/250 · ISO 100 · ƒ/1.8 · +0.3".
-    var exposureSummary: String {
-        var parts = [
-            ShutterSpeed(seconds: displayShutter).label,
-            ISOScale.label(displayISO),
-            ApertureScale.label(displayAperture),
-        ]
-        let bias = settings.mode == .night ? settings.night.biasEV : settings.manual.bias
-        if abs(bias) >= 0.05 {
-            parts.append(EVFormat.label(bias))
-        }
-        return parts.joined(separator: " \u{00B7} ")
     }
 }
 
