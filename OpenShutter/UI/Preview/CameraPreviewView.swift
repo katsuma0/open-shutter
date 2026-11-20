@@ -154,6 +154,13 @@ final class ViewfinderInteraction {
     ///   - point: Where the finger landed on screen.
     ///   - layerPoint: The same place in the preview layer's coordinates, for the model.
     func tap(at point: CGPoint, layerPoint: CGPoint, model: CameraModel) {
+        // While the focus magnifier enlarges the middle of the frame, a tap only brings the whole frame back: a point
+        // on the enlarged picture is not where the frame has it.
+        guard !model.isMagnified else {
+            lastTap = nil
+            model.setMagnified(false)
+            return
+        }
         let now = CACurrentMediaTime()
         if let last = lastTap, now - last.time <= Self.doubleTapInterval,
            Self.distance(last.point, point) <= Self.doubleTapSlop {
@@ -170,11 +177,17 @@ final class ViewfinderInteraction {
 
     func longPress(at point: CGPoint, layerPoint: CGPoint, model: CameraModel) {
         lastTap = nil
-        guard canAdjust(model), isOnFrame(point) else { return }
+        // A lock while magnified would meter and focus on the enlarged middle, which the exposure holds against.
+        guard canAdjust(model), isOnFrame(point), !model.isMagnified else { return }
         model.tapToFocus(at: layerPoint, lock: true)
     }
 
     func focusCenter(lock: Bool, model: CameraModel) {
+        // VoiceOver's double tap is the tap on the picture: while magnified it brings the whole frame back.
+        guard !model.isMagnified else {
+            model.setMagnified(false)
+            return
+        }
         let frame = geometry.frame
         guard canAdjust(model), frame.width > 0, frame.height > 0 else { return }
         let center = CGPoint(x: frame.midX, y: frame.midY)
@@ -379,6 +392,9 @@ final class ViewfinderInteraction {
     // MARK: Exposure
 
     func exposureDragBegan(model: CameraModel) {
+        // The exposure holds while the focus magnifier is on (the gesture coordinator doesn't start the drag then);
+        // this covers a drag that a turn of the focus dial overtakes.
+        guard !model.isMagnified else { return }
         lingerTask?.cancel()
         lingerTask = nil
         dragStartBias = Self.currentBias(model)
@@ -397,8 +413,8 @@ final class ViewfinderInteraction {
     }
 
     func exposureDragChanged(translation: CGPoint, model: CameraModel) {
-        // A capture that starts mid-drag keeps the exposure it started with.
-        guard isDraggingExposure, canAdjust(model) else { return }
+        // A capture that starts mid-drag keeps the exposure it started with, and so does the focus magnifier.
+        guard isDraggingExposure, canAdjust(model), !model.isMagnified else { return }
         let travel = Self.userVector(translation, quarterTurns: dragQuarterTurns)
         let delta = -Double(travel.y / Self.pointsPerEV)
         guard delta.isFinite else { return }
@@ -433,7 +449,8 @@ final class ViewfinderInteraction {
 
     /// VoiceOver's swipe up and down: a third of a stop, the dial's step.
     func nudgeBias(by step: Double, model: CameraModel) {
-        guard canAdjust(model) else { return }
+        // As the drag on the picture: the exposure holds while the focus magnifier is on.
+        guard canAdjust(model), !model.isMagnified else { return }
         let range = Self.biasRange(model)
         let next = EVFormat.snap(Self.currentBias(model) + step, step: .third)
         model.setBias(min(max(next, range.lowerBound), range.upperBound))
@@ -768,8 +785,9 @@ private final class GestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pan = exposurePan, gestureRecognizer === pan, let view = pan.view else { return true }
         let velocity = ViewfinderInteraction.userVector(pan.velocity(in: view), quarterTurns: model.motion.quarterTurns)
-        // Only a mostly vertical drag is the exposure slider; sideways swipes stay free for other gestures.
-        return abs(velocity.y) > abs(velocity.x) * 1.2 && interaction.canAdjust(model)
+        // Only a mostly vertical drag is the exposure slider; sideways swipes stay free for other gestures. The
+        // exposure holds while the focus magnifier is on, so no drag starts then.
+        return abs(velocity.y) > abs(velocity.x) * 1.2 && interaction.canAdjust(model) && !model.isMagnified
     }
 }
 
@@ -927,7 +945,7 @@ struct ExposureSliderLayer: View {
             interaction.freshnessExpired()
         }
         // A zoom or lens change moves the picture under the focus point, so the sun no longer belongs there. So
-        // does a new picture rect (another aspect ratio or VIDEO): the same point now lands somewhere else.
+        // does a new picture rect (another aspect ratio or VIDEO), and the focus magnifier, a zoom on the middle.
         .onChange(of: model.settings.zoom) {
             interaction.focusPointMoved()
         }
@@ -937,10 +955,15 @@ struct ExposureSliderLayer: View {
         .onChange(of: geometry.picture) {
             interaction.focusPointMoved()
         }
+        .onChange(of: model.isMagnified) {
+            interaction.focusPointMoved()
+        }
     }
 
-    /// The drag's anchor, or the focus point while its square is on screen.
+    /// The drag's anchor, or the focus point while its square is on screen. None while the focus magnifier enlarges
+    /// the middle of the frame: the square is hidden then, and the exposure holds.
     private var visibleAnchor: CGPoint? {
+        guard !model.isMagnified else { return nil }
         if let anchor = interaction.sliderAnchor { return anchor }
         let picture = geometry.picture
         return interaction.visibleFocusPoint(model).map { CGPoint(x: $0.x + picture.minX, y: $0.y + picture.minY) }

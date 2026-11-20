@@ -557,10 +557,13 @@ public struct FocusOptions: Codable, Hashable, Sendable {
     public var faceDriven: TriState = .automatic
     /// iOS 27 subject tracking autofocus.
     public var continuousTracking: Bool = false
+    /// How far turning the focus dial enlarges the middle of the frame. Nothing on the device changes with the
+    /// setting itself, only while the magnifier is on.
+    public var magnifier: FocusMagnifier = .x5
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case range, smooth, faceDriven, continuousTracking }
+    enum CodingKeys: String, CodingKey { case range, smooth, faceDriven, continuousTracking, magnifier }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -569,6 +572,7 @@ public struct FocusOptions: Codable, Hashable, Sendable {
         smooth = c.value(.smooth, default: d.smooth)
         faceDriven = c.value(.faceDriven, default: d.faceDriven)
         continuousTracking = c.value(.continuousTracking, default: d.continuousTracking)
+        magnifier = c.value(.magnifier, default: d.magnifier)
     }
 }
 

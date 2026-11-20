@@ -109,7 +109,7 @@ private struct AdvancedMenuSection: View {
             NavigationLink {
                 FocusSettingsView(model: model)
             } label: {
-                MenuRowLabel("Focus", detail: "Autofocus range, faces and tracking", symbol: "scope")
+                MenuRowLabel("Focus", detail: "Autofocus range, faces, tracking and the magnifier", symbol: "scope")
             }
             NavigationLink {
                 ViewfinderSettingsView(model: model)

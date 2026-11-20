@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import CameraCore
 
 /// The dial for `model.activeDial`, with its header and presets. It opens at the top of the controls stack and
@@ -53,6 +54,13 @@ private struct DialPanel: View {
             DialHeader(model: model, kind: kind, isLocked: locked, isDimmed: dimmed)
             if kind == .whiteBalance {
                 WhiteBalancePresetRow(model: model)
+                    .disabled(locked)
+                    .opacity(dimmed ? 0.45 : 1)
+            }
+            // Far end needs no magnifier, so the row stays where Settings turns it off or Depth leaves it out, and
+            // only Magnify goes.
+            if kind == .focus, model.capabilities.supportsManualFocus, !model.capabilities.lens.isFront {
+                FocusAssistRow(model: model)
                     .disabled(locked)
                     .opacity(dimmed ? 0.45 : 1)
             }
@@ -119,6 +127,7 @@ private struct DialPanel: View {
         isEditing = editing
         if editing {
             sentZooms.removeAll()
+            if kind == .focus { FocusAssistRow.dialTurned(model) }
         } else {
             pauseFollowing()
         }
@@ -302,6 +311,58 @@ private struct WhiteBalancePresetRow: View {
             guard let presetKelvin = preset.kelvin else { return false }
             return abs(kelvin - presetKelvin) < 1 && abs(tint) < 0.5
         }
+    }
+}
+
+// MARK: - Focus assist
+
+/// The focus dial's row on a back lens that focuses by hand. Magnify, where the model offers the magnifier, enlarges
+/// the middle of the frame to check focus at the sensor's own detail. Far end parks the lens where distant stars come
+/// sharp, then enlarges as a turn of the dial would. Round buttons like white balance's presets.
+private struct FocusAssistRow: View {
+    let model: CameraModel
+
+    var body: some View {
+        let magnified = model.isMagnified
+        // A countdown, a recording or a photo still saving holds the whole frame; the way back always works.
+        let available = magnified || model.canMagnify
+        HStack(spacing: 4) {
+            // Still there while magnified, whatever ends the offer, so the frame can always be made whole from here.
+            if magnified || model.magnifierOffered {
+                PresetButton(model: model, systemName: "plus.magnifyingglass", title: "Magnify", isSelected: magnified) {
+                    Haptics.tick()
+                    model.toggleMagnifier()
+                }
+                .disabled(!available)
+                .opacity(available ? 1 : 0.45)
+                .animation(Theme.snappy, value: available)
+                // The power asked for, not the badge's: that one follows the readings, ten times a second.
+                .accessibilityValue(Text(magnified ? Self.spokenPower(model.magnification) : "Off"))
+                .accessibilityHint(Text("Shows the middle of the frame up close."))
+            }
+            PresetButton(model: model, systemName: "infinity", title: "Focus at the far end", isSelected: false) {
+                Haptics.tick()
+                model.setManualFocus(1)
+                Self.dialTurned(model)
+            }
+            .accessibilityHint(Text("Moves the focus to the far end of the lens. Distant stars are sharp near there."))
+        }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The dial's first turn and Far end bring the magnifier in, as a camera's focus assist does; the model decides
+    /// whether it is offered and on. Not while VoiceOver runs: it has no use for the enlarged picture, nothing would
+    /// say it came on, and the next shutter press would only bring the whole frame back. Magnify still turns it on.
+    static func dialTurned(_ model: CameraModel) {
+        guard !UIAccessibility.isVoiceOverRunning else { return }
+        model.focusDialTurned()
+    }
+
+    /// "5 times", "7.5 times".
+    private static func spokenPower(_ power: Double) -> String {
+        let tenths = ((power.isFinite ? power : 1) * 10).rounded() / 10
+        return "\(tenths.formatted()) times"
     }
 }
 

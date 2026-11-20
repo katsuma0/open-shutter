@@ -17,8 +17,11 @@ struct ViewfinderSettingsView: View {
                 Toggle("Exposure readout", isOn: model.settingBinding(\.display.showReadout))
             } footer: {
                 SettingsFooter([
-                    "The readout is Photo's line above the zoom buttons: ISO, aperture, white balance and focus. Manual, Video and the long exposure scenes have chips for the ones you can set there.",
-                    "The clipping warning appears when highlights lose detail.",
+                    // A night photo is built from many frames, so no one frame's histogram says how it will come out.
+                    "Night mode shows no histogram.",
+                    // NIGHT's plan and the sky scenes' way into the focus dial follow this switch too
+                    // (NightText.isoShownElsewhere, ModePanels), and nothing on the camera screen says so.
+                    "The readout is the line above the zoom buttons in Photo, the night shot and the scenes: ISO, aperture, white balance and focus. In Stars, Northern lights and Fireworks a tap on it opens the focus dial. With it off, Night's plan names the ISO, and those scenes show a focus chip instead. Manual, Manual night and Video have chips for the values you can set there.",
                     "The grid and the level are on the first page of Settings, under Camera.",
                 ])
             }

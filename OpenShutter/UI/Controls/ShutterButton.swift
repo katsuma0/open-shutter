@@ -21,6 +21,9 @@ struct ShutterButton: View {
     /// False while the camera would ignore a press, such as during a photo's exposure. A press then gets no scale,
     /// haptic or action, so the shutter is never felt to fire without firing. The look stays: that state is brief.
     var acceptsPress: Bool = true
+    /// False while a press only brings the whole frame back from the focus magnifier. The model plays its own lighter
+    /// tap for that, and a shutter click would be felt to fire without firing.
+    var clicksOnPress: Bool = true
     /// The battery saver has the screen dark over the button. The bulb arc holds still and the progress ring steps
     /// without animating, so nothing keeps drawing under the black. The button stays in place: removing it would end
     /// a bulb hold.
@@ -232,7 +235,7 @@ struct ShutterButton: View {
         current.holdTask = nil
         current.holdEnded = onHoldEnded
         press = current
-        Haptics.shutter()
+        if clicksOnPress { Haptics.shutter() }
         began()
     }
 
@@ -244,7 +247,7 @@ struct ShutterButton: View {
             (onHoldEnded ?? current.holdEnded)?()
         } else if current.isInside, Self.isInside(value.location), isEnabled, acceptsPress {
             // Checked again at the lift: the camera may have started a shot from another button meanwhile.
-            Haptics.shutter()
+            if clicksOnPress { Haptics.shutter() }
             action()
         }
     }
@@ -261,7 +264,7 @@ struct ShutterButton: View {
 
     private func activateFromAccessibility() {
         guard isEnabled, acceptsPress else { return }
-        Haptics.shutter()
+        if clicksOnPress { Haptics.shutter() }
         action()
     }
 

@@ -75,6 +75,7 @@ final class CameraSettingsTests: XCTestCase {
         s.focusOptions.smooth = true
         s.focusOptions.faceDriven = .on
         s.focusOptions.continuousTracking = true
+        s.focusOptions.magnifier = .x10
         s.display.grid = .goldenRatio
         s.display.showLevel = false
         s.display.histogram = .rgb
@@ -289,10 +290,13 @@ final class CameraSettingsTests: XCTestCase {
         let set = #"""
             {"controls":{"volumeUpAction":"brighter","volumeDownAction":"nextLens","hapticStrength":"strong",
             "dialTicks":false},"display":{"dimDuringLongShots":true},
-            "capture":{"prioritizeSpeed":true,"artist":"Sam","copyright":""},"video":{"allowAudioPlayback":true},
+            "capture":{"prioritizeSpeed":true,"artist":"Sam","copyright":"","highQuality":true},
+            "focusOptions":{"magnifier":"off"},"video":{"allowAudioPlayback":true},
             "appearance":{"scheme":"light","accent":"green"},"topBar":{"leading":["level"],"trailing":[]}}
             """#
         let chosen = CameraSettings.decoded(from: Data(set.utf8))
+        XCTAssertTrue(chosen.capture.highQuality)
+        XCTAssertEqual(chosen.focusOptions.magnifier, .off)
         XCTAssertEqual(chosen.controls.volumeUpAction, .brighter)
         XCTAssertEqual(chosen.controls.volumeDownAction, .nextLens)
         XCTAssertEqual(chosen.controls.hapticStrength, .strong)
@@ -487,6 +491,8 @@ final class CameraSettingsTests: XCTestCase {
         check(VideoCodecChoice.self) { $0.title }
         check(StabilizationChoice.self) { $0.title }
         check(CameraControlItem.self) { $0.title }
+        check(PhotoFormatChoice.self) { $0.title }
+        check(FocusMagnifier.self) { $0.title }
     }
 
     func testTitlesUseSentenceCase() {

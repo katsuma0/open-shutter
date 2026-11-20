@@ -87,6 +87,10 @@ final class CameraModel {
                 activeDial = nil
                 return
             }
+            // The magnifier belongs to the focus dial: Done, a swipe down, another dial, or the quick settings that
+            // close it bring the whole frame back. The next focus dial offers it afresh.
+            magnifierDeclined = false
+            if activeDial != .focus { setMagnified(false) }
             // Peaking follows the focus dial in "manual focus" peaking mode.
             applyAnalysis()
             if activeDial == nil { applyCameraControls() }
@@ -96,6 +100,8 @@ final class CameraModel {
     var isSettingsPresented = false {
         didSet {
             guard oldValue != isSettingsPresented else { return }
+            // Nobody focuses under a sheet, and the camera behind it should be the whole frame when it closes.
+            if isSettingsPresented { setMagnified(false) }
             coverDidChange(closed: !isSettingsPresented)
         }
     }
@@ -104,6 +110,7 @@ final class CameraModel {
     var isReviewPresented = false {
         didSet {
             guard oldValue != isReviewPresented else { return }
+            if isReviewPresented { setMagnified(false) }
             updateGalleryPause()
             coverDidChange(closed: !isReviewPresented)
         }
@@ -718,6 +725,8 @@ final class CameraModel {
         pendingZoom = nil
         cancelSchedule()
         cancelZoomTransition()
+        // Told to the session before it stops, so the next start opens on the whole frame.
+        setMagnified(false)
         motionMonitor.stop()
         locationProvider.setEnabled(false)
         backend.stop()
@@ -746,6 +755,7 @@ final class CameraModel {
     func sceneDidEnterBackground() {
         inBackground = true
         spoken.stop()
+        setMagnified(false)
         guard backendRunning else { return }
         // The scene in front of the lens will have changed by the time the app comes back.
         releaseLock()
@@ -798,6 +808,9 @@ final class CameraModel {
     /// Everything that follows what the shutter is doing: Auto-Lock, the haptics hold, the drift crosses, the status
     /// pill, the battery saver and the gallery's pause.
     private func activityDidChange(from old: CaptureActivity) {
+        // The half press ends the magnifier before any shot; this catches anything else that starts one, so no
+        // photo, stack or recording is ever taken enlarged.
+        if activity != .idle { setMagnified(false) }
         updateIdleTimer()
         // A tap of the Taptic Engine shakes a phone on a tripod: none while frames come in or a settle runs.
         var settling = false
@@ -1027,6 +1040,14 @@ final class CameraModel {
     /// be the ones showing, which a new tap on the same button would leave alone.
     private func select(_ preset: LensPreset, haptic: Bool, replaying: Bool) {
         guard !activity.isBusy else { return }
+        // The Camera Control's Lens picker shows a parked choice. Parked or dropped while the active button stays
+        // put, the change sends no state of its own; any other lens change does, through activePresetID.
+        let parkedBefore = pendingPreset?.id
+        defer { if pendingPreset?.id != parkedBefore { applyCameraControls() } }
+        // Any lens choice frames anew, and the magnifier enlarges the frame of the lens it was turned on for. The
+        // whole frame it metered is the old framing's.
+        setMagnified(false)
+        if magnifierMeter != nil { magnifierMeter = nil }
         // A second tap on the button a glide is already heading to: planned again from where the picture is midway,
         // it would cut the glide short with a swap.
         if !replaying, let target = zoomTarget, preset.id == activePresetID, abs(target - preset.displayZoom) < 0.001 {
@@ -1143,6 +1164,14 @@ final class CameraModel {
     /// chooses strictly.
     func setDisplayZoom(_ zoom: Double, animated: Bool, continuing: Bool = false) {
         guard zoom.isFinite, zoom > 0 else { return }
+        // A zoom drops a lens choice still parked, which the Camera Control's Lens picker shows. Only then: this runs
+        // at the finger's rate.
+        let parkedBefore = pendingPreset?.id
+        defer { if pendingPreset?.id != parkedBefore { applyCameraControls() } }
+        // A zoom frames anew from the whole frame: the magnifier lives on the same device zoom, and the whole frame
+        // it metered is the old framing's.
+        setMagnified(false)
+        if magnifierMeter != nil { magnifierMeter = nil }
         // A zoom by hand goes on from the macro framing as plain zoom.
         if isMacro { isMacro = false }
         lastZoomCommand = Date()
@@ -1411,6 +1440,8 @@ final class CameraModel {
 
     /// nil = continuous autofocus, or in LONG the distance the scene holds.
     func setManualFocus(_ lensPosition: Double?) {
+        // AUTO in the focus dial's header: autofocus needs no magnifier.
+        if lensPosition == nil { setMagnified(false) }
         guard lensPosition == nil || capabilities.supportsManualFocus else { return }
         var value = lensPosition.map { min(max($0, 0), 1) }
         // The far end is where a scene that focuses at infinity already holds the lens. Kept as the person's, it
@@ -1720,6 +1751,14 @@ final class CameraModel {
                 stopCapture()
                 return
             }
+            // A camera's half press: while the magnifier enlarges the middle, the first press only brings the whole
+            // frame back, so nothing is ever taken cropped, and the next press shoots.
+            if isMagnified {
+                setMagnified(false)
+                Haptics.tap()
+                announceHalfPress()
+                return
+            }
         }
         guard canCapture else {
             if !settings.capture.isValid {
@@ -1755,6 +1794,14 @@ final class CameraModel {
         }
     }
 
+    /// A half press takes nothing and plays no shutter sound. Someone who can't see the whole frame come back would
+    /// take it for a photo, so VoiceOver says what happened, whatever Speak status is set to.
+    private func announceHalfPress() {
+        guard UIAccessibility.isVoiceOverRunning else { return }
+        let next = settings.mode == .video ? "start recording" : "take the photo"
+        UIAccessibility.post(notification: .announcement, argument: "Whole frame. Press again to \(next).")
+    }
+
     /// A press as a countdown runs out was meant to cancel it, and the shot it started has nothing yet: ended
     /// early, it would save a dark, nearly empty picture.
     private var stackJustStartedFromCountdown: Bool {
@@ -1785,7 +1832,15 @@ final class CameraModel {
 
     /// Press and hold in LONG mode with bulb on: the exposure runs until release.
     func shutterHoldBegan() {
-        guard isBulbMode, activity == .idle, photosInFlight == 0, canCapture else { return }
+        guard isBulbMode, activity == .idle, photosInFlight == 0 else { return }
+        // The half press, for a bulb: the hold brings the whole frame back and starts nothing.
+        if isMagnified {
+            setMagnified(false)
+            Haptics.tap()
+            announceHalfPress()
+            return
+        }
+        guard canCapture else { return }
         bulbHoldActive = true
         // A finger on the shutter keeps the screen lit.
         updateDimming()
@@ -2423,6 +2478,11 @@ final class CameraModel {
     }
 
     private func reapply(from old: CameraSettings, to new: CameraSettings) {
+        // Another mode or scene frames anew, and the magnifier turned off in Settings or Depth turned on leaves
+        // nothing to offer it with. Told to the backend before the requests these settings send.
+        if isMagnified, old.mode != new.mode || old.longExposure.scene != new.longExposure.scene || !magnifierOffered {
+            setMagnified(false)
+        }
         // Before any request is built from these settings, including the one a mode change sends at once.
         if old.mode != new.mode || old.manual != new.manual || old.longExposure != new.longExposure {
             updateStackISOLimit()
@@ -2979,11 +3039,14 @@ final class CameraModel {
     private func adoptExternalChanges(from readings: LiveReadings) {
         let now = Date()
         var changed = false
-        if !lensSwitchInFlight, !activity.isBusy, now.timeIntervalSince(lastZoomCommand) > 1,
+        // The magnifier's zoom is the device's, not a slider's move; the readings report the photo's zoom then anyway.
+        if !lensSwitchInFlight, !activity.isBusy, !isMagnified, now.timeIntervalSince(lastZoomCommand) > 1,
            readings.zoomFactor.isFinite, readings.zoomFactor > 0, abs(readings.zoomFactor - settings.zoom) > 0.01 {
             // The factor belongs to the lens the camera runs, which the saved lens has to name with it.
             if let running = backend.activeLensID, settings.lensID != running { settings.lensID = running }
             if isMacro { isMacro = false }
+            // A zoom frames anew, as a pinch does: the whole frame the magnifier metered was the old framing's.
+            if magnifierMeter != nil { magnifierMeter = nil }
             settings.zoom = readings.zoomFactor
             // The next pinch or wheel turn goes on from the slider's zoom.
             if readings.displayZoom.isFinite, readings.displayZoom > 0 {
@@ -2993,7 +3056,9 @@ final class CameraModel {
             changed = true
         }
         let requested = requestedBias
-        if !activity.isBusy, pendingApply.isEmpty, now.timeIntervalSince(lastBiasCommand) > 1,
+        // While the magnifier is on the exposure holds and a bias asked for waits in the backend, so the camera's
+        // bias says nothing about the Camera Control's slider, whose overlay ends the magnifier anyway.
+        if !activity.isBusy, !isMagnified, pendingApply.isEmpty, now.timeIntervalSince(lastBiasCommand) > 1,
            readings.bias.isFinite, abs(readings.bias - requested) > 0.05 {
             if settings.mode == .night {
                 settings.night.biasEV = readings.bias
@@ -3025,7 +3090,8 @@ final class CameraModel {
         externalSyncTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 600_000_000)
             guard !Task.isCancelled, let self, !self.lensSwitchInFlight, !self.activity.isBusy else { return }
-            if generation == self.zoomRequestGeneration {
+            // A zoom request ends the magnifier in the backend, and this one is only a resend of the zoom in force.
+            if generation == self.zoomRequestGeneration, !self.isMagnified {
                 self.lastZoomCommand = Date()
                 self.backend.setZoomFactor(self.settings.zoom, rampRate: nil)
             }
@@ -3140,8 +3206,13 @@ final class CameraModel {
     }
 
     /// What auto exposure wants for this scene, as a light product (t × ISO / N²). In NIGHT with AE locked it is
-    /// the light measured at the lock, moved by any bias change since, as a locked exposure would be.
+    /// the light measured at the lock, moved by any bias change since, as a locked exposure would be. While the
+    /// magnifier enlarges the middle it is the whole frame's, metered as the magnifier came on, moved the same way,
+    /// and so it stays until the frames after the magnifier's end show the whole frame (magnifierMeterUntil).
     private var meteredProduct: Double {
+        if let held = magnifierMeter, isMagnified || Date() < magnifierMeterUntil {
+            return held.product * pow(2, requestedBias - held.bias)
+        }
         if settings.mode == .night, aeLocked, let locked = lockedMeter {
             return locked.product * pow(2, settings.night.biasEV - locked.bias)
         }
@@ -3267,7 +3338,8 @@ final class CameraModel {
     var shutterAcceptsPress: Bool {
         switch activity {
         case .idle:
-            if intervalometer != nil { return true }
+            // A press while the magnifier is on brings the whole frame back.
+            if intervalometer != nil || isMagnified { return true }
             guard canCapture else { return false }
             return photosInFlight == 0 || (pressTakesPlainPhoto && photosInFlight < maxPhotosInFlight)
         case .countdown, .stacking, .recording: return true
@@ -3467,6 +3539,230 @@ final class CameraModel {
         }
         return parts.joined(separator: " \u{00B7} ")
     }
+
+    // MARK: - Histogram
+
+    /// The histogram is on and this mode draws one. NIGHT has none: its shots are built from many frames.
+    var showsHistogram: Bool { settings.display.histogram != .off && settings.mode.hasHistogram }
+
+    /// The histogram is on the screen now: on, in a mode that draws one, and with live frames to draw it from. Not
+    /// while a stack runs (its frames go to the stack, so the last one would stay up), while the magnifier shows only
+    /// the middle, under the battery saver's black screen, with the camera stopped, or before a frame has come (a
+    /// VIDEO format past the hardware budget never sends one). Built from state that changes rarely, so what makes
+    /// room for the histogram reads this and not the analysis, which changes 12 times a second.
+    var histogramOnScreen: Bool {
+        showsHistogram && hasAnalysisFrames && activity != .stacking && !isMagnified && !dimmer.isDimmed
+            && sessionState == .running
+    }
+
+    // MARK: - Photo format
+
+    // The top bar's Format menu, the quick settings and Settings > Photos set the format through these, so each
+    // shows what the others set.
+
+    /// One row of the format list: the container and High. The Quality slider keeps its value for plain HEIF and
+    /// JPEG, and RAW stays as it is (RAW only is a row while RAW is on).
+    func setPhotoFormat(_ choice: PhotoFormatChoice) {
+        updateSettings { choice.apply(to: &$0.capture) }
+    }
+
+    /// Off, RAW (the sensor's data, at a lens's own zoom) or ProRAW. Turned off under RAW only, photos save HEIF
+    /// (commit).
+    func setRawFormat(_ raw: RawFormat) {
+        updateSettings { $0.capture.rawFormat = raw }
+    }
+
+    /// 12 MP or 48 MP, the largest size the lens has up to it.
+    func setPhotoResolution(_ resolution: PhotoResolution) {
+        updateSettings { $0.capture.resolution = resolution }
+    }
+
+    // MARK: - Focus magnifier
+
+    /// How many times the middle of the frame shows enlarged for focusing by hand; 1 is the whole frame. It lives on
+    /// the device's zoom only: the photo's zoom stays as it is, the backend undoes the magnifier before any capture,
+    /// and the half press (shutterPressed) makes sure none starts with it on.
+    private(set) var magnification: Double = 1
+    var isMagnified: Bool { magnification > 1 }
+    /// How many times the badge says the frame is enlarged: the power asked for, or less where the lens's zoom runs
+    /// out (5× at 2× on a lens that stops at 15 shows 7.5×). Worked out as the magnifier comes on, since any zoom
+    /// ends it.
+    private(set) var magnifierShownPower: Double = 1
+    /// What the whole frame metered as the magnifier came on, and the bias then. The meter reads only the middle
+    /// while it is enlarged, and the exposure holds, so the plans keep this meanwhile (meteredProduct). It outlives
+    /// the magnifier by about two frames (magnifierMeterUntil), while the frames on their way still show the middle:
+    /// a press right after the half press is planned from the whole frame. A lens or zoom change frames anew and
+    /// drops it. Observed, because a view showing the held meter may read nothing that the readings change: the
+    /// readout line, the ISO chip and NIGHT's plan pill go back to the live meter when the first reading after those
+    /// frames drops it (didUpdateReadings). Observation tells every reader of each write of a value that isn't
+    /// Equatable, as a tuple isn't, so it is only written when it changes.
+    private var magnifierMeter: (product: Double, bias: Double)?
+    /// When the frames after the magnifier's end show the whole frame again, and the meter can be read once more.
+    @ObservationIgnored private var magnifierMeterUntil = Date.distantPast
+    /// Magnify was tapped off while the focus dial is open: the dial's turns leave the frame whole until it closes.
+    @ObservationIgnored private var magnifierDeclined = false
+
+    /// The focus dial offers the magnifier: on in Settings, a back lens that focuses by hand, a running camera, a
+    /// mode with the focus dial, and no depth delivery, whose zoom changes rebuild the capture pipeline.
+    var magnifierOffered: Bool {
+        guard settings.focusOptions.magnifier != .off, capabilities.supportsManualFocus, !capabilities.lens.isFront,
+              sessionState == .running else { return false }
+        switch settings.mode {
+        case .manual, .long:
+            return !(DeviceOptions(settings: settings).depth && capabilities.depthSupported)
+        case .video:
+            // VIDEO takes the photo output, and its depth, out of the session.
+            return true
+        case .photo, .night:
+            return false
+        }
+    }
+
+    /// The magnifier can come on now: nothing being taken or saved, no sequence between its shots, no lens on its
+    /// way, and the Camera Control's overlay closed, whose zoom slider would show the enlarged zoom.
+    var canMagnify: Bool {
+        magnifierOffered && activity == .idle && intervalometer == nil && !bracketInProgress && photosInFlight == 0
+            && !lensSwitchInFlight && !controlsFullscreen
+    }
+
+    /// On enlarges the middle by the power Settings names, from the focus dial only. Off brings the whole frame back,
+    /// and does nothing when it is already whole.
+    func setMagnified(_ on: Bool) {
+        if on {
+            let power = settings.focusOptions.magnifier.power
+            guard !isMagnified, power > 1, canMagnify, activeDial == .focus else { return }
+            let base = settings.zoom
+            // The backend enlarges from the zoom it was asked for. A glide still on its way, or the Camera Control's
+            // slider not yet adopted, has the device elsewhere; the next turn of the dial finds it settled.
+            let device = readings.zoomFactor
+            guard device.isFinite, device > 0, base > 0, abs(device / base - 1) < 0.02 else { return }
+            let zoom = MagnifierMath.deviceZoom(base: base, power: power, range: capabilities.zoomRange)
+            let shown = MagnifierMath.shownPower(base: base, deviceZoom: zoom)
+            // A lens already at the end of its zoom has nothing left to enlarge with.
+            guard shown > 1 else { return }
+            magnifierMeter = (meteredProduct, requestedBias)
+            magnifierShownPower = shown
+            magnification = power
+        } else {
+            guard isMagnified else { return }
+            magnification = 1
+            magnifierShownPower = 1
+            // The cut back reaches the preview a frame or two later, and the readings poll a tenth of a second after
+            // that: the meter goes on reading the middle until then, a couple of seconds at Manual night's 1 s frames.
+            let settle = min(max(2 * readings.exposureSeconds + 0.2, 0.3), 2.5)
+            magnifierMeterUntil = Date().addingTimeInterval(settle.isFinite ? settle : 0.3)
+        }
+        // The device cuts in or out while the zoom asked for stays, and the exposure requests that waited go out as
+        // the frame comes back: this keeps adoptExternalChanges from taking the frame or two before either lands
+        // for a move of the Camera Control's sliders. A start's far-future mark stays for applyAll.
+        lastZoomCommand = Date()
+        if lastBiasCommand != .distantFuture { lastBiasCommand = Date() }
+        backend.setFocusMagnification(magnification)
+        // Peaking and zebras are worked out on the enlarged frames, and the histogram waits for the whole frame.
+        applyAnalysis()
+    }
+
+    /// The focus dial's Magnify button.
+    func toggleMagnifier() {
+        let on = !isMagnified
+        setMagnified(on)
+        magnifierDeclined = !on
+    }
+
+    /// A turn of the focus dial and its Far end button: the magnifier comes on by itself, as a camera's focus assist
+    /// does, unless Magnify was tapped off since the dial opened.
+    func focusDialTurned() {
+        guard !magnifierDeclined else { return }
+        setMagnified(true)
+    }
+
+    // MARK: - Custom setups
+
+    /// Saves the shooting setup in use into a slot, 0 to 2 for C1 to C3. Without a name, a slot saved over keeps the
+    /// name it had. The setups alone send the camera nothing: reapply compares the rest.
+    func saveSetup(slot: Int, name: String? = nil) {
+        guard (0..<CameraSetups.count).contains(slot) else { return }
+        let kept = name.map(Self.setupName) ?? settings.setups[slot]?.name ?? ""
+        updateSettings { $0.setups[slot] = CameraSetup(name: kept, from: $0) }
+        // Saved from the quick settings, nothing on screen changes to say so.
+        showToast("Saved to C\(slot + 1)", symbol: "slider.horizontal.3")
+    }
+
+    func renameSetup(slot: Int, to name: String) {
+        guard var setup = settings.setups[slot] else { return }
+        let trimmed = Self.setupName(name)
+        guard trimmed != setup.name else { return }
+        setup.name = trimmed
+        updateSettings { $0.setups[slot] = setup }
+    }
+
+    func clearSetup(slot: Int) {
+        guard settings.setups[slot] != nil else { return }
+        updateSettings { $0.setups[slot] = nil }
+    }
+
+    /// Puts a saved setup back, as a camera's C1 to C3 do: the mode and scene, the exposure, white balance and focus,
+    /// the format, the timer and brackets, the viewfinder tools, NIGHT, VIDEO and the lens. Macro isn't kept, and
+    /// comes back from the lens and zoom, as it does at launch. The interface and everything outside shooting stay as
+    /// they are. Refused, with the reason, while a shot, a sequence or a save runs, as a mode change is.
+    func recallSetup(slot: Int) {
+        guard let setup = settings.setups[slot] else { return }
+        guard canChangeMode else {
+            noteModeChangeRefused()
+            return
+        }
+        releaseLock()
+        activeDial = nil
+        isDrawerOpen = false
+        setMagnified(false)
+        let lens = recalledLens(of: setup)
+        // The macro framing comes back as macro in the modes with its button, as a camera saved in macro opens in it
+        // (refreshLenses). The bare lens and zoom would light the .5 button reading 1x beside the 1x button.
+        let recallsMacro = Self.offersMacro(setup.mode) && (lenses.first(where: { $0.id == setup.lensID }).map {
+            $0.kind == .ultraWide && abs(setup.zoom * $0.relativeZoom - 1) < 0.02
+        } ?? false)
+        // VIDEO and NIGHT have no macro button to end macro with, so it stays behind as setMode leaves it, unless the
+        // setup's own lens ends it below.
+        if lens == nil, !Self.offersMacro(setup.mode), isMacro, let id = macroButtonID,
+           let wide = backLensPresets.first(where: { $0.id == id }) {
+            select(wide, haptic: false)
+        }
+        var next = setup.applied(to: settings)
+        // A shutter speed saved where they are offered would run here with no chip to show it, as at launch.
+        if !allowsManualShutter { next.manual.shutter = nil }
+        if next.mode.usesStacking { lastNightFamilyMode = next.mode }
+        modeChangeLedByPick = false
+        // One commit: a change of mode sends everything (applyAll), and otherwise reapply sends what changed, a VIDEO
+        // session's rebuild included.
+        updateSettings { $0 = next }
+        // After the commit, so a VIDEO session is set up before the lens moves on it. Macro goes through the select
+        // that keeps it, as the macro button's does, so the 1x button stays lit for it.
+        if recallsMacro {
+            isMacro = true
+            if let lens { select(lens, haptic: false, replaying: false) } else { updateActivePreset(force: true) }
+        } else if let lens {
+            select(lens, haptic: false)
+        }
+        showToast(setup.name.isEmpty ? "C\(slot + 1)" : "C\(slot + 1) \u{00B7} \(setup.name)",
+                  symbol: "slider.horizontal.3")
+        Haptics.tap()
+    }
+
+    /// Where a recall takes the lens: the setup's back lens at its zoom, through the lens button that matches, else
+    /// that lens zoomed there. nil leaves the lens as it is: already there, a lens this phone lacks, or the selfie
+    /// camera.
+    private func recalledLens(of setup: CameraSetup) -> LensPreset? {
+        guard let id = setup.lensID, let lens = lenses.first(where: { $0.id == id }), !lens.isFront,
+              setup.zoom.isFinite, setup.zoom > 0 else { return nil }
+        if backend.activeLensID == id, pendingPreset == nil, abs(settings.zoom - setup.zoom) < 0.01 { return nil }
+        return backLensPresets.first(where: { $0.lensID == id && abs($0.zoomFactor - setup.zoom) < 0.01 })
+            ?? LensPreset(lensID: id, zoomFactor: setup.zoom, displayZoom: setup.zoom * lens.relativeZoom)
+    }
+
+    /// A setup's name as it is kept, without the spaces around it.
+    private static func setupName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 // MARK: - Backend events
@@ -3474,6 +3770,8 @@ final class CameraModel {
 extension CameraModel: CameraBackendDelegate {
     func cameraBackend(_ backend: CameraBackend, didChangeState state: SessionState) {
         sessionState = state
+        // A camera that stops shows nothing to focus on, and comes back on the whole frame.
+        if state != .running { setMagnified(false) }
         if case .interrupted(let reason) = state {
             showToast(reason, symbol: "pause.circle")
         } else if case .failed(let reason) = state {
@@ -3497,6 +3795,8 @@ extension CameraModel: CameraBackendDelegate {
         }
         let previous = self.capabilities
         self.capabilities = capabilities
+        // The magnifier was for the lens that was in use, and a lens without manual focus has none to offer.
+        if isMagnified, previous.lens.id != capabilities.lens.id || !magnifierOffered { setMagnified(false) }
         // The new lens's format may run without the analysis output (over the hardware budget), and the old lens's
         // last frame would stay on screen.
         if settings.mode == .video, previous.lens.id != capabilities.lens.id { analysis = nil }
@@ -3529,7 +3829,11 @@ extension CameraModel: CameraBackendDelegate {
     func cameraBackend(_ backend: CameraBackend, didUpdateReadings readings: LiveReadings) {
         self.readings = readings
         checkCloseSubject(readings)
-        updateStackISOLimit()
+        // While the magnifier is on, and until the frames after it show the whole frame, the meter reads only the
+        // middle and would flip the stack's held ISO. The first reading after that drops the snapshot and lets the
+        // limit follow the meter again.
+        if magnifierMeter != nil, !isMagnified, Date() >= magnifierMeterUntil { magnifierMeter = nil }
+        if magnifierMeter == nil { updateStackISOLimit() }
         adoptExternalChanges(from: readings)
         // NIGHT's automatic time and LONG's frames follow the light, and with them whether a tripod is needed.
         refreshSteadyStatus()
@@ -3717,8 +4021,12 @@ extension CameraModel: CameraBackendDelegate {
 
     func cameraBackend(_ backend: CameraBackend, controlsFullscreenDidChange isFullscreen: Bool) {
         if controlsFullscreen != isFullscreen { controlsFullscreen = isFullscreen }
-        // A light press on the Camera Control is someone looking at the screen.
-        if isFullscreen { wakeScreen() }
+        // A light press on the Camera Control is someone looking at the screen. Its system zoom slider would show
+        // the magnifier's zoom as the photo's, so the frame comes back whole first.
+        if isFullscreen {
+            setMagnified(false)
+            wakeScreen()
+        }
         refreshSteadyStatus()
     }
 }

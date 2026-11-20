@@ -39,6 +39,12 @@ protocol CameraBackend: AnyObject {
     /// Zooms the active lens to a device zoom factor, clamped to capabilities.zoomRange. A positive `rampRate`
     /// (doublings per second, as AVCaptureDevice ramps) glides there; nil sets the factor at once.
     func setZoomFactor(_ factor: Double, rampRate: Double?)
+    /// The focus magnifier: enlarges the middle of the frame `power` times with the lens's own zoom, for checking
+    /// focus, without changing the zoom photos are taken at; 1 shows the whole frame again. Readings keep reporting
+    /// the zoom without it. While it is above 1 the exposure holds where it is and exposure requests wait; they go on
+    /// when it returns to 1. A photo, a stack, a recording, a lens change or a zoom request returns it to 1 first,
+    /// without telling the delegate: the model ends it itself before any of them.
+    func setFocusMagnification(_ power: Double)
 
     func apply(exposure: ExposureRequest)
     func apply(focus: FocusRequest)

@@ -25,10 +25,13 @@ struct ViewfinderOverlays: View {
     var body: some View {
         let frame = geometry.frame
         let square = focusSquare
+        // The focus magnifier shows the middle of the frame up close, where thirds drawn over the whole frame would
+        // mark the wrong places.
+        let grid = model.isMagnified ? GridStyle.off : model.settings.display.grid
         ZStack(alignment: .topLeading) {
             // Each layer leaves its touches to the picture, so taps still focus through the grid, the level and the
             // focus square. The badges do the same, except STACKED, which explains itself when tapped.
-            GridLines(style: model.settings.display.grid, rect: frame)
+            GridLines(style: grid, rect: frame)
                 .frameMotion(value: frame)
                 .allowsHitTesting(false)
             LevelIndicator(model: model, interaction: interaction, wheel: wheel,
@@ -64,6 +67,10 @@ struct ViewfinderOverlays: View {
         .onChange(of: geometry.picture) {
             if !focusPointIsStale { focusPointIsStale = true }
         }
+        // And the focus magnifier, a zoom on the middle of the frame: the square doesn't come back after it.
+        .onChange(of: model.isMagnified) {
+            if !focusPointIsStale { focusPointIsStale = true }
+        }
     }
 
     /// Either half of a lock keeps the square: a long press in a scene that fixes the ISO holds the focus alone,
@@ -74,7 +81,8 @@ struct ViewfinderOverlays: View {
 
     /// The focus square to draw, or nil. Its point is in the preview layer's coordinates.
     private var focusSquare: FocusSquare? {
-        guard let point = model.focusPoint else { return nil }
+        // The magnified picture is the middle of the frame, so a square at the point would mark the wrong spot.
+        guard let point = model.focusPoint, !model.isMagnified else { return nil }
         // A tap clears the lock and a long press sets it, so a new point that arrives locked is a long press.
         guard point == trackedFocusPoint else { return FocusSquare(point: point, isLocked: isLocked) }
         guard !focusPointIsStale else { return nil }
@@ -599,6 +607,13 @@ private struct StatusBadges: View {
         // The quick settings panel covers the top of the frame. Badges under its glass would only smear behind it.
         let underPanel = model.isDrawerOpen
         VStack(alignment: .trailing, spacing: 0) {
+            if magnified {
+                // First: while the frame is enlarged, nothing else on it reads as it would.
+                MagnifierBadge(model: model, quarterTurns: turns)
+                    .padding(.bottom, 6)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
             if stacked {
                 // The one badge that takes a touch: the word needs explaining, and a tap on it does.
                 Button {
@@ -637,6 +652,7 @@ private struct StatusBadges: View {
         .frame(width: max(rect.width, 0), height: max(rect.height, 0), alignment: .topTrailing)
         .position(x: rect.midX, y: rect.midY)
         .frameMotion(value: rect)
+        .animation(Theme.snappy, value: magnified)
         .animation(Theme.snappy, value: stacked)
         .animation(Theme.snappy, value: showsLock)
         .animation(Theme.spring, value: topShift)

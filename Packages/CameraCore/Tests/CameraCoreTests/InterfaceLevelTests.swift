@@ -72,6 +72,7 @@ final class InterfaceLevelTests: XCTestCase {
         s.focusOptions.smooth = true
         s.focusOptions.faceDriven = .on
         s.focusOptions.continuousTracking = true
+        s.focusOptions.magnifier = .off
         s.display.grid = .thirds
         s.display.showLevel = false
         s.display.histogram = .rgb

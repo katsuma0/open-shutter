@@ -1024,7 +1024,12 @@ private struct ModePanels: View {
                 if mode == .long, model.settings.longExposure.scene == .custom {
                     ManualControlStrip(model: model)
                 } else if model.settings.display.showReadout {
-                    ReadoutHUD(model: model)
+                    NightReadout(model: model)
+                        .frame(height: 44)
+                } else if NightReadout.opensFocusDial(model) {
+                    // Without the line these scenes would have no way into the focus dial, and so none to the
+                    // magnifier.
+                    SceneFocusChip(model: model)
                         .frame(height: 44)
                 }
             case .video:
@@ -1041,6 +1046,56 @@ private struct ModePanels: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The readout line of the night shot and the scenes. In the scenes that hold the focus at the far end (Stars, Star
+/// trails, Northern lights, Fireworks) a tap on it opens the focus dial, which has no chip there while the line
+/// shows: the far end of the lens is not always sharp at infinity, and the dial's magnifier shows whether the stars
+/// are points before a long shot.
+private struct NightReadout: View {
+    let model: CameraModel
+
+    var body: some View {
+        if Self.opensFocusDial(model) {
+            Button {
+                // As a chip opens its dial: a tick, and a second tap closes it again.
+                Haptics.tick()
+                withAnimation(Theme.spring) {
+                    model.activeDial = model.activeDial == .focus ? nil : .focus
+                }
+            } label: {
+                ReadoutHUD(model: model, opensFocusDial: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the focus dial.")
+        } else {
+            ReadoutHUD(model: model)
+        }
+    }
+
+    /// Also decides where the focus chip stands in for the line while the readout is switched off (ModePanels).
+    static func opensFocusDial(_ model: CameraModel) -> Bool {
+        model.sceneRecipe?.focusAtInfinity == true && model.capabilities.supportsManualFocus
+    }
+}
+
+/// Manual night's focus chip on its own, for the scenes whose way into the focus dial and its magnifier is the
+/// readout line: it takes the line's row while Settings has the readout off.
+private struct SceneFocusChip: View {
+    let model: CameraModel
+
+    var body: some View {
+        let activity = model.activity
+        // The strip's face, not the lens row's compact one: that shows the value alone, and a bare "100%" says
+        // nothing of focus.
+        ParameterChip(model: model, kind: .focus, isSelected: model.activeDial == .focus)
+            // In the strip the chips share out its width. On its own the chip keeps to its text.
+            .fixedSize(horizontal: true, vertical: false)
+            // Locked with the dial it opens, its touch and hold menu included, as the strip's chips are while a shot
+            // runs or saves.
+            .disabled(activity == .capturing || activity == .stacking || activity == .saving)
+            .opacity(activity == .saving ? 0.45 : 1)
     }
 }
 
@@ -1276,6 +1331,7 @@ private struct ShutterSlot: View {
             isEnabled: model.canCapture || activity.isBusy || model.intervalometer != nil,
             // A press the model would ignore gets no click, so the shutter is never felt to fire without firing.
             acceptsPress: model.shutterAcceptsPress,
+            clicksOnPress: !model.isMagnified,
             isDimmed: model.dimmer.isDimmed,
             action: { pressShutter(model) },
             onHoldBegan: isBulb ? { model.shutterHoldBegan() } : nil,
