@@ -22,7 +22,8 @@ struct QuickSettingsDrawer: View {
                 }
                 GridRow {
                     processingItem
-                    lockItem
+                    // AE lock, which had this place, is on the top bar.
+                    SetupsItem(model: model)
                     silentItem
                     batterySaverItem
                 }
@@ -156,23 +157,6 @@ struct QuickSettingsDrawer: View {
                               isEnabled: (mode == .photo || mode == .manual) && !forcedMinimal && choices.count > 1,
                               hint: forcedMinimal ? "Manual exposure always uses Minimal." : nil) {
             Image(systemName: "wand.and.stars")
-        }
-    }
-
-    private var lockItem: some View {
-        let locked = model.aeLocked
-        let applies = QuickActions.aeLockApplies(model)
-        let value = applies ? (locked ? "On" : "Off") : "Manual"
-        // With any value set by hand there is no auto exposure left to freeze, but a lock that is on can always
-        // be turned off. Nothing changes while a shot or a stack runs, like the strip's AE-L chip. Exposure only:
-        // focus keeps following the scene, and touch and hold on the viewfinder is the AE/AF lock.
-        return DrawerButtonItem(model: model, title: "AE lock", value: value,
-                                isActive: locked && applies,
-                                isEnabled: (applies || locked) && !QuickActions.exposureIsBusy(model.activity),
-                                hint: applies ? nil : "Exposure is already set by hand.") {
-            model.toggleAELock()
-        } glyph: {
-            Image(systemName: locked && applies ? "lock.fill" : "lock.open")
         }
     }
 

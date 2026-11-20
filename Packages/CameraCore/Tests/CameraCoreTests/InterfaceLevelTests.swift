@@ -25,6 +25,8 @@ final class InterfaceLevelTests: XCTestCase {
         "accessibility.leftHanded", "accessibility.speakStatus",
         "topBar.leading", "topBar.trailing",
         "startup.keepMode", "startup.keepLensAndZoom", "startup.keepBrightness",
+        // The person's saved setups, like the accessibility options.
+        "setups.slots",
     ]
     private let levelSwitch = "interface.advanced"
 
@@ -127,6 +129,10 @@ final class InterfaceLevelTests: XCTestCase {
         s.startup.keepMode = false
         s.startup.keepLensAndZoom = false
         s.startup.keepBrightness = false
+        var stars = CameraSettings()
+        stars.mode = .long
+        stars.longExposure.apply(.stars)
+        s.setups[2] = CameraSetup(name: "Stars", from: stars)
         return s
     }
 

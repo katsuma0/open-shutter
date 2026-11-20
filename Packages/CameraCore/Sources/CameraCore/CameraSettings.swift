@@ -829,6 +829,9 @@ public struct CameraSettings: Codable, Hashable, Sendable {
     public var topBar: TopBarOptions = .init()
     /// What the camera keeps from last time when it opens.
     public var startup: StartupOptions = .init()
+    /// The custom setups C1 to C3, three empty slots on a fresh install. They are the person's own, like the
+    /// accessibility options, so both interfaces keep them.
+    public var setups: CameraSetups = .init()
 
     public init() {}
 
@@ -836,7 +839,7 @@ public struct CameraSettings: Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case mode, lensID, zoom, manual, whiteBalance, focus, capture, exposure, focusOptions, display, night, longExposure, video, controls
-        case interface, appearance, accessibility, topBar, startup
+        case interface, appearance, accessibility, topBar, startup, setups
     }
 
     public init(from decoder: Decoder) throws {
@@ -861,6 +864,7 @@ public struct CameraSettings: Codable, Hashable, Sendable {
         accessibility = c.value(.accessibility, default: d.accessibility)
         topBar = c.value(.topBar, default: d.topBar)
         startup = c.value(.startup, default: d.startup)
+        setups = c.value(.setups, default: d.setups)
     }
 
     public func encoded() throws -> Data {

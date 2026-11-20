@@ -7,8 +7,8 @@ import CameraCore
 /// The Advanced settings switch decides how much the sheet lists; the camera is the same either way. On is the full
 /// list: every setting, as a menu of pages by subject. On those pages, rows the current camera can't use stay visible
 /// but disabled, and their section footer says why, so nobody hunts for a switch that silently does nothing. Off is
-/// the short list: the few settings most people change, all on the first page. The Camera section leads both lists,
-/// and the look, the buttons, the tools and About close both.
+/// the short list: the few settings most people change, all on the first page. The Camera section and the custom
+/// setups lead both lists, and the look, the buttons, the tools and About close both.
 struct SettingsView: View {
     @Bindable var model: CameraModel
 
@@ -21,6 +21,7 @@ struct SettingsView: View {
             Form {
                 AdvancedSettingsSection(model: model)
                 CameraSection(model: model)
+                CustomSetupsSection(model: model)
                 SettingsListSections(model: model, locationAccess: locationAccess)
                 LookAndControlsSection(model: model)
                 PhotoToolsSection()
@@ -234,7 +235,7 @@ private struct AboutSection: View {
                 Button("Reset", role: .destructive, action: resetAll)
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Every setting goes back to its default, including the look and the buttons. The Advanced settings switch and the accessibility options stay as they are. Photos and videos you took stay in your library.")
+                Text("Every setting goes back to its default, including the look and the buttons. The Advanced settings switch and the accessibility options stay as they are. Custom setups stay too. Photos and videos you took stay in your library.")
             }
         } header: {
             Text("About")
@@ -257,6 +258,8 @@ private struct AboutSection: View {
             var fresh = CameraSettings.default
             // Accessibility options are what someone needs to use the app at all, so a reset never takes them away.
             fresh.accessibility = settings.accessibility
+            // The setups are the person's own work, kept to come back to: a reset of the camera leaves them.
+            fresh.setups = settings.setups
             // Mode, lens and zoom say where the camera is, not how it is set up; resetting them would make the
             // preview jump to another lens behind the sheet.
             fresh.mode = settings.mode

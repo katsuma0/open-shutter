@@ -133,6 +133,8 @@ final class CameraSettingsTests: XCTestCase {
         s.startup.keepMode = false
         s.startup.keepLensAndZoom = false
         s.startup.keepBrightness = false
+        // Saved from the settings above, before the setups were changed, as the app saves one.
+        s.setups[1] = CameraSetup(name: "Milky Way", from: s)
         return s
     }
 
@@ -170,8 +172,9 @@ final class CameraSettingsTests: XCTestCase {
 
     /// Keys this version added, by path ("controls.dialTicks").
     private let addedKeys = [
-        "appearance", "accessibility", "topBar", "startup",
-        "capture.prioritizeSpeed", "capture.artist", "capture.copyright",
+        "appearance", "accessibility", "topBar", "startup", "setups",
+        "capture.prioritizeSpeed", "capture.artist", "capture.copyright", "capture.highQuality",
+        "focusOptions.magnifier",
         "display.dimDuringLongShots",
         "video.allowAudioPlayback",
         "controls.volumeUpAction", "controls.volumeDownAction", "controls.hapticStrength", "controls.dialTicks",
@@ -237,6 +240,9 @@ final class CameraSettingsTests: XCTestCase {
         expected.capture.prioritizeSpeed = false
         expected.capture.artist = ""
         expected.capture.copyright = ""
+        expected.capture.highQuality = false
+        expected.focusOptions.magnifier = .x5
+        expected.setups = CameraSetups()
         expected.display.dimDuringLongShots = false
         expected.video.allowAudioPlayback = false
         expected.controls.volumeUpAction = .shutter
@@ -257,12 +263,17 @@ final class CameraSettingsTests: XCTestCase {
             {"controls":{"haptics":false,"volumeUpAction":"selfie","volumeDownAction":"zoomIn","hapticStrength":3,
             "dialTicks":"no","zoomTicks":"lensValues"},
             "display":{"grid":"thirds","dimDuringLongShots":"yes"},
-            "capture":{"quality":0.75,"prioritizeSpeed":"yes","artist":42,"copyright":"Sam"},
+            "capture":{"quality":0.75,"prioritizeSpeed":"yes","artist":42,"copyright":"Sam","highQuality":"yes"},
+            "focusOptions":{"smooth":true,"magnifier":"x20"},
             "video":{"audio":false,"allowAudioPlayback":{}},
             "appearance":"dark","accessibility":{"largerLabels":true,"reduceMotion":"on"},
-            "topBar":7,"startup":{"keepMode":false,"keepBrightness":null},"zoom":2}
+            "topBar":7,"startup":{"keepMode":false,"keepBrightness":null},"setups":[1,2],"zoom":2}
             """#
         let decoded = CameraSettings.decoded(from: Data(json.utf8))
+        XCTAssertFalse(decoded.capture.highQuality)
+        XCTAssertEqual(decoded.focusOptions.magnifier, .x5)
+        XCTAssertTrue(decoded.focusOptions.smooth)
+        XCTAssertEqual(decoded.setups, CameraSetups())
         XCTAssertFalse(decoded.controls.haptics)
         XCTAssertEqual(decoded.controls.volumeUpAction, .shutter)
         XCTAssertEqual(decoded.controls.volumeDownAction, .zoomIn)
