@@ -1687,9 +1687,13 @@ extension CameraService {
         captured.frameCount = max(1, frames)
         // A stack is taken when its first frame was, however long it ran.
         let date = facts.firstFrameDate ?? job.shot.record.date
+        // HEIF in place of RAW only: stacks make no RAW file.
+        let format = request.processedFormat.saved
         let image: CGImage
         do {
-            image = try engine.renderFinal(aspect: request.aspect, noiseReduction: request.noiseReduction)
+            // PNG and TIFF keep 16 bits a channel of the merge; HEIF and JPEG are written from 8.
+            image = try engine.renderFinal(aspect: request.aspect, noiseReduction: request.noiseReduction,
+                                           deep: format.isLossless)
         } catch {
             // A discard during either try means no photo, whatever went wrong on the first one.
             if engine.isCancelled {
@@ -1713,7 +1717,6 @@ extension CameraService {
         let shot = renderedShot(job, facts: facts, image: image)
         let encoded: EncodedImage
         do {
-            let format: ProcessedFormat = request.processedFormat == .none ? .heif : request.processedFormat
             encoded = try MediaWriter.encode(image, as: format, quality: request.quality, metadata: shot.rendered)
         } catch {
             completeMerge(job, engine: engine, result: .failure(error))

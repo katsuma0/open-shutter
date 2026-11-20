@@ -61,7 +61,8 @@ final class PhotoCaptureCoordinator: NSObject, AVCapturePhotoCaptureDelegate {
         if output.isDepthDataDeliveryEnabled != depth { output.isDepthDataDeliveryEnabled = depth }
 
         // A Live Photo movie can't accompany a RAW shot (ProRAW refuses it outright), so the pipeline
-        // isn't prepared for movies while RAW is on.
+        // isn't prepared for movies while RAW is on. PNG and TIFF have none either; DeviceOptions leaves
+        // Live and depth off for them.
         let livePhoto = options.livePhoto && options.rawFormat == .none && output.isLivePhotoCaptureSupported
         if output.isLivePhotoCaptureEnabled != livePhoto { output.isLivePhotoCaptureEnabled = livePhoto }
 
@@ -175,7 +176,9 @@ final class PhotoCaptureCoordinator: NSObject, AVCapturePhotoCaptureDelegate {
             settings.isAutoContentAwareDistortionCorrectionEnabled = true
         }
 
-        if request.livePhoto, rawType == nil, !isBracket, !constantColor,
+        // PNG and TIFF are made from the camera's photo after the shot and have no movie to pair with.
+        let lossless = request.processedFormat.isLossless
+        if request.livePhoto, rawType == nil, !isBracket, !constantColor, !lossless,
            output.isLivePhotoCaptureEnabled, !output.isLivePhotoCaptureSuspended {
             settings.livePhotoMovieFileURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("OpenShutter-live-\(UUID().uuidString).mov")
@@ -184,9 +187,10 @@ final class PhotoCaptureCoordinator: NSObject, AVCapturePhotoCaptureDelegate {
             settings.livePhotoMovieMetadata = MovieMetadata.items(shot.movie(livePhoto: true))
         }
 
-        // Depth is embedded in HEIF and JPEG only, so it rides on processed single shots. A cropped photo can't
-        // keep it (its calibration describes the full frame), so the extra processing is skipped for those.
-        if request.depth, rawType == nil, !isBracket, !constantColor, request.aspect.matches(.fourThree),
+        // Depth is embedded in HEIF and JPEG only, so it rides on processed single shots, never on PNG or TIFF. A
+        // cropped photo can't keep it (its calibration describes the full frame), so the extra processing is skipped
+        // for those.
+        if request.depth, rawType == nil, !isBracket, !constantColor, !lossless, request.aspect.matches(.fourThree),
            output.isDepthDataDeliveryEnabled {
             settings.isDepthDataDeliveryEnabled = true
             settings.embedsDepthDataInPhoto = true
@@ -353,12 +357,19 @@ final class PhotoCaptureCoordinator: NSObject, AVCapturePhotoCaptureDelegate {
                                      location: shot.assetLocation, date: batch.date)
 
             let facts = (processed?.facts ?? ExposureFacts()).filled(from: raw?.facts)
-            let kind: CaptureResult.Kind = isBracket ? .bracket : (raw != nil ? .raw : .photo)
             // The EXIF focal length wins when present because it includes zoom; the lens at its zoom covers the rest.
             let lens = shot.record.lens
+            let line = summary(facts, fallbackFocalLength: lens.equivalentFocalLength * lens.zoomFactor)
+            if let separate = outcome.separateRaw {
+                // Listed before the photo, so the photo stays the newest result: the one the review opens on.
+                results.append(CaptureResult(kind: isBracket ? .bracket : .raw, assetIdentifier: separate.identifier,
+                                             thumbnail: separate.thumbnail ?? primary.thumbnail, summary: line,
+                                             date: batch.date, savedToLibrary: separate.saved))
+            }
+            let keptRaw = raw != nil && outcome.separateRaw == nil
+            let kind: CaptureResult.Kind = isBracket ? .bracket : (keptRaw ? .raw : .photo)
             results.append(CaptureResult(kind: kind, assetIdentifier: outcome.identifier, thumbnail: primary.thumbnail,
-                                         summary: summary(facts, fallbackFocalLength: lens.equivalentFocalLength * lens.zoomFactor),
-                                         date: batch.date, savedToLibrary: outcome.saved))
+                                         summary: line, date: batch.date, savedToLibrary: outcome.saved))
         }
 
         guard !results.isEmpty else {
@@ -370,10 +381,18 @@ final class PhotoCaptureCoordinator: NSObject, AVCapturePhotoCaptureDelegate {
         return .success(results)
     }
 
+    /// What a save put in the library.
+    private struct SaveOutcome {
+        var saved: Bool
+        var identifier: String?
+        /// The DNG as an asset of its own, when Photos refused it beside the processed photo.
+        var separateRaw: (saved: Bool, identifier: String?, thumbnail: CGImage?)?
+    }
+
     /// - Parameter additions: a processed photo's, whose XMP is merged in here because only the save knows whether
-    ///   the still keeps its movie.
+    ///   the still keeps its movie. ImageIO may not take XMP into a PNG or TIFF; the file then goes without it.
     private static func save(_ primary: EncodedImage, additions: ImageMetadata?, raw: Data?, movie: URL?,
-                             location: GeoTag?, date: Date) async -> (saved: Bool, identifier: String?) {
+                             location: GeoTag?, date: Date) async -> SaveOutcome {
         var data = primary.data
         if var additions {
             // A still saved without its movie (none was recorded, or Photos refused the pair) is no Live Photo.
@@ -387,12 +406,23 @@ final class PhotoCaptureCoordinator: NSObject, AVCapturePhotoCaptureDelegate {
             let identifier = try await PhotoLibrary.savePhoto(primary: data, primaryType: primary.typeIdentifier,
                                                               raw: raw, livePhotoMovie: movie, location: location,
                                                               creationDate: date, isCapture: true)
-            return (true, identifier)
+            return SaveOutcome(saved: true, identifier: identifier)
         } catch {
+            // Without add access a retry would only fail again.
+            guard await PhotoLibrary.ensureAddAccess() else { return SaveOutcome(saved: false, identifier: nil) }
             // Photos refuses the whole asset when the still and movie don't pair up; the still alone is
-            // still worth keeping. Without add access a retry would only fail again.
-            guard movie != nil, await PhotoLibrary.ensureAddAccess() else { return (false, nil) }
-            return await save(primary, additions: additions, raw: raw, movie: nil, location: location, date: date)
+            // still worth keeping.
+            if movie != nil {
+                return await save(primary, additions: additions, raw: raw, movie: nil, location: location, date: date)
+            }
+            // Photos documents RAW beside a JPEG or HEIF, and nothing says it takes one beside a PNG or TIFF. A pair
+            // it refuses goes in as two assets, the DNG on its own as RAW only saves it, so neither file is lost.
+            guard let raw else { return SaveOutcome(saved: false, identifier: nil) }
+            var outcome = await save(primary, additions: additions, raw: nil, movie: nil, location: location, date: date)
+            let file = unchanged(raw, fallbackType: rawTypeIdentifier)
+            let alone = await save(file, additions: nil, raw: nil, movie: nil, location: location, date: date)
+            outcome.separateRaw = (alone.saved, alone.identifier, file.thumbnail)
+            return outcome
         }
     }
 
@@ -421,9 +451,19 @@ final class PhotoCaptureCoordinator: NSObject, AVCapturePhotoCaptureDelegate {
     }
 
     /// The photo cropped to the request's aspect, or as delivered when cropping fails: losing the shot
-    /// over a crop would be worse than a 4:3 frame.
+    /// over a crop would be worse than a 4:3 frame. PNG and TIFF are written here from the camera's lossless HEIF.
     private static func prepare(_ data: Data, request: PhotoRequest) -> EncodedImage {
-        if let cropped = try? MediaWriter.crop(data, to: request.aspect, quality: request.quality) {
+        var quality = request.quality
+        if request.processedFormat.isLossless {
+            do {
+                return try MediaWriter.convert(data, to: request.processedFormat, aspect: request.aspect)
+            } catch {
+                log.error("The photo was kept as the camera wrote it: \(error.localizedDescription, privacy: .public)")
+            }
+            // The camera's file is lossless; a crop of it should stay that way.
+            quality = 1
+        }
+        if let cropped = try? MediaWriter.crop(data, to: request.aspect, quality: quality) {
             return cropped
         }
         return unchanged(data, fallbackType: sniffedType(data))
@@ -475,14 +515,20 @@ final class PhotoCaptureCoordinator: NSObject, AVCapturePhotoCaptureDelegate {
 
     private static func processedFormat(for format: ProcessedFormat, quality: Double, output: AVCapturePhotoOutput) -> [String: Any]? {
         let preferred: [AVVideoCodecType]
+        var compression = quality.isFinite ? min(max(quality, 0), 1) : 0.9
         switch format {
         case .none: return nil
         case .heif: preferred = [.hevc, .jpeg]
         case .jpeg: preferred = [.jpeg, .hevc]
+        case .png, .tiff:
+            // The photo output writes no PNG, and TIFF only from an uncompressed capture that gives up responsive
+            // capture's overlap. So these are shot as a HEIF at quality 1, which AVFoundation documents as lossless,
+            // and converted at delivery (MediaWriter.convert). A JPEG at full quality stands in without HEVC.
+            preferred = [.hevc, .jpeg]
+            compression = 1
         }
         let available = output.availablePhotoCodecTypes
         guard let codec = preferred.first(where: { available.contains($0) }) else { return nil }
-        let compression = quality.isFinite ? min(max(quality, 0), 1) : 0.9
         return [AVVideoCodecKey: codec, AVVideoCompressionPropertiesKey: [AVVideoQualityKey: compression]]
     }
 
@@ -598,14 +644,12 @@ final class PhotoCaptureCoordinator: NSObject, AVCapturePhotoCaptureDelegate {
     }
 
     /// Automatic takes the largest size. A megapixel choice takes the largest size not clearly above it
-    /// (a "48 MP" sensor delivers 48.8), or the smallest when even that is bigger.
+    /// (a "48 MP" sensor delivers 48.8), or the smallest when even that is bigger. The rule is CameraCore's, so the
+    /// menus that name a lens's size say what a photo gets.
     private static func pickDimensions(_ resolution: PhotoResolution, from candidates: [CMVideoDimensions]) -> CMVideoDimensions? {
-        let sorted = candidates
-            .filter { $0.width > 0 && $0.height > 0 }
-            .sorted { Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height) }
-        guard let target = resolution.targetMegapixels else { return sorted.last }
-        let limit = Double(target) * 1.1 * 1_000_000
-        return sorted.last { Double(Int($0.width) * Int($0.height)) <= limit } ?? sorted.first
+        // A size without a width or height counts as nothing, which the rule never takes.
+        let counts = candidates.map { $0.width > 0 && $0.height > 0 ? Int($0.width) * Int($0.height) : 0 }
+        return resolution.pick(amongPixelCounts: counts).map { candidates[$0] }
     }
 
     private static func sameDimensions(_ a: CMVideoDimensions, _ b: CMVideoDimensions) -> Bool {

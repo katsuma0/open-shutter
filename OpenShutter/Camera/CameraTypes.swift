@@ -325,8 +325,10 @@ struct DeviceOptions: Equatable, Sendable {
         apertureRateLimit = settings.exposure.apertureRateLimit
         meteringArea = settings.exposure.meteringArea
         rawFormat = settings.capture.rawFormat
-        livePhoto = settings.capture.livePhoto
-        depth = settings.capture.depth
+        // PNG and TIFF carry neither a movie nor depth, so the output doesn't prepare for what no photo would use.
+        let lossless = settings.capture.processedFormat.isLossless
+        livePhoto = settings.capture.livePhoto && !lossless
+        depth = settings.capture.depth && !lossless
         constantColor = settings.capture.constantColor
         photoResolution = settings.capture.resolution
         mirrorFront = settings.capture.mirrorFront
@@ -366,7 +368,7 @@ struct StackRequest: Sendable {
     var plan: StackPlan
     /// Run until finishStackEarly(); plan.frameCount is then only a cap.
     var isBulb: Bool
-    /// .none is treated as HEIF.
+    /// .none is treated as HEIF. PNG and TIFF keep 16 bits a channel.
     var processedFormat: ProcessedFormat
     var quality: Double
     var aspect: AspectRatio

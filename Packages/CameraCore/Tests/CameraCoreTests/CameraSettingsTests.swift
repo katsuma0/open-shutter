@@ -47,6 +47,7 @@ final class CameraSettingsTests: XCTestCase {
         s.capture.processedFormat = .jpeg
         s.capture.rawFormat = .proRAW
         s.capture.quality = 0.8
+        s.capture.highQuality = true
         s.capture.resolution = .mp48
         s.capture.processing = .minimal
         s.capture.flash = .auto

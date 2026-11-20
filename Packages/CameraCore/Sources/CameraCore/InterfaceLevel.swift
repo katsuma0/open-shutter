@@ -40,6 +40,7 @@ extension CameraSettings {
 
         capture.rawFormat = source.capture.rawFormat
         capture.quality = source.capture.quality
+        capture.highQuality = source.capture.highQuality
         capture.resolution = source.capture.resolution
         capture.processing = source.capture.processing
         capture.depth = source.capture.depth
@@ -89,8 +90,9 @@ extension CameraSettings {
         if settings.mode == .manual {
             settings.mode = .photo
         }
-        // RAW is off now, so a RAW-only setup needs a processed format again.
-        if settings.capture.processedFormat == .none {
+        // RAW is off now, so a RAW-only setup needs a processed format again. The simple drawer offered HEIF and
+        // JPEG only, so PNG and TIFF go to HEIF too.
+        if settings.capture.processedFormat == .none || settings.capture.processedFormat.isLossless {
             settings.capture.processedFormat = .heif
         }
         if !Self.simpleAspects.contains(where: { $0.matches(settings.capture.aspect) }) {
@@ -118,9 +120,9 @@ extension CameraSettings {
     /// These settings with the advanced interface on, taking back every advanced-only setting from `snapshot`,
     /// the settings as they were when the advanced interface was last turned off. Without a snapshot they start
     /// from the defaults. Settings both interfaces share keep their current values, except what going simple had
-    /// to narrow: MANUAL mode, a frame shape, timer or grid it doesn't offer, a RAW-only format or a scene's time
-    /// off its list. Each of those comes back while it is still where narrowing left it, MANUAL while the mode is
-    /// still PHOTO. A long exposure set by hand comes back whatever the simple interface picked since.
+    /// to narrow: MANUAL mode, a frame shape, timer or grid it doesn't offer, a RAW-only, PNG or TIFF format or a
+    /// scene's time off its list. Each of those comes back while it is still where narrowing left it, MANUAL while
+    /// the mode is still PHOTO. A long exposure set by hand comes back whatever the simple interface picked since.
     public func restoringAdvanced(from snapshot: CameraSettings?) -> CameraSettings {
         var settings = self
         settings.copyAdvancedFields(from: snapshot ?? .default)

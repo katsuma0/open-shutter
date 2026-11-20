@@ -1707,7 +1707,7 @@ final class CameraModel {
             return
         }
         // Earlier photos are still being processed and saved: only another plain photo can start alongside them.
-        if photosInFlight > 0, !(pressTakesPlainPhoto && photosInFlight < Self.maxPhotosInFlight) { return }
+        if photosInFlight > 0, !(pressTakesPlainPhoto && photosInFlight < maxPhotosInFlight) { return }
         var schedule = settings.capture.schedule
         // A scene shot from a tripod waits a moment first, so the tap on the shutter isn't in the picture, and so
         // does NIGHT on a tripod. A self timer counts toward the wait but never shortens it, and a bulb starts when it
@@ -1738,8 +1738,15 @@ final class CameraModel {
     }
 
     /// AVCapturePhotoOutput takes the next photo while it still processes the last ones. Each one in flight holds
-    /// a full-size image until it is saved, so a run of taps stops here.
-    private static let maxPhotosInFlight = 4
+    /// a full-size image until it is saved, so a run of taps stops here. PNG and TIFF photos wait as lossless HEIF
+    /// files of tens of MB and are converted one at a time with several hundred MB at 48 MP, so fewer of those queue.
+    private var maxPhotosInFlight: Int {
+        let capture = settings.capture
+        guard capture.processedFormat.isLossless else { return 4 }
+        let counts = capabilities.photoDimensions.map { $0.width > 0 && $0.height > 0 ? $0.pixelCount : 0 }
+        let pixels = capture.resolution.pick(amongPixelCounts: counts).map { counts[$0] } ?? 0
+        return pixels > 24_000_000 ? 2 : 4
+    }
 
     /// A press takes one plain photo: no timer, no bracket and no stacked shutter. Only those overlap.
     private var pressTakesPlainPhoto: Bool {
@@ -2007,7 +2014,8 @@ final class CameraModel {
     private func noteRawLeftOut(_ request: PhotoRequest, results: [CaptureResult], inMacro: Bool) {
         guard rawNoticeForMacro != inMacro, !results.isEmpty, results.allSatisfy({ $0.kind == .photo && $0.savedToLibrary }) else { return }
         rawNoticeForMacro = inMacro
-        let saved = request.processedFormat == .jpeg ? "JPEG" : "HEIF"
+        // RAW only falls back to HEIF where the RAW can't be taken.
+        let saved = request.processedFormat.saved.title
         let reason = inMacro ? "No RAW in macro." : "No RAW in zoomed photos."
         showToast("\(reason) Saved \(saved) only.", symbol: "exclamationmark.triangle")
     }
@@ -2195,8 +2203,11 @@ final class CameraModel {
         let manualBase: ExposureValues? = isManualExposure
             ? ExposureValues(seconds: readings.exposureSeconds, iso: readings.iso, aperture: readings.aperture)
             : nil
-        // Live is switched on and off in PHOTO only, so MANUAL never records a movie nobody can see is on.
-        let livePhoto = capture.livePhoto && settings.mode == .photo
+        // Live is switched on and off in PHOTO only, so MANUAL never records a movie nobody can see is on. The movie
+        // goes with a HEIF or JPEG while RAW is off: PNG and TIFF can't carry one, and the output only prepares for
+        // movies without RAW. Depth only needs a HEIF or JPEG, and the coordinator drops it from a photo that takes a
+        // RAW file, so a zoomed shot whose Bayer RAW is left out still keeps it.
+        let livePhoto = capture.livePhoto && settings.mode == .photo && capture.allowsLivePhoto
         let exposureBracket = bracket.kind == .exposure
             ? BracketPosition(kind: .exposure, count: bracket.exposureOffsets().count, step: bracket.step, group: UUID())
             : nil
@@ -2207,14 +2218,15 @@ final class CameraModel {
         return PhotoRequest(
             processedFormat: capture.processedFormat,
             rawFormat: capture.rawFormat,
-            quality: capture.quality,
+            // HEIF High and JPEG High save at their own quality, whatever the slider says.
+            quality: capture.effectiveQuality,
             resolution: capture.resolution,
             processing: effectiveProcessing,
             flash: capture.flash,
             aspect: capture.aspect,
             livePhoto: livePhoto,
             silentShutter: capture.silentShutter,
-            depth: capture.depth,
+            depth: capture.depth && !capture.processedFormat.saved.isLossless,
             constantColor: capture.constantColor,
             contentAwareCorrection: capture.lensCorrection,
             location: currentLocation,
@@ -2228,8 +2240,9 @@ final class CameraModel {
         StackRequest(
             plan: plan,
             isBulb: bulb,
-            processedFormat: settings.capture.processedFormat == .none ? .heif : settings.capture.processedFormat,
-            quality: settings.capture.quality,
+            // A stack saves the container chosen for photos, any of the six; RAW only's has no RAW to keep, so HEIF.
+            processedFormat: settings.capture.processedFormat.saved,
+            quality: settings.capture.effectiveQuality,
             aspect: settings.capture.aspect,
             location: currentLocation,
             noiseReduction: noiseReduction,
@@ -3144,7 +3157,7 @@ final class CameraModel {
         case .idle:
             if intervalometer != nil { return true }
             guard canCapture else { return false }
-            return photosInFlight == 0 || (pressTakesPlainPhoto && photosInFlight < Self.maxPhotosInFlight)
+            return photosInFlight == 0 || (pressTakesPlainPhoto && photosInFlight < maxPhotosInFlight)
         case .countdown, .stacking, .recording: return true
         case .capturing, .saving: return intervalometer != nil || (bracketInProgress && !bracketStopping)
         }

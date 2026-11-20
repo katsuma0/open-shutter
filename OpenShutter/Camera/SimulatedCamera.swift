@@ -355,7 +355,7 @@ final class SimulatedCamera: CameraBackend {
             shots: shots,
             exposures: exposures,
             offsets: request.bracket.kind == .exposure ? request.bracket.exposureOffsets() : [],
-            format: request.processedFormat == .none ? .heif : request.processedFormat,
+            format: request.processedFormat.saved,
             quality: request.quality,
             aspect: request.aspect,
             shot: recordedShot(described, exposure: current(exposures), date: date),
@@ -1640,7 +1640,8 @@ private final class SimulatedStackJob: @unchecked Sendable {
         record.record.pixelWidth = image.width
         record.record.pixelHeight = image.height
         record.record.isSRGB = MediaWriter.isSRGB(image)
-        let format: ProcessedFormat = request.processedFormat == .none ? .heif : request.processedFormat
+        // PNG and TIFF from the simulator's 8-bit picture: the real camera's stacks render 16 bits for them.
+        let format = request.processedFormat.saved
         do {
             let encoded = try MediaWriter.encode(image, as: format, quality: request.quality, metadata: record.rendered)
             let summary = MediaWriter.summary(exposureSeconds: captured.effectiveExposureSeconds, iso: captured.iso,

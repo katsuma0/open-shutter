@@ -143,14 +143,15 @@ final class StackedCaptureEngine: @unchecked Sendable {
     /// Final upright image cropped to `aspect`, after consume returned true. Call off the video queue.
     /// Delivers at most one image per stack. The accumulator goes once an image is delivered or the stack is
     /// cancelled. A render that fails keeps it, so the same frames can render again later: iOS refuses GPU work
-    /// from a backgrounded app, and the stack is still whole once the app is back in front.
-    func renderFinal(aspect: AspectRatio, noiseReduction: Double) throws -> CGImage {
-        try workLock.withLock { try renderMerged(aspect: aspect, noiseReduction: noiseReduction) }
+    /// from a backgrounded app, and the stack is still whole once the app is back in front. `deep` renders 16 bits
+    /// a channel, for PNG and TIFF, which keeps the extra precision the merge of many frames gathered.
+    func renderFinal(aspect: AspectRatio, noiseReduction: Double, deep: Bool = false) throws -> CGImage {
+        try workLock.withLock { try renderMerged(aspect: aspect, noiseReduction: noiseReduction, deep: deep) }
     }
 
     // MARK: - Work lock held
 
-    private func renderMerged(aspect: AspectRatio, noiseReduction: Double) throws -> CGImage {
+    private func renderMerged(aspect: AspectRatio, noiseReduction: Double, deep: Bool) throws -> CGImage {
         let current = withStatus { status -> Status in
             status.isFinished = true
             return status
@@ -185,7 +186,7 @@ final class StackedCaptureEngine: @unchecked Sendable {
         image = image.oriented(configuration.outputOrientation)
         let bounds = image.extent
         let crop = aspect.centeredCrop(width: Double(bounds.width), height: Double(bounds.height))
-        let rendered = Self.renderPhoto(image, in: Self.pixelRect(crop, in: bounds))
+        let rendered = Self.renderPhoto(image, in: Self.pixelRect(crop, in: bounds), deep: deep)
         // The render leaves its uncached intermediates pooled until cleared, whatever the outcome.
         Self.context.clearCaches()
         let after = withStatus { status -> Status in
@@ -558,15 +559,17 @@ final class StackedCaptureEngine: @unchecked Sendable {
 
     /// The final photo goes through a render task rather than createCGImage, because only the task reports a GPU
     /// that refused the work, as iOS does for a backgrounded app. Saving whatever createCGImage handed back then
-    /// would free the frames for an image that may hold nothing.
-    private static func renderPhoto(_ image: CIImage, in rect: CGRect) -> CGImage? {
+    /// would free the frames for an image that may hold nothing. `deep` renders 16-bit integers, little endian as
+    /// Core Image writes them on the phone: twice the memory of the 8-bit render, about 97 MB at 12 MP.
+    private static func renderPhoto(_ image: CIImage, in rect: CGRect, deep: Bool) -> CGImage? {
         guard rect.width >= 1, rect.height >= 1, !rect.isInfinite else { return nil }
         let width = Int(rect.width)
         let height = Int(rect.height)
-        let bytesPerRow = width * 4
+        let bitsPerComponent = deep ? 16 : 8
+        let bytesPerRow = width * 4 * bitsPerComponent / 8
         guard let pixels = NSMutableData(length: bytesPerRow * height) else { return nil }
         let destination = CIRenderDestination(bitmapData: pixels.mutableBytes, width: width, height: height,
-                                              bytesPerRow: bytesPerRow, format: .RGBA8)
+                                              bytesPerRow: bytesPerRow, format: deep ? .RGBA16 : .RGBA8)
         destination.colorSpace = outputSpace
         // CGImage rows run top down; only a flipped destination stores its top row first.
         destination.isFlipped = true
@@ -577,11 +580,13 @@ final class StackedCaptureEngine: @unchecked Sendable {
             return nil
         }
         guard let provider = CGDataProvider(data: pixels as CFData) else { return nil }
-        // Opaque, so the alpha byte is skipped and the HEIF encoder stores no alpha plane (as in `opaque`).
-        let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue)
-        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: bytesPerRow,
-                       space: outputSpace, bitmapInfo: info, provider: provider, decode: nil, shouldInterpolate: true,
-                       intent: .defaultIntent)
+        // Opaque, so the alpha is skipped and the HEIF encoder stores no alpha plane, nor PNG and TIFF a fourth
+        // channel (as in `opaque`).
+        let byteOrder = deep ? CGImageByteOrderInfo.order16Little.rawValue : 0
+        let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue | byteOrder)
+        return CGImage(width: width, height: height, bitsPerComponent: bitsPerComponent,
+                       bitsPerPixel: 4 * bitsPerComponent, bytesPerRow: bytesPerRow, space: outputSpace,
+                       bitmapInfo: info, provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 
     /// The render is opaque, so premultiplied and straight values are the same bytes. Re-tagging it as having

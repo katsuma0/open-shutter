@@ -158,7 +158,7 @@ struct PickedImageFile: Transferable {
     }
 }
 
-/// The RAW file of a RAW plus HEIF or JPEG photo, which the picker offers as a second representation.
+/// The RAW file of a RAW plus HEIF, JPEG, PNG or TIFF photo, which the picker offers as a second representation.
 struct PickedRawFile: Transferable {
     let url: URL
 
@@ -184,7 +184,7 @@ enum PhotoInfoAssetFile {
         case edited
         /// The file as it was saved.
         case original
-        /// The RAW file of a RAW plus HEIF or JPEG photo.
+        /// The RAW file of a RAW plus HEIF, JPEG, PNG or TIFF photo.
         case raw
 
         var id: String { rawValue }

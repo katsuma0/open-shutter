@@ -29,16 +29,27 @@ public enum CaptureMode: String, Codable, Sendable, CaseIterable, Identifiable {
     }
 }
 
+/// The processed file a photo saves, beside or instead of a RAW one. `.none` is RAW only. Saves hold the raw value,
+/// so a build that doesn't know a later format reads it as HEIF and keeps every other setting.
 public enum ProcessedFormat: String, Codable, Sendable, CaseIterable, Identifiable {
-    case heif, jpeg, none
+    case heif, jpeg, png, tiff, none
     public var id: String { rawValue }
     public var title: String {
         switch self {
         case .heif: return "HEIF"
         case .jpeg: return "JPEG"
+        case .png: return "PNG"
+        case .tiff: return "TIFF"
         case .none: return "None"
         }
     }
+
+    /// PNG and TIFF keep every pixel. They take no quality, and carry no Live Photo, depth or HDR gain map: ImageIO
+    /// writes auxiliary data into JPEG, HEIF and DNG only.
+    public var isLossless: Bool { self == .png || self == .tiff }
+
+    /// What a shot saves when it saves no RAW, a stack's picture included: HEIF in place of RAW only.
+    public var saved: ProcessedFormat { self == .none ? .heif : self }
 }
 
 public enum RawFormat: String, Codable, Sendable, CaseIterable, Identifiable {
@@ -49,6 +60,17 @@ public enum RawFormat: String, Codable, Sendable, CaseIterable, Identifiable {
         case .none: return "Off"
         case .bayer: return "RAW"
         case .proRAW: return "ProRAW"
+        }
+    }
+
+    /// One line under the choice in a menu, so the two RAW kinds read apart: RAW is the sensor's data with no
+    /// processing, which only a lens at its own zoom gives; ProRAW is Apple's processed picture in a RAW file. nil
+    /// for Off, which needs no words.
+    public var detail: String? {
+        switch self {
+        case .none: return nil
+        case .bayer: return "No processing. The sensor's data."
+        case .proRAW: return "Apple's processing. Any zoom."
         }
     }
 }
@@ -72,6 +94,42 @@ public enum PhotoResolution: String, Codable, Sendable, CaseIterable, Identifiab
         case .mp24: return 24
         case .mp48: return 48
         }
+    }
+
+    /// The sizes the camera and Settings offer. 24 MP is only delivered at that size through deferred delivery,
+    /// which the app keeps off so it can crop and save every photo itself, and Largest gives what 48 MP gives on
+    /// every lens there is. Both stay cases so saves that hold them still decode.
+    public static let offered: [PhotoResolution] = [.mp12, .mp48]
+
+    /// The offered row a stored value shows as: 24 MP is taken as 12 MP on a 48 MP lens, and Largest as 48 MP.
+    public var shownAs: PhotoResolution {
+        switch self {
+        case .mp12, .mp24: return .mp12
+        case .automatic, .mp48: return .mp48
+        }
+    }
+
+    /// Which of a lens's photo sizes this setting takes, given each size's pixel count: the index into
+    /// `pixelCounts`, or nil when none is usable. Automatic takes the largest size. A megapixel choice takes the
+    /// largest size not clearly above it (a "48 MP" sensor delivers 48.8), or the smallest when even that is
+    /// bigger. A count that isn't positive stands for a size with no width or height and is never taken. The photo
+    /// output and the menus that name the size share this rule, so a row says what a photo gets.
+    public func pick(amongPixelCounts pixelCounts: [Int]) -> Int? {
+        let limit = targetMegapixels.map { Double($0) * 1.1 * 1_000_000 }
+        // Equal counts go to the later size for the largest and to the earlier one for the smallest, as the
+        // stably sorted list the coordinator picked from left them.
+        var largest: Int?
+        var smallest: Int?
+        for (index, count) in pixelCounts.enumerated() where count > 0 {
+            let fits = limit.map { Double(count) <= $0 } ?? true
+            if fits, largest.map({ count >= pixelCounts[$0] }) ?? true {
+                largest = index
+            }
+            if smallest.map({ count < pixelCounts[$0] }) ?? true {
+                smallest = index
+            }
+        }
+        return largest ?? smallest
     }
 }
 
@@ -366,6 +424,9 @@ public struct CaptureOptions: Codable, Hashable, Sendable {
     public var rawFormat: RawFormat = .none
     /// HEIF / JPEG compression quality, 0.5...1.
     public var quality: Double = 0.9
+    /// HEIF High or JPEG High: saved at `PhotoFormatChoice.highQuality` whatever the slider says. A flag of its
+    /// own, not a quality of 1, so going back to plain HEIF finds the slider where the person left it.
+    public var highQuality: Bool = false
     public var resolution: PhotoResolution = .automatic
     public var processing: ProcessingLevel = .balanced
     public var flash: FlashSetting = .off
@@ -392,13 +453,21 @@ public struct CaptureOptions: Codable, Hashable, Sendable {
 
     public init() {}
 
-    /// At least one output format has to be on.
+    /// At least one output format has to be on. PNG and TIFF count like HEIF and JPEG.
     public var isValid: Bool { processedFormat != .none || rawFormat != .none }
+
+    /// The compression quality the photo and a stack's picture are encoded at.
+    public var effectiveQuality: Double { highQuality ? PhotoFormatChoice.highQuality : quality }
+
+    /// A Live Photo's movie goes with a HEIF or JPEG photo taken without RAW. It can't accompany a RAW shot
+    /// (ProRAW refuses it outright), and PNG and TIFF are converted from the camera's photo after the shot, so they
+    /// go without it, as they go without depth. RAW only has no photo to pair it with.
+    public var allowsLivePhoto: Bool { rawFormat == .none && !processedFormat.saved.isLossless }
 
     enum CodingKeys: String, CodingKey {
         case processedFormat, rawFormat, quality, resolution, processing, flash, aspect, livePhoto, silentShutter, depth
         case constantColor, lensCorrection, mirrorFront, saveLocation, schedule, bracket
-        case prioritizeSpeed, artist, copyright
+        case prioritizeSpeed, artist, copyright, highQuality
     }
 
     public init(from decoder: Decoder) throws {
@@ -407,6 +476,7 @@ public struct CaptureOptions: Codable, Hashable, Sendable {
         processedFormat = c.value(.processedFormat, default: d.processedFormat)
         rawFormat = c.value(.rawFormat, default: d.rawFormat)
         quality = c.value(.quality, default: d.quality)
+        highQuality = c.value(.highQuality, default: d.highQuality)
         resolution = c.value(.resolution, default: d.resolution)
         processing = c.value(.processing, default: d.processing)
         flash = c.value(.flash, default: d.flash)

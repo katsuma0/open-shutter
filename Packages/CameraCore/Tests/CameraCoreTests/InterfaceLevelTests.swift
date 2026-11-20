@@ -43,6 +43,7 @@ final class InterfaceLevelTests: XCTestCase {
         s.capture.processedFormat = .jpeg
         s.capture.rawFormat = .proRAW
         s.capture.quality = 0.8
+        s.capture.highQuality = true
         s.capture.resolution = .mp48
         s.capture.processing = .minimal
         s.capture.flash = .auto
@@ -394,6 +395,28 @@ final class InterfaceLevelTests: XCTestCase {
         settings.capture.processedFormat = .jpeg
         XCTAssertEqual(settings.simplified().capture.processedFormat, .jpeg)
         XCTAssertEqual(settings.simplified().capture.rawFormat, .none)
+    }
+
+    func testGoingSimpleTurnsPNGAndTIFFIntoHEIFAndBack() {
+        // The simple drawer offered HEIF and JPEG only. High is the advanced interface's own, like the slider.
+        for format in [ProcessedFormat.png, .tiff] {
+            var settings = everythingChanged()
+            settings.capture.processedFormat = format
+            let simple = settings.simplified()
+            XCTAssertEqual(simple.capture.processedFormat, .heif, format.rawValue)
+            XCTAssertFalse(simple.capture.highQuality, format.rawValue)
+            XCTAssertEqual(simple.simplified(), simple, format.rawValue)
+            XCTAssertEqual(simple.restoringAdvanced(from: settings), settings, format.rawValue)
+            // JPEG picked in the simple interface since stays.
+            var picked = simple
+            picked.capture.processedFormat = .jpeg
+            XCTAssertEqual(picked.restoringAdvanced(from: settings).capture.processedFormat, .jpeg, format.rawValue)
+        }
+        // HEIF High goes simple as plain HEIF and comes back High.
+        var high = CameraSettings()
+        high.capture.highQuality = true
+        XCTAssertEqual(PhotoFormatChoice(high.simplified().capture), .heif)
+        XCTAssertEqual(PhotoFormatChoice(high.simplified().restoringAdvanced(from: high).capture), .heifHigh)
     }
 
     func testGoingSimpleNarrowsTheAspectToFourThree() {

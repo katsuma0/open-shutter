@@ -117,38 +117,42 @@ struct QuickSettingsDrawer: View {
     }
 
     private var formatItem: some View {
-        let format = model.settings.capture.processedFormat
-        let value = QuickActions.formatValue(format)
-        // Stacks write HEIF or JPEG too, so only video turns this off.
-        return DrawerButtonItem(model: model, title: "Format", value: value,
-                                isActive: format != .heif,
-                                isEnabled: model.settings.mode != .video && QuickActions.canChangeFormat(model)) {
-            QuickActions.stepFormat(model)
-        } glyph: {
-            Text(value)
-                .font(.system(size: 10 * Theme.labelScale, weight: .heavy))
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .padding(.horizontal, 3)
+        // The format set, or HEIF in place of RAW only in a stack, which saves a HEIF there.
+        let shown = QuickActions.shownFormat(model)
+        // Stacks save all six formats too, so only video turns this off.
+        return DrawerMenuItem(model: model, control: .format, title: "Format", value: shown.title,
+                              isActive: shown != .heif, isEnabled: model.settings.mode != .video) {
+            FormatGlyph(choice: shown)
         }
     }
 
     private var resolutionItem: some View {
         let resolution = model.settings.capture.resolution
-        let choices = QuickActions.resolutionChoices(model.capabilities)
-        return DrawerButtonItem(model: model, title: "Resolution", value: resolution.title,
-                                isActive: resolution != .automatic,
-                                isEnabled: QuickActions.resolutionApplies(model) && choices.count > 1) {
+        // 12 MP or 48 MP: a saved 24 MP is taken as 12 MP, and Largest as 48 MP.
+        let shown = resolution.shownAs
+        let applies = QuickActions.resolutionApplies(model)
+        let stacked = QuickActions.isStacked(model)
+        let sizes = model.capabilities.photoDimensions
+        var value = shown.title
+        var hint: String? = nil
+        if !applies && stacked {
+            hint = QuickActions.stackedPhotos(model.settings.mode) + " are 12 MP."
+        } else if applies, let instead = QuickActions.sizeInstead(resolution, sizes: sizes) {
+            // A lens without that size, such as the selfie camera, takes another, and the item says which, as the
+            // Format menu's row does. The glyph keeps the setting, so a tap still visibly steps.
+            value = instead + " here"
+            hint = QuickActions.sizeDetail(resolution, sizes: sizes).map { $0 + "." }
+        }
+        return DrawerButtonItem(model: model, title: "Resolution", value: value, spokenValue: shown.title,
+                                // Lit away from a fresh install's size, as the shape is on the bar.
+                                isActive: shown != CameraSettings.default.capture.resolution.shownAs,
+                                isEnabled: applies, hint: hint) {
             QuickActions.stepResolution(model)
         } glyph: {
-            if let megapixels = resolution.targetMegapixels {
-                Text("\(megapixels)")
-                    .font(.system(size: 15 * Theme.labelScale, weight: .bold).monospacedDigit())
-            } else {
-                // Matches the setting's title, Largest.
-                Text("MAX")
-                    .font(.system(size: 11 * Theme.labelScale, weight: .bold))
-            }
+            Text(shown.targetMegapixels.map { "\($0)" } ?? shown.title)
+                .font(.system(size: 15 * Theme.labelScale, weight: .bold).monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
     }
 
@@ -158,10 +162,10 @@ struct QuickSettingsDrawer: View {
         let choices = QuickActions.rawChoices(model.capabilities)
         let applies = mode == .photo || mode == .manual
         let isOn = raw != RawFormat.none
-        // A MANUAL shutter past the hardware limit is shot as a stack, which writes HEIF or JPEG only.
+        // A MANUAL shutter past the hardware limit is shot as a stack, which saves no RAW.
         let stacked = mode == .manual && model.shutterIsStacked
-        // The photo output leaves Bayer RAW out of zoomed shots, macro's among them. Still a button, so RAW can be
-        // turned off.
+        // The photo output leaves Bayer RAW out of zoomed shots, macro's among them. The menu still opens, so RAW can
+        // be turned off.
         let zoomed = applies && !stacked && isOn && model.rawBlockedByZoom
         var value = raw.title
         var hint: String? = nil
@@ -176,12 +180,10 @@ struct QuickSettingsDrawer: View {
             value = "Not at this zoom"
             hint = "RAW needs a lens at its own zoom, such as 1\u{00D7}. Zoomed photos are saved without it."
         }
-        return DrawerButtonItem(model: model, title: "RAW", value: value,
-                                isActive: isOn && !stacked && !zoomed,
-                                isEnabled: applies && !stacked && choices.count > 1,
-                                hint: hint) {
-            QuickActions.stepRaw(model)
-        } glyph: {
+        return DrawerMenuItem(model: model, control: .raw, title: "RAW", value: value,
+                              isActive: isOn && !stacked && !zoomed,
+                              isEnabled: applies && !stacked && choices.count > 1,
+                              hint: hint) {
             Text("RAW")
                 .font(.system(size: 10 * Theme.labelScale, weight: .heavy))
                 .lineLimit(1)
@@ -312,6 +314,8 @@ private struct DrawerButtonItem<Glyph: View>: View {
     /// What VoiceOver calls the item, where the title under the glyph is a shorter word.
     var spokenTitle: String? = nil
     let value: String
+    /// What VoiceOver says for the value, where the glyph above the value line says part of it.
+    var spokenValue: String? = nil
     var isActive = false
     var isEnabled = true
     var hint: String? = nil
@@ -326,7 +330,7 @@ private struct DrawerButtonItem<Glyph: View>: View {
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.35)
         .accessibilityLabel(spokenTitle ?? title)
-        .accessibilityValue(value)
+        .accessibilityValue(spokenValue ?? value)
         .accessibilityHint(hint ?? "")
     }
 }
