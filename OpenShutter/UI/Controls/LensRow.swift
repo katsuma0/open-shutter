@@ -7,36 +7,60 @@ import CameraCore
 
 struct LensRow: View {
     let model: CameraModel
-    /// Touch and hold on a lens button opens it in the buttons' place. The controls zone holds it, and fades the
-    /// rows above this one while it is open: the readout reaches over them.
+    /// Touch and hold on a lens button opens it in the buttons' place. The camera screen holds it, and the controls
+    /// zone fades the rows above this one while it is open: the readout reaches over them.
     let wheel: ZoomWheelModel
+
+    /// The row's width and the lens buttons', measured: each chip keeps to the room between the row's edge and the
+    /// buttons, which five buttons cut to about 72 pt on a 402 pt phone and 58 pt at 375. Measured, not counted from
+    /// the presets: the buttons drop presets that share a label, and stay laid out under the wheel and on the front
+    /// camera, so their width holds still.
+    @State private var rowWidth: CGFloat = 0
+    @State private var pickerWidth: CGFloat = 0
+
+    private static let edgePadding: CGFloat = 10
+    /// Kept clear between a chip and the outer lens button's touch area.
+    private static let gap: CGFloat = 2
 
     var body: some View {
         // Left-handed trades the two chips, which brings the exposure chip under a left thumb.
         let leftHanded = AppearanceStore.shared.leftHanded
         let wheelOpen = wheel.isOpen
+        // Until the first measurement the chips take the room they need, as before.
+        let room = rowWidth > 0 ? max(44, (rowWidth - pickerWidth) / 2 - Self.edgePadding - Self.gap) : .infinity
         ZStack {
             LensPickerSlot(model: model, wheel: wheel)
+                .onGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.size.width
+                } action: { width in
+                    pickerWidth = width
+                }
             HStack(spacing: 0) {
+                // Each chip keeps to its outer edge, so a longer value moves only the side facing the buttons.
                 if leftHanded {
-                    ExposureChip(model: model)
+                    ExposureChip(model: model, maxWidth: room, edge: .leading)
                 } else {
-                    LensRowShutterChip(model: model)
+                    LensRowShutterChip(model: model, maxWidth: room, edge: .leading)
                 }
                 Spacer(minLength: 0)
                 if leftHanded {
-                    LensRowShutterChip(model: model)
+                    LensRowShutterChip(model: model, maxWidth: room, edge: .trailing)
                 } else {
-                    ExposureChip(model: model)
+                    ExposureChip(model: model, maxWidth: room, edge: .trailing)
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Self.edgePadding)
             // Out of the way of the wheel, whose touch surface spans the whole row while it is open.
             .opacity(wheelOpen ? 0 : 1)
             .allowsHitTesting(!wheelOpen)
             .accessibilityHidden(wheelOpen)
         }
         .frame(maxWidth: .infinity, minHeight: 44)
+        .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.size.width
+        } action: { width in
+            rowWidth = width
+        }
         // Over this row and whatever is above it: the picture, or the rows the controls zone fades meanwhile. Never
         // in the layout: the zone measures its height for the viewfinder, and an open wheel must not move anything.
         .overlay(alignment: .bottom) {
@@ -103,9 +127,14 @@ private struct LensPickerSlot: View {
 }
 
 /// Exposure compensation, beside the lens buttons in every mode. Tap opens the dial, touch and hold lists a few
-/// values and the way back to zero.
+/// values and the way back to zero. At zero the exposure is the camera's own, and the value wears the readout
+/// line's small A, as the dial's header does there.
 private struct ExposureChip: View {
     let model: CameraModel
+    /// The room between the row's edge and the lens buttons. A longer value shrinks its text to stay inside it.
+    let maxWidth: CGFloat
+    /// The row's edge the chip keeps to.
+    let edge: HorizontalAlignment
     @State private var press = PressTracker()
 
     var body: some View {
@@ -130,13 +159,20 @@ private struct ExposureChip: View {
                     Upright(model: model) {
                         Image(systemName: symbol)
                     }
-                    Text(EVFormat.label(bias))
-                        .contentTransition(.numericText(value: bias))
+                    HStack(alignment: .firstTextBaseline, spacing: 1) {
+                        Text(EVFormat.label(bias))
+                            .contentTransition(.numericText(value: bias))
+                        if !isAdjusted {
+                            AutoMark()
+                                .transition(.opacity)
+                        }
+                    }
                 }
                 .font(Theme.chipFont)
                 .foregroundStyle(isAdjusted || isOpen ? Theme.accent : Theme.primaryText)
                 .lineLimit(1)
-                .fixedSize()
+                // The shutter chip's floor: inside the room beside the lens buttons a long value shrinks a little.
+                .minimumScaleFactor(0.7)
                 .padding(.horizontal, 9)
                 .frame(height: 30)
                 .cameraGlass(in: Capsule())
@@ -153,7 +189,8 @@ private struct ExposureChip: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityAddTraits(.isButton)
                 .accessibilityLabel(Text(label))
-                .accessibilityValue(Text(EVFormat.label(bias)))
+                // The A is drawn only; the value says it, as the dial's header does ("0 EV, auto").
+                .accessibilityValue(Text(isAdjusted ? EVFormat.label(bias) : EVFormat.label(bias) + ", auto"))
                 .accessibilityHint(Text(hint))
                 .accessibilityAction { Self.toggleDial(model) }
                 .accessibilityAction(named: "Reset") { Self.reset(model) }
@@ -168,6 +205,8 @@ private struct ExposureChip: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.8)))
             }
         }
+        // Outside the glass, which would otherwise stretch over the whole room.
+        .frame(maxWidth: max(maxWidth, 44), alignment: Alignment(horizontal: edge, vertical: .center))
         // Keyed to adjusted or not, not the value: a drag of the EV dial changes it on every tick, and the digits
         // would never finish rolling.
         .animation(Theme.snappy, value: isAdjusted)

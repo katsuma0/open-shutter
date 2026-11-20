@@ -55,6 +55,10 @@ struct ManualControlStrip: View {
 /// dial leads into MANUAL. Bulb has no time to show, so the place stays empty.
 struct LensRowShutterChip: View {
     let model: CameraModel
+    /// The room between the row's edge and the lens buttons. A longer value shrinks its text to stay inside it.
+    let maxWidth: CGFloat
+    /// The row's edge the chip keeps to.
+    let edge: HorizontalAlignment
 
     var body: some View {
         let shows = ChipReader.showsShutterChip(model)
@@ -64,7 +68,9 @@ struct LensRowShutterChip: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
             }
         }
-        .frame(minWidth: 44, minHeight: 44)
+        // The cap sits outside the glass: inside it, a flexible frame would stretch the capsule over the whole room.
+        .frame(minWidth: 44, maxWidth: max(maxWidth, 44), minHeight: 44,
+               alignment: Alignment(horizontal: edge, vertical: .center))
         .disabled(ChipReader.isLocked(model.activity))
         // Like the exposure chip on the row's other side. A stack dims the whole lens row (ControlsZone), and a
         // dimming of its own on top of that would all but hide the running shot's duration.
@@ -76,7 +82,7 @@ struct LensRowShutterChip: View {
 // MARK: - Chips
 
 /// One control's chip. `compact` is the lens row's: the value alone, with a moon where it is a night shot's length,
-/// since the room beside five lens buttons is about 60 pt.
+/// since the room beside five lens buttons is about 72 pt on a 402 pt phone.
 struct ParameterChip: View {
     let model: CameraModel
     let kind: DialKind
@@ -331,14 +337,21 @@ private struct ChipFace: View {
     var body: some View {
         HStack(spacing: 4) {
             if compact {
-                // White for the camera's value, the accent for one set by hand: no room for the title or the badge.
+                // White with the readout line's small A for the camera's value, the accent for one set by hand: no
+                // room for the title or the strip's badge.
                 if let symbol {
                     Image(systemName: symbol)
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Theme.accent)
                 }
-                Text(content.value)
-                    .contentTransition(.numericText(value: content.numeric))
+                HStack(alignment: .firstTextBaseline, spacing: 1) {
+                    Text(content.value)
+                        .contentTransition(.numericText(value: content.numeric))
+                    if content.tone == .auto {
+                        AutoMark()
+                            .transition(.opacity)
+                    }
+                }
             } else {
                 HStack(spacing: content.hugsTitle ? 1 : 4) {
                     Text(content.title)
@@ -354,10 +367,9 @@ private struct ChipFace: View {
         .font(Theme.chipFont)
         .foregroundStyle(content.tone == .manual ? Theme.accent : Theme.primaryText)
         .lineLimit(1)
-        // The lens row's chip keeps its own width. The strip's share the row, so they shrink their text a little
-        // instead of pushing a neighbour off the screen.
+        // The strip's chips share the row and the lens row's has the room beside the lens buttons, so each shrinks
+        // its text a little instead of reaching a neighbour.
         .minimumScaleFactor(0.7)
-        .fixedSize(horizontal: compact, vertical: false)
         .padding(.horizontal, compact ? 9 : 6)
         .frame(maxWidth: compact ? nil : .infinity)
         .frame(height: 30)
@@ -375,6 +387,22 @@ private struct ChipFace: View {
     }
 }
 
+/// The readout line's small A (ReadoutHUD), size for size, for the lens row's two chips: the strip's badge has no
+/// room beside five lens buttons. Decoration only: each chip says "auto" in its own VoiceOver value. Set it beside
+/// the value in an HStack aligned on the first text baseline, as the readout line does.
+struct AutoMark: View {
+    var body: some View {
+        Text("A")
+            .font(.system(size: 7, weight: .bold))
+            .foregroundStyle(Theme.secondaryText)
+            .baselineOffset(4)
+            // Keeps its size while the value beside it shrinks to fit.
+            .minimumScaleFactor(1)
+            .fixedSize()
+            .accessibilityHidden(true)
+    }
+}
+
 private struct AutoBadge: View {
     var body: some View {
         Text("A")
@@ -389,7 +417,7 @@ private struct AutoBadge: View {
 // MARK: - Values
 
 private enum ChipTone {
-    /// White with the "A" badge: the camera picks the value.
+    /// White with an A, the strip's badge or the lens row's small mark: the camera picks the value.
     case auto
     /// Yellow: the user fixed the value.
     case manual
