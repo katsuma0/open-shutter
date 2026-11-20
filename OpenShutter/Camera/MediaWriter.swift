@@ -8,27 +8,31 @@ import CameraCore
 
 struct EncodedImage: @unchecked Sendable {
     var data: Data
-    /// UTType identifier: "public.heic", "public.jpeg".
+    /// UTType identifier: "public.heic", "public.jpeg", "public.png", "public.tiff".
     var typeIdentifier: String
     var pixelSize: PixelSize
     var thumbnail: CGImage?
 }
 
 enum MediaWriter {
-    /// Encodes an upright CGImage as HEIF or JPEG (`.none` is treated as HEIF) with `metadata`: its EXIF, TIFF, GPS
-    /// and IPTC as properties, then its XMP packet merged in without a second encode. HEIF falls back to JPEG if the
-    /// encoder is unavailable.
+    /// Encodes an upright CGImage as HEIF, JPEG, PNG or TIFF (`.none` is treated as HEIF) with `metadata`: its EXIF,
+    /// TIFF, GPS and IPTC as properties, then its XMP packet merged in without a second encode. A 16-bit image keeps
+    /// its 16 bits in PNG and TIFF. A type the writer refuses falls back along `fileTypes(for:)`, so the shot is
+    /// saved in some form whatever this phone's encoders can do.
     static func encode(_ image: CGImage, as format: ProcessedFormat, quality: Double, metadata: ImageMetadata) throws -> EncodedImage {
         guard image.width > 0, image.height > 0 else {
             throw CameraError.captureFailed("The image is empty.")
         }
-        var options = ImageIOMetadata.properties(metadata)
-        options[kCGImageDestinationLossyCompressionQuality] = compressionQuality(quality)
-        // Camera originals carry a small preview that file browsers and share sheets show without a full decode.
-        options[kCGImageDestinationEmbedThumbnail] = true
+        let properties = ImageIOMetadata.properties(metadata)
         let pixels = opaque(image)
-        let types: [UTType] = format == .jpeg ? [.jpeg] : [.heic, .jpeg]
-        for type in types {
+        for type in fileTypes(for: format) {
+            var options = properties
+            // PNG and TIFF have no compression quality, and ImageIO embeds previews in JPEG and HEIF only.
+            if !isLossless(type) {
+                options[kCGImageDestinationLossyCompressionQuality] = compressionQuality(quality)
+                // Camera originals carry a small preview that file browsers and share sheets show without a full decode.
+                options[kCGImageDestinationEmbedThumbnail] = true
+            }
             // Some Simulator hosts and older devices have no HEVC encoder; the destination or the
             // finalize step fails there, and JPEG still gets the shot saved.
             guard let data = write(pixels, as: type, properties: options, auxiliary: []) else { continue }
@@ -40,6 +44,64 @@ enum MediaWriter {
             )
         }
         throw CameraError.captureFailed("The image couldn't be encoded.")
+    }
+
+    /// The file types `format` is written as, best first. PNG and TIFF fall back to HEIF and then JPEG, which every
+    /// phone writes.
+    static func fileTypes(for format: ProcessedFormat) -> [UTType] {
+        switch format {
+        case .jpeg: return [.jpeg]
+        case .png: return [.png, .heic, .jpeg]
+        case .tiff: return [.tiff, .heic, .jpeg]
+        case .heif, .none: return [.heic, .jpeg]
+        }
+    }
+
+    /// A camera photo turned into a PNG or TIFF file: the camera shoots these as a lossless HEIF (or a JPEG at full
+    /// quality where the output has no HEVC), and this cuts it to `aspect` and writes it again in the container
+    /// asked for. The pixels are drawn upright and the file says orientation 1, mirrored front camera photos
+    /// included: TIFF readers honour the orientation tag but many PNG readers ignore it, and one way for both keeps
+    /// them alike. The camera's EXIF, TIFF, GPS and IPTC come along; HDR gain maps and depth can't, as ImageIO writes
+    /// auxiliary images into JPEG, HEIF and DNG only. The app's XMP is merged in by the caller, as for other photos.
+    static func convert(_ data: Data, to format: ProcessedFormat, aspect: AspectRatio) throws -> EncodedImage {
+        guard format.isLossless, let type = fileTypes(for: format).first else {
+            throw CameraError.captureFailed("Only PNG and TIFF photos are converted.")
+        }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(source) > 0 else {
+            throw CameraError.captureFailed("The photo data couldn't be read.")
+        }
+        let index = CGImageSourceGetPrimaryImageIndex(source)
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] ?? [:]
+        let orientation = imageOrientation(in: properties)
+        var stored = (width: 0, height: 0)
+        // A 48 MP decode and its upright copy hold several hundred MB between them. Only the upright picture leaves
+        // the pool, so the decode is given back before the encoder takes memory of its own.
+        let picture: CGImage? = autoreleasepool {
+            let decodeOptions = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+            guard let image = CGImageSourceCreateImageAtIndex(source, index, decodeOptions) else { return nil }
+            stored = (image.width, image.height)
+            var cut = image
+            if let rect = cropRect(aspect, width: image.width, height: image.height, orientation: orientation) {
+                guard let cropped = image.cropping(to: rect) else { return nil }
+                cut = cropped
+            }
+            return drawUpright(cut, orientation: orientation)
+        }
+        guard let picture else {
+            throw CameraError.captureFailed("The photo couldn't be decoded.")
+        }
+        let written = uprightProperties(properties, width: picture.width, height: picture.height)
+        guard let encoded = write(picture, as: type, properties: written, auxiliary: []) else {
+            throw CameraError.captureFailed("The photo couldn't be written as \(format.title).")
+        }
+        let photo = displayedSize(width: stored.width, height: stored.height, orientation: orientation)
+        return EncodedImage(
+            data: encoded,
+            typeIdentifier: type.identifier,
+            pixelSize: PixelSize(width: picture.width, height: picture.height),
+            thumbnail: croppedPreview(source, index: index, aspect: aspect, photo: photo)
+                ?? drawThumbnail(picture, orientation: .up, maxPixelSize: thumbnailPixelSize)
+        )
     }
 
     /// Whether `image` is drawn in sRGB, which EXIF ColorSpace names; anything else is written as uncalibrated.
@@ -210,6 +272,65 @@ enum MediaWriter {
         quality.isFinite ? min(max(quality, 0), 1) : 0.9
     }
 
+    private static func isLossless(_ type: UTType) -> Bool {
+        type.conforms(to: .png) || type.conforms(to: .tiff)
+    }
+
+    /// The camera's properties for a picture drawn upright at `width` x `height` in a PNG or TIFF file.
+    private static func uprightProperties(_ source: [CFString: Any], width: Int, height: Int) -> [CFString: Any] {
+        var output = source
+        output[kCGImagePropertyOrientation] = 1
+        output[kCGImagePropertyPixelWidth] = width
+        output[kCGImagePropertyPixelHeight] = height
+        // The camera file's own container: its bit depth, tiles and HEIF or JFIF details describe that file, and a
+        // tile size could make the TIFF writer tile this one. The picture's own depth and color space go in as drawn.
+        output.removeValue(forKey: kCGImagePropertyDepth)
+        output.removeValue(forKey: kCGImagePropertyHEIFDictionary)
+        output.removeValue(forKey: kCGImagePropertyJFIFDictionary)
+        // Apple's maker note pairs a Live Photo's still with its movie, and these files never have one.
+        output.removeValue(forKey: kCGImagePropertyMakerAppleDictionary)
+        var tiff = source[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
+        tiff[kCGImagePropertyTIFFOrientation] = 1
+        tiff.removeValue(forKey: kCGImagePropertyTIFFTileWidth)
+        tiff.removeValue(forKey: kCGImagePropertyTIFFTileLength)
+        output[kCGImagePropertyTIFFDictionary] = tiff
+        var exif = source[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
+        exif[kCGImagePropertyExifPixelXDimension] = width
+        exif[kCGImagePropertyExifPixelYDimension] = height
+        // Given in the stored frame's pixels; following them through a crop and a turn isn't worth it.
+        exif.removeValue(forKey: kCGImagePropertyExifSubjectArea)
+        exif.removeValue(forKey: kCGImagePropertyExifSubjectLocation)
+        output[kCGImagePropertyExifDictionary] = exif
+        return output
+    }
+
+    /// `image` turned and mirrored as `orientation` says, every pixel kept: whole quarter turns and no smoothing.
+    /// Drawn at the image's own depth, 16 bits for anything deeper than 8, opaque, in a color space a bitmap
+    /// context takes.
+    private static func drawUpright(_ image: CGImage, orientation: CGImagePropertyOrientation) -> CGImage? {
+        guard image.width > 0, image.height > 0 else { return nil }
+        let width = Double(image.width)
+        let height = Double(image.height)
+        let size = swapsAxes(orientation) ? (width: image.height, height: image.width) : (width: image.width, height: image.height)
+        let space = drawableColorSpace(for: image)
+        var made: CGContext?
+        if image.bitsPerComponent > 8 {
+            made = CGContext(data: nil, width: size.width, height: size.height, bitsPerComponent: 16, bytesPerRow: 0,
+                             space: space,
+                             bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue | CGImageByteOrderInfo.order16Little.rawValue)
+        }
+        // Eight bits where the picture has no more, or where a deeper context isn't offered.
+        if made == nil {
+            made = CGContext(data: nil, width: size.width, height: size.height, bitsPerComponent: 8, bytesPerRow: 0,
+                             space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        }
+        guard let context = made else { return nil }
+        context.interpolationQuality = .none
+        context.concatenate(orientationTransform(orientation, width: width, height: height))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()
+    }
+
     private static func intValue(_ value: Any?) -> Int? {
         (value as? NSNumber)?.intValue
     }
@@ -296,8 +417,9 @@ enum MediaWriter {
         return data as Data
     }
 
-    /// Core Image renders RGBA, but an alpha plane in a HEIF photo only adds size and confuses some viewers.
-    /// The renders are opaque, so the same bytes are reinterpreted with the alpha byte skipped (no copy).
+    /// Core Image renders RGBA, but an alpha plane in a HEIF photo only adds size and confuses some viewers, and a
+    /// PNG or TIFF would carry it as a fourth channel. The renders are opaque, so the same bytes are reinterpreted
+    /// with the alpha skipped (no copy), at 8 or 16 bits a channel.
     private static func opaque(_ image: CGImage) -> CGImage {
         let skip: CGImageAlphaInfo
         switch image.alphaInfo {
@@ -305,14 +427,16 @@ enum MediaWriter {
         case .premultipliedFirst, .first: skip = .noneSkipFirst
         default: return image
         }
-        guard !image.isMask, image.bitsPerComponent == 8, image.bitsPerPixel == 32,
+        guard !image.isMask, image.bitsPerPixel == 4 * image.bitsPerComponent,
               let space = image.colorSpace, space.model == .rgb,
               let provider = image.dataProvider else { return image }
-        let byteOrder = image.bitmapInfo.rawValue & CGBitmapInfo.byteOrderMask.rawValue
-        let info = CGBitmapInfo(rawValue: byteOrder | skip.rawValue)
-        return CGImage(width: image.width, height: image.height, bitsPerComponent: 8, bitsPerPixel: 32,
-                       bytesPerRow: image.bytesPerRow, space: space, bitmapInfo: info, provider: provider,
-                       decode: nil, shouldInterpolate: image.shouldInterpolate, intent: image.renderingIntent) ?? image
+        // Byte order and float components stay as rendered; only the alpha changes.
+        let others = image.bitmapInfo.rawValue & ~CGBitmapInfo.alphaInfoMask.rawValue
+        let info = CGBitmapInfo(rawValue: others | skip.rawValue)
+        return CGImage(width: image.width, height: image.height, bitsPerComponent: image.bitsPerComponent,
+                       bitsPerPixel: image.bitsPerPixel, bytesPerRow: image.bytesPerRow, space: space, bitmapInfo: info,
+                       provider: provider, decode: nil, shouldInterpolate: image.shouldInterpolate,
+                       intent: image.renderingIntent) ?? image
     }
 
     /// Downscales `image` into a bitmap of at most `maxPixelSize` on the long side, applying the EXIF

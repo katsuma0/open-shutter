@@ -1,19 +1,19 @@
 import SwiftUI
-import UIKit
 import CameraCore
 
-// The top bar's buttons, all but the gear, and the steps they share with the quick settings drawer. The bar redraws
-// with every settings write, 120 a second while a dial turns, so each button is its own small view that reads only
-// what it shows.
+// The top bar's buttons, all but the gear, their menus, and what the quick settings panel shares with them. The
+// bar redraws with every settings write, 120 a second while a dial turns, so each button is its own small view that
+// reads only what it shows, and each menu sits in a layer of its own whose inputs compare equal between redraws.
 
 // MARK: - Buttons
 
-/// One of the top bar's fixed buttons: flash, shape, timer, format, histogram or Live Photo.
+/// One of the top bar's fixed buttons: flash (the flashlight in VIDEO), shape, timer, format, histogram (in NIGHT the
+/// night shot's stability), AE lock or Live Photo.
 struct TopBarItemButton: View {
     let model: CameraModel
     let item: TopBarItem
     let mode: CaptureMode
-    /// The Timer button ends its cycle, and its menu, in the timer sheet, which the camera screen presents.
+    /// The Timer menu's last rows open the timer sheet, which the camera screen presents.
     @Binding var timerSheetRequested: Bool
 
     var body: some View {
@@ -35,10 +35,12 @@ struct TopBarItemButton: View {
             BarFormat(model: model)
         case .histogram:
             BarHistogram(model: model)
+        case .nightStability:
+            BarNightStability(model: model, mode: mode)
         case .exposureLock:
             BarExposureLock(model: model)
         default:
-            // The bar draws the six above and nothing else. CameraCore keeps the other cases for its stored layout.
+            // The bar draws the eight above and nothing else. CameraCore keeps the other cases for its stored layout.
             EmptyView()
         }
     }
@@ -54,13 +56,12 @@ struct TopBarItemButton: View {
             return caps.livePhotoSupported
         case .timer:
             return QuickActions.timerApplies(model)
-        case .format:
-            return QuickActions.canChangeFormat(model)
         case .exposureLock:
             // With every value set by hand there is no auto exposure to hold, but a lock that is on can be undone.
             return (QuickActions.aeLockApplies(model) || model.aeLocked) && !QuickActions.exposureIsBusy(model.activity)
         default:
-            // The shape and the histogram work on every camera, and the other cases are never asked about.
+            // The shape, the histogram and the night shot's stability work on every camera, and so does the format:
+            // the app writes PNG and TIFF itself. The other cases are never asked about.
             return true
         }
     }
@@ -78,31 +79,22 @@ private struct BarFlash: View {
         // A MANUAL shutter past the hardware limit is shot as a stack, which never fires the flash. The button dims
         // in its slot for as long as the shutter dial is past the limit.
         let stacked = mode == .manual && model.shutterIsStacked
-        Button {
-            Self.step(model)
-        } label: {
-            Upright(model: model) {
-                Image(systemName: flash.symbolName)
-            }
+        Upright(model: model) {
+            Image(systemName: flash.symbolName)
         }
-        .buttonStyle(BarCircleStyle(isActive: flash == .on && !stacked, isPressed: press.isPressed))
-        .accessibilityLabel("Flash")
-        .accessibilityValue(flash.title)
-        .accessibilityHint(stacked ? "Stacked exposures don't use the flash." : HoldMenuText.hint)
+        .modifier(BarGlyphLook(isActive: flash == .on && !stacked, isPressed: press.isPressed))
+        // The menu over the glyph is what VoiceOver reads and opens.
+        .accessibilityHidden(true)
         .overlay {
-            ItemTouchLayer(model: model, control: .flash, press: press)
+            ItemMenuLayer(model: model, control: .flash, press: press, label: "Flash", value: flash.title,
+                          hint: stacked ? "Stacked exposures don't use the flash." : HoldMenuText.choicesHint)
         }
         .disabled(stacked)
         .opacity(stacked ? 0.35 : 1)
     }
-
-    static func step(_ model: CameraModel) {
-        Haptics.tap()
-        model.updateSettings { $0.capture.flash = $0.capture.flash.nextInCycle }
-    }
 }
 
-/// Off, Auto, On: the order the tap steps through.
+/// Off, Auto, On, the Camera app's order.
 private struct FlashOptions: View {
     let model: CameraModel
 
@@ -122,7 +114,8 @@ private struct FlashOptions: View {
     }
 }
 
-/// The video light, where the flash button sits in the photo modes. The front camera has none, so it dims there.
+/// The video light, where the flash button sits in the photo modes. A light is on or off, so a tap switches it, and
+/// touch and hold lists its brightness: the one hold left on the bar. The front camera has none, so it dims there.
 private struct BarTorch: View {
     let model: CameraModel
     @State private var press = PressTracker()
@@ -140,7 +133,7 @@ private struct BarTorch: View {
         .accessibilityLabel("Flashlight")
         .accessibilityValue(TorchBrightness.current(isOn: isOn, level: model.torchLevel).spokenValue)
         .accessibilityHint(HoldMenuText.hint)
-        // The menu layer is hidden from VoiceOver, and the tap only turns the light on or off, so the brightness
+        // The hold layer is hidden from VoiceOver, and the tap only turns the light on or off, so the brightness
         // steps would otherwise be out of reach.
         .accessibilityActions {
             ForEach(TorchBrightness.allCases) { choice in
@@ -148,7 +141,7 @@ private struct BarTorch: View {
             }
         }
         .overlay {
-            ItemTouchLayer(model: model, control: .torch, press: press)
+            TorchTouchLayer(model: model, press: press)
         }
     }
 
@@ -163,6 +156,21 @@ private struct BarTorch: View {
             model.setTorchLevel(level)
         } else {
             model.setTorch(false)
+        }
+    }
+}
+
+/// The flashlight's tap and its touch and hold menu, laid over the button. Its own view with inputs that never
+/// change, so the button's redraws leave the system's menu button alone.
+private struct TorchTouchLayer: View {
+    let model: CameraModel
+    let press: PressTracker
+
+    var body: some View {
+        MenuOnHoldLayer(press: press) {
+            BarTorch.toggle(model)
+        } options: {
+            TorchOptions(model: model)
         }
     }
 }
@@ -223,17 +231,6 @@ private enum TorchBrightness: CaseIterable, Identifiable {
     }
 }
 
-private extension FlashSetting {
-    /// Off, Auto, On, the Camera app's order.
-    var nextInCycle: FlashSetting {
-        switch self {
-        case .off: return .auto
-        case .auto: return .on
-        case .on: return .off
-        }
-    }
-}
-
 // MARK: - Live Photo
 
 private struct BarLivePhoto: View {
@@ -241,9 +238,10 @@ private struct BarLivePhoto: View {
 
     var body: some View {
         let capture = model.settings.capture
-        // The photo output can't record the movie part while it delivers RAW.
-        let blockedByRaw = capture.rawFormat != RawFormat.none
-        let isOn = capture.livePhoto && !blockedByRaw
+        // The movie goes with a HEIF or JPEG photo taken without RAW: the photo output can't record it while it
+        // delivers RAW, and PNG and TIFF are made from the photo after the shot.
+        let blocked = !capture.allowsLivePhoto
+        let isOn = capture.livePhoto && !blocked
         Button {
             Haptics.tap()
             model.updateSettings { $0.capture.livePhoto.toggle() }
@@ -253,111 +251,93 @@ private struct BarLivePhoto: View {
             }
         }
         .buttonStyle(BarCircleStyle(isActive: isOn))
-        .disabled(blockedByRaw)
-        .opacity(blockedByRaw ? 0.4 : 1)
+        .disabled(blocked)
+        .opacity(blocked ? 0.4 : 1)
         .accessibilityLabel("Live Photo")
         .accessibilityValue(isOn ? "On" : "Off")
-        .accessibilityHint(blockedByRaw ? "Turn off RAW to use Live Photos." : "")
+        .accessibilityHint(blocked ? "Live Photos need HEIF or JPEG, and RAW off." : "")
     }
 }
 
 // MARK: - Timer
 
-/// Steps the self timer and ends the cycle in the timer sheet, like the drawer's item. It also shows an intervalometer
-/// or a bracket that is set, so the bar says what the next press starts.
+/// The self timer: a tap lists the delays and the way into the timer sheet, where the intervalometer and brackets
+/// are. It also shows an intervalometer or a bracket that is set, so the bar says what the next press starts.
 private struct BarTimer: View {
     let model: CameraModel
     let mode: CaptureMode
     @Binding var timerSheetRequested: Bool
     @State private var press = PressTracker()
-    @State private var cycle = TimerCycle()
 
     var body: some View {
         let preview = SchedulePreview(model: model, mode: mode)
-        Button {
-            Self.step(model, cycle: cycle, timerSheetRequested: $timerSheetRequested)
-        } label: {
-            Upright(model: model) {
-                if preview.isEmpty {
-                    Image(systemName: "timer")
-                } else {
-                    ScheduleFace(preview: preview)
-                }
+        Upright(model: model) {
+            if preview.isEmpty {
+                Image(systemName: "timer")
+            } else {
+                ScheduleFace(preview: preview)
             }
         }
-        .buttonStyle(BarCircleStyle(isActive: !preview.isEmpty, isPressed: press.isPressed))
-        .accessibilityLabel(TopBarItem.timer.title)
-        .accessibilityValue(preview.spokenValue)
-        .accessibilityHint(HoldMenuText.hint)
+        .modifier(BarGlyphLook(isActive: !preview.isEmpty, isPressed: press.isPressed))
+        .accessibilityHidden(true)
         .overlay {
-            TimerItemTouchLayer(model: model, press: press, cycle: cycle, timerSheetRequested: $timerSheetRequested)
-        }
-        // Any other change of the schedule starts the cycle over, as in the drawer.
-        .onChange(of: model.settings.capture.schedule) { _, _ in
-            cycle.sheetOffered = false
-        }
-    }
-
-    static func step(_ model: CameraModel, cycle: TimerCycle, timerSheetRequested: Binding<Bool>) {
-        switch QuickActions.timerStep(after: model.settings.capture.schedule, sheetOffered: cycle.sheetOffered) {
-        case .schedule(let schedule):
-            cycle.sheetOffered = false
-            QuickActions.setSchedule(schedule, model)
-        case .sheet:
-            cycle.sheetOffered = true
-            Haptics.tap()
-            // The camera screen presents the sheet; the quick settings panel stays as it is.
-            timerSheetRequested.wrappedValue = true
+            TimerMenuLayer(model: model, mode: mode, press: press, value: preview.spokenValue,
+                           timerSheetRequested: $timerSheetRequested)
         }
     }
 }
 
-/// Whether the Timer button's last tap offered the timer sheet, so the next one turns the timer off. A reference, so
-/// the button and its touch and hold layer share it, and changing it redraws nothing.
-@MainActor
-private final class TimerCycle {
-    var sheetOffered = false
-}
-
-private struct TimerItemTouchLayer: View {
+/// The Timer button's menu, laid over the button, and over the quick settings panel's Timer item, so the two list the
+/// same rows. Its own view with inputs that compare equal between redraws, so the redraws of the control under it
+/// leave the system's menu button alone. It hands the sheet's binding on to the menu's rows.
+struct TimerMenuLayer: View {
     let model: CameraModel
+    let mode: CaptureMode
     let press: PressTracker
-    let cycle: TimerCycle
+    let value: String
     @Binding var timerSheetRequested: Bool
 
     var body: some View {
-        MenuOnHoldLayer(press: press) {
-            BarTimer.step(model, cycle: cycle, timerSheetRequested: $timerSheetRequested)
-        } options: {
-            TimerOptions(model: model, timerSheetRequested: $timerSheetRequested)
+        MenuOnTapLayer(press: press, label: TopBarItem.timer.title, value: value) {
+            TimerOptions(model: model, mode: mode, timerSheetRequested: $timerSheetRequested)
         }
     }
 }
 
-/// The self timer's delays, and the way into the timer sheet for the rest.
+/// The self timer's delays, then what the timer sheet set that none of them is, checked, and the way into the sheet.
+/// A checked row opens the sheet too, as that is where its values are changed.
 private struct TimerOptions: View {
     let model: CameraModel
+    let mode: CaptureMode
     @Binding var timerSheetRequested: Bool
 
     var body: some View {
         let schedule = model.settings.capture.schedule
-        ForEach(CaptureSchedule.delayPresets, id: \.self) { delay in
-            // A burst or an intervalometer is none of the plain delays, so no row is marked for it.
-            let isCurrent = schedule.shots == 1 && abs(schedule.delay - delay) < 0.01
-            Toggle(isOn: Binding(get: { isCurrent }, set: { _ in choose(delay) })) {
-                // Worded like the other touch and hold menus; the bar itself keeps the compact "3s".
-                Text(QuickActions.delayTitle(delay))
+        let delays = CaptureSchedule.delayPresets
+        // A burst, an intervalometer or a delay set in the sheet is none of the plain delays.
+        let preset = schedule.shots == 1 ? delays.first(where: { abs($0 - schedule.delay) < 0.01 }) : nil
+        let bracket = SchedulePreview(model: model, mode: mode).bracket
+        Section {
+            ForEach(delays, id: \.self) { delay in
+                // Worded like the other menus ("3 s"); the bar itself keeps the compact "3s". The row ticks.
+                HoldMenuChoice(QuickActions.delayTitle(delay), isOn: preset == delay) {
+                    model.updateSettings { $0.capture.schedule = CaptureSchedule(delay: delay) }
+                }
             }
         }
         Section {
+            if preset == nil {
+                // "7 s" like the rows above, or "10s · 5 shots" for a burst or an intervalometer.
+                HoldMenuChoice(schedule.shots == 1 ? QuickActions.delayTitle(schedule.delay) : schedule.summary,
+                               isOn: true, action: showSheet)
+            }
+            if let bracket {
+                HoldMenuChoice("Bracket", detail: bracket.summary, isOn: true, action: showSheet)
+            }
             Button(action: showSheet) {
-                Label("More\u{2026}", systemImage: "slider.horizontal.3")
+                Label("Custom\u{2026}", systemImage: "slider.horizontal.3")
             }
         }
-    }
-
-    private func choose(_ delay: Double) {
-        QuickActions.setSchedule(CaptureSchedule(delay: delay), model)
     }
 
     /// The camera screen presents the sheet; the quick settings panel stays as it is.
@@ -478,19 +458,14 @@ private struct BarAspect: View {
 
     var body: some View {
         let aspect = model.settings.capture.aspect
-        Button {
-            QuickActions.stepAspect(model)
-        } label: {
-            Upright(model: model) {
-                ItemText(aspect.label, size: 13)
-            }
+        Upright(model: model) {
+            ItemText(aspect.label, size: 13)
         }
-        .buttonStyle(BarCircleStyle(isActive: QuickActions.aspectIsActive(aspect), isPressed: press.isPressed))
-        .accessibilityLabel(TopBarItem.aspect.title)
-        .accessibilityValue(aspect.label)
-        .accessibilityHint(HoldMenuText.hint)
+        .modifier(BarGlyphLook(isActive: QuickActions.aspectIsActive(aspect), isPressed: press.isPressed))
+        .accessibilityHidden(true)
         .overlay {
-            ItemTouchLayer(model: model, control: .aspect, press: press)
+            ItemMenuLayer(model: model, control: .aspect, press: press,
+                          label: TopBarItem.aspect.title, value: aspect.label)
         }
     }
 }
@@ -523,26 +498,218 @@ private struct AspectOptions: View {
     }
 }
 
-// MARK: - Format and histogram
+// MARK: - Format
 
+/// The photo file in one menu: the format, the RAW file beside it and the size. The face names the file type, with
+/// HIGH under HEIF High and JPEG High, or the RAW file that goes with it here.
 private struct BarFormat: View {
+    let model: CameraModel
+    @State private var press = PressTracker()
+
+    var body: some View {
+        let shown = FormatShown(model: model)
+        Upright(model: model) {
+            FormatFace(type: QuickActions.formatCode(shown.format), detail: shown.faceDetail)
+        }
+        .modifier(BarGlyphLook(isActive: shown.isActive, isPressed: press.isPressed))
+        .accessibilityHidden(true)
+        .overlay {
+            ItemMenuLayer(model: model, control: .format, press: press,
+                          label: TopBarItem.format.title, value: shown.spokenValue)
+        }
+    }
+}
+
+/// What the next photo saves here, as the Format button shows it.
+private struct FormatShown {
+    /// The format, RAW only included. HEIF stands in wherever RAW only saves no RAW file, as the photo then saves a
+    /// HEIF alone: in a stack, at a zoom that leaves Bayer RAW out, and on a lens without RAW.
+    let format: PhotoFormatChoice
+    /// The RAW file it saves, beside the picture or alone.
+    let raw: RawFormat?
+    /// "48 MP", or what a lens without the set size takes in its place. nil in a stack, which is made at the video
+    /// frames' size.
+    let size: String?
+
+    @MainActor
+    init(model: CameraModel) {
+        let raw = QuickActions.savedRaw(model)
+        let shown = QuickActions.shownFormat(model)
+        self.raw = raw
+        // savedRaw is nil in each of those places, so one test covers them all.
+        format = shown == .rawOnly && raw == nil ? .heif : shown
+        let resolution = model.settings.capture.resolution
+        let sizes = model.capabilities.photoDimensions
+        size = QuickActions.isStacked(model)
+            ? nil : QuickActions.sizeInstead(resolution, sizes: sizes) ?? resolution.shownAs.title
+    }
+
+    /// Lit when the format isn't plain HEIF, or a RAW file goes with it.
+    var isActive: Bool { format != .heif || raw != nil }
+
+    /// The face's second line: HIGH, or the RAW file, "PRO" for ProRAW. One line is all the button has room for,
+    /// so HIGH wins; VoiceOver says both.
+    var faceDetail: String? {
+        if format.isHigh { return "HIGH" }
+        if format == .rawOnly { return raw == .proRAW ? "PRO" : nil }
+        switch raw {
+        case .proRAW?: return "+PRO"
+        case .bayer?: return "+RAW"
+        default: return nil
+        }
+    }
+
+    /// "HEIF High, ProRAW, 48 MP", "ProRAW only, 12 MP".
+    var spokenValue: String {
+        var parts: [String] = []
+        if format == .rawOnly {
+            parts.append(raw == .proRAW ? "ProRAW only" : format.title)
+        } else {
+            parts.append(format.title)
+            if let raw { parts.append(raw.title) }
+        }
+        if let size { parts.append(size) }
+        return parts.joined(separator: ", ")
+    }
+}
+
+/// The Format button's face: the file type, and a small second line for HIGH or the RAW file that goes with it.
+private struct FormatFace: View {
+    let type: String
+    let detail: String?
+
+    var body: some View {
+        let scale = Theme.labelScale
+        // Both lines medium, like the rest of the bar's text: a heavier HIGH or +RAW stood out beside the thin glyphs.
+        VStack(spacing: 0) {
+            Text(type)
+                .font(.system(size: 12 * scale, weight: .medium))
+            if let detail {
+                Text(detail)
+                    .font(.system(size: 8 * scale, weight: .medium))
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        .padding(.horizontal, 4)
+    }
+}
+
+/// The Format button's menu: the file, the RAW file beside it, and the size. A stack is made from video frames, so
+/// in NIGHT and with a stacked MANUAL shutter the RAW and size rows dim and say why.
+private struct FormatOptions: View {
     let model: CameraModel
 
     var body: some View {
-        let format = model.settings.capture.processedFormat
-        let value = QuickActions.formatValue(format)
-        Button {
-            QuickActions.stepFormat(model)
-        } label: {
-            Upright(model: model) {
-                ItemText(value, size: 12)
-            }
+        Section("Format") {
+            PhotoFormatRows(model: model)
         }
-        .buttonStyle(BarCircleStyle(isActive: format != .heif))
-        .accessibilityLabel(TopBarItem.format.title)
-        .accessibilityValue(value)
+        Section("RAW") {
+            RawFormatRows(model: model)
+        }
+        Section("Resolution") {
+            PhotoResolutionRows(model: model)
+        }
     }
 }
+
+/// The format rows, for the Format menu and the quick settings panel's Format item: HEIF, HEIF High, JPEG, JPEG High,
+/// PNG, TIFF, and RAW only while a RAW file is on. A stack saves HEIF in place of RAW only, so there RAW only is
+/// listed only while it is set, dimmed, saying so.
+struct PhotoFormatRows: View {
+    let model: CameraModel
+
+    var body: some View {
+        let current = PhotoFormatChoice(model.settings.capture)
+        let choices = QuickActions.formatChoices(model)
+        // The setting stays listed where this mode or this camera doesn't offer it, so the menu shows what is set.
+        let rows = PhotoFormatChoice.allCases.filter { choices.contains($0) || $0 == current }
+        ForEach(rows) { choice in
+            let offered = choices.contains(choice)
+            // The row ticks.
+            HoldMenuChoice(choice.title, detail: offered ? nil : Self.reason(choice, model: model),
+                           isOn: choice == current) {
+                model.setPhotoFormat(choice)
+            }
+            .disabled(!offered)
+        }
+    }
+
+    /// Why a format that is set isn't offered here.
+    private static func reason(_ choice: PhotoFormatChoice, model: CameraModel) -> String? {
+        guard choice == .rawOnly, QuickActions.isStacked(model) else { return nil }
+        return QuickActions.stackedPhotos(model.settings.mode) + " are saved as HEIF."
+    }
+}
+
+/// Off, RAW and ProRAW, each saying what it is, for the Format menu and the quick settings panel's RAW item. A kind
+/// this camera lacks dims, and in a stack the whole list does, as a stack saves no RAW.
+struct RawFormatRows: View {
+    let model: CameraModel
+
+    var body: some View {
+        let raw = model.settings.capture.rawFormat
+        let stacked = QuickActions.isStacked(model)
+        ForEach(RawFormat.allCases) { choice in
+            HoldMenuChoice(choice.title, detail: Self.detail(choice, stacked: stacked, model: model),
+                           isOn: choice == raw) {
+                model.setRawFormat(choice)
+            }
+            .disabled(stacked || !Self.isSupported(choice, model.capabilities))
+        }
+    }
+
+    private static func isSupported(_ raw: RawFormat, _ capabilities: CameraCapabilities) -> Bool {
+        switch raw {
+        case RawFormat.none: return true
+        case .bayer: return capabilities.rawSupported
+        case .proRAW: return capabilities.proRAWSupported
+        }
+    }
+
+    private static func detail(_ raw: RawFormat, stacked: Bool, model: CameraModel) -> String? {
+        guard raw != RawFormat.none else { return nil }
+        if stacked {
+            // Said once, under the first of the two.
+            return raw == .bayer ? QuickActions.stackedPhotos(model.settings.mode) + " have no RAW." : raw.detail
+        }
+        if !isSupported(raw, model.capabilities) { return "Not on this camera" }
+        // Tested on the zoom itself: rawBlockedByZoom reads the stored setting, so it only holds once RAW is on, and
+        // the row has to warn before it is picked. The backends leave RAW out past a thousandth off 1.
+        if raw == .bayer, abs(model.settings.zoom - 1) > 0.001 {
+            // Macro keeps the 1x button lit, so "this zoom" would point at a lens that isn't the one running.
+            return model.isMacro ? "Not in macro" : "Not at this zoom"
+        }
+        return raw.detail
+    }
+}
+
+/// 12 MP and 48 MP. 48 MP is the biggest size the lens gives, up to 48 MP, so a row whose size this lens doesn't have
+/// says what it takes. A stack is made from video frames at 12 MP, so the rows dim there.
+private struct PhotoResolutionRows: View {
+    let model: CameraModel
+
+    var body: some View {
+        let shown = model.settings.capture.resolution.shownAs
+        let stacked = QuickActions.isStacked(model)
+        let mode = model.settings.mode
+        let sizes = model.capabilities.photoDimensions
+        ForEach(PhotoResolution.offered) { resolution in
+            let detail = stacked
+                ? Self.stackDetail(resolution, mode: mode) : QuickActions.sizeDetail(resolution, sizes: sizes)
+            HoldMenuChoice(resolution.title, detail: detail, isOn: resolution == shown) {
+                model.setPhotoResolution(resolution)
+            }
+            .disabled(stacked)
+        }
+    }
+
+    private static func stackDetail(_ resolution: PhotoResolution, mode: CaptureMode) -> String? {
+        resolution == .mp48 ? QuickActions.stackedPhotos(mode) + " are 12 MP." : nil
+    }
+}
+
+// MARK: - Histogram
 
 private struct BarHistogram: View {
     let model: CameraModel
@@ -550,25 +717,106 @@ private struct BarHistogram: View {
 
     var body: some View {
         let style = model.settings.display.histogram
-        Button {
-            QuickActions.stepHistogram(model)
-        } label: {
-            Upright(model: model) {
-                // Outlined bars at a light weight: the filled chart was the heaviest glyph on the bar.
-                Image(systemName: "chart.bar")
-                    .fontWeight(.light)
-                    .marksOn(style != .off)
-            }
+        Upright(model: model) {
+            // Outlined bars at a light weight: the filled chart was the heaviest glyph on the bar.
+            Image(systemName: "chart.bar")
+                .fontWeight(.light)
+                .marksOn(style != .off)
         }
-        .buttonStyle(BarCircleStyle(isActive: style != .off, isPressed: press.isPressed))
-        .accessibilityLabel(TopBarItem.histogram.title)
-        .accessibilityValue(style.title)
-        .accessibilityHint(HoldMenuText.hint)
+        .modifier(BarGlyphLook(isActive: style != .off, isPressed: press.isPressed))
+        .accessibilityHidden(true)
         .overlay {
-            ItemTouchLayer(model: model, control: .histogram, press: press)
+            ItemMenuLayer(model: model, control: .histogram, press: press,
+                          label: TopBarItem.histogram.title, value: style.title)
         }
     }
 }
+
+/// The histogram's styles, for the Histogram menu and the quick settings panel's Histogram item.
+struct HistogramOptions: View {
+    let model: CameraModel
+
+    var body: some View {
+        let style = model.settings.display.histogram
+        Picker("Histogram", selection: Binding(get: { style },
+                                               set: { QuickActions.set(\.display.histogram, to: $0, model) })) {
+            ForEach(HistogramStyle.allCases) { option in
+                Text(option.title).tag(option)
+            }
+        }
+        .pickerStyle(.inline)
+    }
+}
+
+// MARK: - NIGHT's stability
+
+/// NIGHT's button in the histogram's place: what the night shot plans for, a tripod, a hand, or Auto, which plans for
+/// a hand until the motion sensor finds the phone still. Only the night shot reads it, so it dims in the long
+/// exposure scenes, Manual night among them.
+private struct BarNightStability: View {
+    let model: CameraModel
+    let mode: CaptureMode
+    @State private var press = PressTracker()
+
+    var body: some View {
+        let choice = model.settings.night.stability
+        Upright(model: model) {
+            StabilityFace(choice: choice)
+        }
+        // Lit away from the default, as the shape is, so a new phone's bar starts unlit.
+        .modifier(BarGlyphLook(isActive: choice != CameraSettings.default.night.stability, isPressed: press.isPressed))
+        .accessibilityHidden(true)
+        .overlay {
+            ItemMenuLayer(model: model, control: .nightStability, press: press,
+                          label: TopBarItem.nightStability.title, value: choice.title,
+                          hint: mode == .night ? HoldMenuText.choicesHint : "Only the night shot uses it.")
+        }
+    }
+}
+
+/// The drawn tripod for Tripod, as SF Symbols has none, in thin lines beside the bar's outline symbols. A hand for
+/// Handheld, and a hand with a small A for Auto, which plans for a hand until the phone holds still. The colour and
+/// the shadow come from the bar's look, and so does the hand's size.
+private struct StabilityFace: View {
+    let choice: NightStabilityChoice
+
+    var body: some View {
+        switch choice {
+        case .tripod:
+            // A drawing has no size of its own and takes no font: about the hand's, a little narrower.
+            TripodGlyph(lineWidth: 1.2)
+                .frame(width: 17 * Theme.labelScale, height: 19 * Theme.labelScale)
+        case .handheld:
+            Image(systemName: "hand.raised")
+        case .automatic:
+            Image(systemName: "hand.raised")
+                .overlay(alignment: .topTrailing) {
+                    // Medium, like the rest of the bar's text, so the A is no heavier than the hand's thin lines.
+                    Text("A")
+                        .font(.system(size: 8 * Theme.labelScale, weight: .medium))
+                        .offset(x: 5 * Theme.labelScale, y: -3 * Theme.labelScale)
+                }
+        }
+    }
+}
+
+/// Auto, Handheld, Tripod, as Settings > Night lists them.
+private struct NightStabilityOptions: View {
+    let model: CameraModel
+
+    var body: some View {
+        let current = model.settings.night.stability
+        Picker("Stability", selection: Binding(get: { current },
+                                               set: { QuickActions.set(\.night.stability, to: $0, model) })) {
+            ForEach(NightStabilityChoice.allCases) { choice in
+                Text(choice.title).tag(choice)
+            }
+        }
+        .pickerStyle(.inline)
+    }
+}
+
+// MARK: - AE lock
 
 /// AE lock: holds the auto exposure where it is. It was the last chip on MANUAL's strip; here it is in reach in every
 /// mode that has auto exposure, and dims where every value is set by hand.
@@ -592,48 +840,30 @@ private struct BarExposureLock: View {
     }
 }
 
-private struct HistogramOptions: View {
-    let model: CameraModel
+// MARK: - Menus
 
-    var body: some View {
-        let style = model.settings.display.histogram
-        Picker("Histogram", selection: Binding(get: { style },
-                                               set: { QuickActions.set(\.display.histogram, to: $0, model) })) {
-            ForEach(HistogramStyle.allCases) { option in
-                Text(option.title).tag(option)
-            }
-        }
-        .pickerStyle(.inline)
-    }
-}
-
-// MARK: - Touch and hold
-
-/// A button's tap and its touch and hold menu, laid over the button. Its own view with inputs that never change, so
-/// the button's redraws with every settings change leave the system's menu button alone.
-private struct ItemTouchLayer: View {
+/// A button's menu, laid over the button. Its own view with inputs that compare equal between redraws, so the
+/// button's redraws with every settings change leave the system's menu button alone.
+private struct ItemMenuLayer: View {
     enum Control {
-        case flash, torch, aspect, histogram
+        case flash, aspect, format, histogram, nightStability
     }
 
     let model: CameraModel
     let control: Control
     let press: PressTracker
+    let label: String
+    let value: String
+    var hint: String = HoldMenuText.choicesHint
 
     var body: some View {
-        MenuOnHoldLayer(press: press) {
-            switch control {
-            case .flash: BarFlash.step(model)
-            case .torch: BarTorch.toggle(model)
-            case .aspect: QuickActions.stepAspect(model)
-            case .histogram: QuickActions.stepHistogram(model)
-            }
-        } options: {
+        MenuOnTapLayer(press: press, label: label, value: value, hint: hint) {
             switch control {
             case .flash: FlashOptions(model: model)
-            case .torch: TorchOptions(model: model)
             case .aspect: AspectOptions(model: model)
+            case .format: FormatOptions(model: model)
             case .histogram: HistogramOptions(model: model)
+            case .nightStability: NightStabilityOptions(model: model)
             }
         }
     }
@@ -641,8 +871,8 @@ private struct ItemTouchLayer: View {
 
 // MARK: - Faces
 
-/// A short value as a button's face, such as "16:9" or "HEIF", kept narrow enough for the dark circle Solid buttons
-/// puts behind it.
+/// A short value as a button's face, such as "16:9", kept narrow enough for the dark circle Solid buttons puts behind
+/// it.
 private struct ItemText: View {
     let text: String
     let size: CGFloat
@@ -658,24 +888,6 @@ private struct ItemText: View {
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             .padding(.horizontal, 4)
-    }
-}
-
-/// The first of a button's symbol names this iOS has, looked up once per kind of button instead of on every redraw.
-@MainActor
-private enum ItemSymbol {
-    private static var names: [TopBarItem: String] = [:]
-
-    static func name(_ item: TopBarItem) -> String {
-        if let name = names[item] { return name }
-        let candidates = item.symbolNames
-        let name = candidates.first(where: { UIImage(systemName: $0) != nil }) ?? candidates.last ?? "circle"
-        names[item] = name
-        return name
-    }
-
-    static func image(_ item: TopBarItem) -> Image {
-        Image(systemName: name(item))
     }
 }
 
@@ -745,8 +957,8 @@ private struct Upright<Content: View>: View {
 
 // MARK: - Quick actions
 
-/// What a tap on a quick setting does, for the drawer and the top bar alike, so a button on the bar and its item in
-/// the drawer always step the same way through the same values.
+/// What a quick setting does, for the drawer and the top bar alike, so a button on the bar and its item in the
+/// drawer always offer the same values in the same order.
 @MainActor
 enum QuickActions {
     // MARK: Photo shape
@@ -759,16 +971,6 @@ enum QuickActions {
     /// The row a menu marks. A saved ratio within half a percent of a preset reads as that preset.
     static func aspectSelection(_ aspect: AspectRatio, among presets: [AspectRatio]) -> AspectRatio {
         presets.first(where: { $0.matches(aspect) }) ?? aspect
-    }
-
-    /// Steps through every preset shape. A ratio entered in Settings sits after the last one, so the next tap goes to
-    /// the first.
-    static func stepAspect(_ model: CameraModel) {
-        let presets = AspectRatio.presets
-        guard !presets.isEmpty else { return }
-        let current = model.settings.capture.aspect
-        let index = presets.firstIndex(where: { $0.matches(current) })
-        setAspect(index.map { presets[($0 + 1) % presets.count] } ?? presets[0], model)
     }
 
     static func setAspect(_ aspect: AspectRatio, _ model: CameraModel) {
@@ -786,13 +988,19 @@ enum QuickActions {
         return choices
     }
 
-    static func stepRaw(_ model: CameraModel) {
-        let choices = rawChoices(model.capabilities)
-        let index = choices.firstIndex(of: model.settings.capture.rawFormat)
-        // Spelled out: a bare .none next to an optional reads as nil.
-        let next: RawFormat = index.map { choices[($0 + 1) % choices.count] } ?? RawFormat.none
-        Haptics.tap()
-        model.updateSettings { $0.capture.rawFormat = next }
+    /// The RAW file a single photo saves, beside its picture or alone: ProRAW on a lens without it saves RAW, a lens
+    /// without either saves none, and RAW, unlike ProRAW, is left out of zoomed photos. None in a stack.
+    static func savedRaw(_ model: CameraModel) -> RawFormat? {
+        guard !isStacked(model) else { return nil }
+        let caps = model.capabilities
+        let raw: RawFormat?
+        switch model.settings.capture.rawFormat {
+        case RawFormat.none: raw = nil
+        case .bayer: raw = caps.rawSupported ? .bayer : nil
+        case .proRAW: raw = caps.proRAWSupported ? .proRAW : (caps.rawSupported ? .bayer : nil)
+        }
+        if raw == .bayer, model.rawBlockedByZoom { return nil }
+        return raw
     }
 
     // MARK: Timer
@@ -803,48 +1011,12 @@ enum QuickActions {
         return mode != .video && !(mode == .long && model.settings.longExposure.bulb)
     }
 
-    /// Where a tap on a timer goes next.
-    enum TimerStep {
-        case schedule(CaptureSchedule)
-        /// The timer sheet, for an intervalometer or a delay the presets don't have.
-        case sheet
-    }
-
-    /// Off, then each preset delay, then the timer sheet, and Off again. A burst, an intervalometer or a delay off the
-    /// list steps back to Off, and so does the tap after the sheet was offered.
-    static func timerStep(after schedule: CaptureSchedule, sheetOffered: Bool) -> TimerStep {
-        let delays = CaptureSchedule.delayPresets
-        guard schedule.shots == 1,
-              let index = delays.firstIndex(where: { abs($0 - schedule.delay) < 0.01 }) else {
-            return .schedule(.off)
-        }
-        if index + 1 < delays.count {
-            return .schedule(CaptureSchedule(delay: delays[index + 1]))
-        }
-        return sheetOffered ? .schedule(.off) : .sheet
-    }
-
-    static func setSchedule(_ schedule: CaptureSchedule, _ model: CameraModel) {
-        Haptics.tick()
-        model.updateSettings { $0.capture.schedule = schedule }
-    }
-
-    /// A menu row, worded like the other touch and hold menus ("3 s"); the drawer's value and the bar keep "3s".
+    /// A menu row, worded like the other menus ("3 s"); the drawer's value and the bar keep "3s".
     static func delayTitle(_ delay: Double) -> String {
         delay > 0 ? HoldMenuText.time(delay) : "Off"
     }
 
     // MARK: Lists and switches
-
-    /// Steps a setting to the value after the current one, wrapping around. A value off the list goes to the first.
-    static func cycle<Value: Equatable>(_ keyPath: WritableKeyPath<CameraSettings, Value>, through values: [Value],
-                                        _ model: CameraModel) {
-        guard !values.isEmpty else { return }
-        let index = values.firstIndex(of: model.settings[keyPath: keyPath])
-        let next = index.map { values[($0 + 1) % values.count] } ?? values[0]
-        Haptics.tick()
-        model.updateSettings { $0[keyPath: keyPath] = next }
-    }
 
     /// A menu's pick.
     static func set<Value>(_ keyPath: WritableKeyPath<CameraSettings, Value>, to value: Value, _ model: CameraModel) {
@@ -855,14 +1027,6 @@ enum QuickActions {
     static func toggle(_ keyPath: WritableKeyPath<CameraSettings, Bool>, _ model: CameraModel) {
         Haptics.tap()
         model.updateSettings { $0[keyPath: keyPath].toggle() }
-    }
-
-    static func stepHistogram(_ model: CameraModel) {
-        cycle(\.display.histogram, through: HistogramStyle.allCases, model)
-    }
-
-    static func stepPeaking(_ model: CameraModel) {
-        cycle(\.display.peaking, through: PeakingMode.allCases, model)
     }
 
     /// "Off", "MF", "On": short enough for the drawer's value line.
@@ -876,47 +1040,39 @@ enum QuickActions {
 
     // MARK: Format
 
-    static func formatChoices(_ capabilities: CameraCapabilities) -> [ProcessedFormat] {
-        capabilities.heifSupported ? [.heif, .jpeg] : [.jpeg]
+    /// A stack is made from video frames: NIGHT's shots, and a MANUAL shutter past the hardware limit. It saves no
+    /// RAW and takes no size, and saves HEIF in place of RAW only.
+    static func isStacked(_ model: CameraModel) -> Bool {
+        let mode = model.settings.mode
+        return mode.usesStacking || (mode == .manual && model.shutterIsStacked)
     }
 
-    /// A camera without HEIF has nothing to step through, unless the setting is one it can't write.
-    static func canChangeFormat(_ model: CameraModel) -> Bool {
-        let choices = formatChoices(model.capabilities)
-        return choices.count > 1 || !choices.contains(model.settings.capture.processedFormat)
+    /// What the menus call a stack's photos where they say why a row is dimmed.
+    static func stackedPhotos(_ mode: CaptureMode) -> String {
+        mode.usesStacking ? "Night photos" : "Stacked photos"
     }
 
-    static func stepFormat(_ model: CameraModel) {
-        let choices = formatChoices(model.capabilities)
-        guard !choices.isEmpty else { return }
-        let index = choices.firstIndex(of: model.settings.capture.processedFormat)
-        let next = index.map { choices[($0 + 1) % choices.count] } ?? choices[0]
-        Haptics.tick()
-        model.updateSettings { $0.capture.processedFormat = next }
+    /// The format rows on offer, in order: no HEIF rows on a camera without HEIF, and RAW only only while a RAW file
+    /// is on and the photo isn't a stack.
+    static func formatChoices(_ model: CameraModel) -> [PhotoFormatChoice] {
+        let rawOn = model.settings.capture.rawFormat != RawFormat.none
+        return PhotoFormatChoice.choices(heif: model.capabilities.heifSupported, rawOn: rawOn && !isStacked(model))
     }
 
-    /// RAW alone has no processed format, so the value names what is saved.
-    static func formatValue(_ format: ProcessedFormat) -> String {
-        format == ProcessedFormat.none ? "RAW" : format.title
+    /// The format set, or HEIF in place of RAW only in a stack. The drawer shows this, and its RAW item beside it says
+    /// where else no RAW file is taken. The bar's face has no such neighbour, so it puts HEIF in place of RAW only there
+    /// too.
+    static func shownFormat(_ model: CameraModel) -> PhotoFormatChoice {
+        let choice = PhotoFormatChoice(model.settings.capture)
+        return choice == .rawOnly && isStacked(model) ? .heif : choice
+    }
+
+    /// The file type as a button's face has room for it: "HEIF", "JPEG", "PNG", "TIFF", or "RAW" for RAW only.
+    static func formatCode(_ choice: PhotoFormatChoice) -> String {
+        choice == .rawOnly ? "RAW" : choice.format.title
     }
 
     // MARK: Resolution
-
-    /// Sizes this camera can shoot. A size counts when one of the lens's photo dimensions is within 20% of it,
-    /// because sensors sold as 48 MP deliver 48.8 MP and 12 MP ones 12.2 MP.
-    static func resolutionChoices(_ capabilities: CameraCapabilities) -> [PhotoResolution] {
-        var choices: [PhotoResolution] = [.automatic]
-        for option in [PhotoResolution.mp12, .mp24, .mp48] {
-            guard let target = option.targetMegapixels, target > 0 else { continue }
-            let wanted = Double(target)
-            let available = capabilities.photoDimensions.contains { size in
-                let megapixels = Double(size.width) * Double(size.height) / 1_000_000
-                return abs(megapixels - wanted) / wanted < 0.2
-            }
-            if available { choices.append(option) }
-        }
-        return choices
-    }
 
     /// Single photos only: stacks are merged from video frames, so a MANUAL shutter past the hardware limit ignores
     /// the size too.
@@ -925,12 +1081,31 @@ enum QuickActions {
         return mode == .photo || (mode == .manual && !model.shutterIsStacked)
     }
 
+    /// The size a photo comes out at with `resolution` among a lens's `sizes`, where that isn't the size the setting
+    /// shows as: "12 MP" for 48 MP on the selfie camera. nil where the lens has that size, or lists none. The photo
+    /// output picks by the same rule, and the Format menu, the drawer and VoiceOver all take the size from here.
+    static func sizeInstead(_ resolution: PhotoResolution, sizes: [PixelSize]) -> String? {
+        guard let index = resolution.pick(amongPixelCounts: sizes.map(\.pixelCount)), sizes.indices.contains(index)
+        else { return nil }
+        let label = sizes[index].megapixelLabel
+        return label == resolution.shownAs.title ? nil : label
+    }
+
+    /// "This camera takes 12 MP"; "up to" where 48 MP meets a lens with more than one size.
+    static func sizeDetail(_ resolution: PhotoResolution, sizes: [PixelSize]) -> String? {
+        guard let label = sizeInstead(resolution, sizes: sizes) else { return nil }
+        let several = Set(sizes.map(\.megapixelLabel)).count > 1
+        return (resolution.shownAs == .mp48 && several ? "This camera takes up to " : "This camera takes ") + label
+    }
+
+    /// The drawer's tap: 12 MP and 48 MP in turn, from the size the setting shows as.
     static func stepResolution(_ model: CameraModel) {
-        let choices = resolutionChoices(model.capabilities)
-        let index = choices.firstIndex(of: model.settings.capture.resolution)
-        let next = index.map { choices[($0 + 1) % choices.count] } ?? .automatic
+        let offered = PhotoResolution.offered
+        guard !offered.isEmpty else { return }
+        let index = offered.firstIndex(of: model.settings.capture.resolution.shownAs)
+        let next = index.map { offered[($0 + 1) % offered.count] } ?? offered[0]
         Haptics.tick()
-        model.updateSettings { $0.capture.resolution = next }
+        model.setPhotoResolution(next)
     }
 
     // MARK: Processing
@@ -940,14 +1115,6 @@ enum QuickActions {
         let order: [ProcessingLevel] = [.minimal, .balanced, .maximum]
         guard let limit = order.firstIndex(of: maximum) else { return order }
         return Array(order[...limit])
-    }
-
-    static func stepProcessing(_ model: CameraModel) {
-        let choices = processingChoices(maximum: model.capabilities.maxProcessing)
-        let index = choices.firstIndex(of: model.settings.capture.processing)
-        let next = index.map { choices[($0 + 1) % choices.count] } ?? .balanced
-        Haptics.tick()
-        model.updateSettings { $0.capture.processing = next }
     }
 
     // MARK: Exposure lock

@@ -2,7 +2,8 @@ import SwiftUI
 import CameraCore
 
 /// How the app looks and handles, whether Advanced settings is on or off: light or dark for Settings, the accent
-/// color, and the pages for the buttons and haptics, accessibility and what the camera keeps between launches.
+/// color, and the pages for the buttons and haptics, Camera Control, accessibility and what the camera keeps between
+/// launches.
 struct LookAndControlsSection: View {
     let model: CameraModel
 
@@ -19,6 +20,8 @@ struct LookAndControlsSection: View {
             NavigationLink("Buttons and haptics") {
                 ButtonsAndHapticsView(model: model)
             }
+            // Its own view: it reads the list and the camera, which this section has no need to redraw for.
+            CameraControlRow(model: model)
             NavigationLink("Accessibility") {
                 AccessibilitySettingsView(model: model)
             }
@@ -28,7 +31,7 @@ struct LookAndControlsSection: View {
         } header: {
             Text("Look and controls")
         } footer: {
-            Text("Appearance sets the look of Settings and the other lists. The camera always stays dark. The accent color marks what is on or set by hand on the camera.")
+            Text("Appearance sets the look of Settings and the other lists. The camera always stays dark. The accent color marks what is on or set by hand on the camera. Camera Control sets what a light press on the Camera Control button lets you change.")
         }
     }
 }

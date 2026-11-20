@@ -121,6 +121,9 @@ struct CameraCapabilities: Equatable, Sendable {
     var colorModes: [VideoColorMode]
     /// The phone has a Camera Control button that can carry the app's own controls.
     var supportsCameraControls: Bool = false
+    /// How many of the app's own controls the Camera Control takes (session.maxControlsCount). 0 until a session
+    /// has said, and Settings then assumes 6.
+    var maxCameraControls: Int = 0
     /// What VIDEO records on this lens; nil outside video mode.
     var activeVideo: ActiveVideoFormat? = nil
 
@@ -245,10 +248,8 @@ struct AnalysisOptions: Equatable, Sendable {
     var peakingThreshold: Double?
     var peakingColor: PeakingColor
     var falseColor: Bool
-    /// Only the clipped-highlight share is wanted, for the clipping warning.
-    var clipping: Bool = false
 
-    var isOff: Bool { !histogram && zebraThreshold == nil && peakingThreshold == nil && !falseColor && !clipping }
+    var isOff: Bool { !histogram && zebraThreshold == nil && peakingThreshold == nil && !falseColor }
 
     static let off = AnalysisOptions(histogram: false, rgbHistogram: false, zebraThreshold: nil, peakingThreshold: nil, peakingColor: .red, falseColor: false)
 }
@@ -327,8 +328,10 @@ struct DeviceOptions: Equatable, Sendable {
         apertureRateLimit = settings.exposure.apertureRateLimit
         meteringArea = settings.exposure.meteringArea
         rawFormat = settings.capture.rawFormat
-        livePhoto = settings.capture.livePhoto
-        depth = settings.capture.depth
+        // PNG and TIFF carry neither a movie nor depth, so the output doesn't prepare for what no photo would use.
+        let lossless = settings.capture.processedFormat.isLossless
+        livePhoto = settings.capture.livePhoto && !lossless
+        depth = settings.capture.depth && !lossless
         constantColor = settings.capture.constantColor
         photoResolution = settings.capture.resolution
         mirrorFront = settings.capture.mirrorFront
@@ -368,7 +371,7 @@ struct StackRequest: Sendable {
     var plan: StackPlan
     /// Run until finishStackEarly(); plan.frameCount is then only a cap.
     var isBulb: Bool
-    /// .none is treated as HEIF.
+    /// .none is treated as HEIF. PNG and TIFF keep 16 bits a channel.
     var processedFormat: ProcessedFormat
     var quality: Double
     var aspect: AspectRatio
@@ -462,6 +465,22 @@ struct CameraControlState: Equatable, Sendable {
     var lensTitles: [String] = []
     /// Index into lensTitles of the active lens button, nil on the selfie camera.
     var lensIndex: Int? = nil
+    /// NIGHT's durations in seconds, ascending. The picker puts "Auto" at index 0.
+    var durationStops: [Double] = []
+    /// nil = Auto, the camera's own night time.
+    var duration: Double? = nil
+    /// The night scene menu's titles, in LongExposureScene.nightMenuChoices order.
+    var sceneTitles: [String] = []
+    var sceneIndex: Int? = nil
+    /// nil while white balance is auto.
+    var tint: Double? = nil
+    /// Index into the timer picker's delays, Off first; CaptureSchedule.delayPresets.count, the Custom spot after
+    /// them, for a burst, an intervalometer or another delay. nil leaves the picker where it is.
+    var timerIndex: Int? = nil
+    var flash: FlashSetting = .off
+    var histogram: HistogramStyle = .off
+    /// Items installed on the Camera Control but not usable in this mode right now, so they show dimmed.
+    var disabledItems: Set<CameraControlItem> = []
 }
 
 /// A value the user picked on the Camera Control. Zoom and EV use Apple's system controls,
@@ -475,4 +494,14 @@ enum CameraControlChange: Equatable, Sendable {
     case mode(CaptureMode)
     /// Index into CameraControlState.lensTitles.
     case lens(Int)
+    /// NIGHT's duration in seconds, nil = Auto.
+    case duration(Double?)
+    /// Index into CameraControlState.sceneTitles (LongExposureScene.nightMenuChoices order).
+    case scene(Int)
+    case tint(Double)
+    /// Index into the timer picker's delays, Off at 0. The bridge and the model build the list the same way. The
+    /// list's count is Custom, which sets nothing: the model sends its state back.
+    case timer(Int)
+    case flash(FlashSetting)
+    case histogram(HistogramStyle)
 }

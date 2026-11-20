@@ -47,4 +47,15 @@ final class SettingsStore {
         get { defaults.bool(forKey: nightTripodKey) }
         set { defaults.set(newValue, forKey: nightTripodKey) }
     }
+
+    // MARK: - Camera Control's default list
+
+    /// Night duration joined the Camera Control's default list. A saved list still equal to the default before it
+    /// is moved to the new one once; this says it has been, so the old list picked by hand afterwards is kept.
+    private var cameraControlListKey: String { key + ".cameraControlNightDuration" }
+
+    var cameraControlMovedToNightDuration: Bool {
+        get { defaults.bool(forKey: cameraControlListKey) }
+        set { defaults.set(newValue, forKey: cameraControlListKey) }
+    }
 }

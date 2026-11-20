@@ -47,6 +47,7 @@ final class CameraSettingsTests: XCTestCase {
         s.capture.processedFormat = .jpeg
         s.capture.rawFormat = .proRAW
         s.capture.quality = 0.8
+        s.capture.highQuality = true
         s.capture.resolution = .mp48
         s.capture.processing = .minimal
         s.capture.flash = .auto
@@ -74,6 +75,7 @@ final class CameraSettingsTests: XCTestCase {
         s.focusOptions.smooth = true
         s.focusOptions.faceDriven = .on
         s.focusOptions.continuousTracking = true
+        s.focusOptions.magnifier = .x10
         s.display.grid = .goldenRatio
         s.display.showLevel = false
         s.display.histogram = .rgb
@@ -131,6 +133,8 @@ final class CameraSettingsTests: XCTestCase {
         s.startup.keepMode = false
         s.startup.keepLensAndZoom = false
         s.startup.keepBrightness = false
+        // Saved from the settings above, before the setups were changed, as the app saves one.
+        s.setups[1] = CameraSetup(name: "Milky Way", from: s)
         return s
     }
 
@@ -168,8 +172,9 @@ final class CameraSettingsTests: XCTestCase {
 
     /// Keys this version added, by path ("controls.dialTicks").
     private let addedKeys = [
-        "appearance", "accessibility", "topBar", "startup",
-        "capture.prioritizeSpeed", "capture.artist", "capture.copyright",
+        "appearance", "accessibility", "topBar", "startup", "setups",
+        "capture.prioritizeSpeed", "capture.artist", "capture.copyright", "capture.highQuality",
+        "focusOptions.magnifier",
         "display.dimDuringLongShots",
         "video.allowAudioPlayback",
         "controls.volumeUpAction", "controls.volumeDownAction", "controls.hapticStrength", "controls.dialTicks",
@@ -221,7 +226,11 @@ final class CameraSettingsTests: XCTestCase {
         // Night's hand or tripod choice was saved too, as the Auto it started at then. Decoding keeps it; the app
         // moves a save like this to the tripod default once, when it launches.
         expected.night.stability = .automatic
+        // So was the Camera Control's list, that version's default. Decoding keeps it too; the app moves a list
+        // still equal to it to the new default once.
+        expected.controls.cameraControlItems = CameraControlItem.previousDefaultSelection
         XCTAssertEqual(loaded, expected)
+        XCTAssertEqual(loaded.controls.cameraControlItems, [.zoom, .lens, .exposureBias, .shutter, .iso, .whiteBalance])
     }
 
     func testOldSavesKeepEveryValueAndGetTheNewSettingsAtTheirDefaults() throws {
@@ -231,6 +240,9 @@ final class CameraSettingsTests: XCTestCase {
         expected.capture.prioritizeSpeed = false
         expected.capture.artist = ""
         expected.capture.copyright = ""
+        expected.capture.highQuality = false
+        expected.focusOptions.magnifier = .x5
+        expected.setups = CameraSetups()
         expected.display.dimDuringLongShots = false
         expected.video.allowAudioPlayback = false
         expected.controls.volumeUpAction = .shutter
@@ -251,12 +263,17 @@ final class CameraSettingsTests: XCTestCase {
             {"controls":{"haptics":false,"volumeUpAction":"selfie","volumeDownAction":"zoomIn","hapticStrength":3,
             "dialTicks":"no","zoomTicks":"lensValues"},
             "display":{"grid":"thirds","dimDuringLongShots":"yes"},
-            "capture":{"quality":0.75,"prioritizeSpeed":"yes","artist":42,"copyright":"Sam"},
+            "capture":{"quality":0.75,"prioritizeSpeed":"yes","artist":42,"copyright":"Sam","highQuality":"yes"},
+            "focusOptions":{"smooth":true,"magnifier":"x20"},
             "video":{"audio":false,"allowAudioPlayback":{}},
             "appearance":"dark","accessibility":{"largerLabels":true,"reduceMotion":"on"},
-            "topBar":7,"startup":{"keepMode":false,"keepBrightness":null},"zoom":2}
+            "topBar":7,"startup":{"keepMode":false,"keepBrightness":null},"setups":[1,2],"zoom":2}
             """#
         let decoded = CameraSettings.decoded(from: Data(json.utf8))
+        XCTAssertFalse(decoded.capture.highQuality)
+        XCTAssertEqual(decoded.focusOptions.magnifier, .x5)
+        XCTAssertTrue(decoded.focusOptions.smooth)
+        XCTAssertEqual(decoded.setups, CameraSetups())
         XCTAssertFalse(decoded.controls.haptics)
         XCTAssertEqual(decoded.controls.volumeUpAction, .shutter)
         XCTAssertEqual(decoded.controls.volumeDownAction, .zoomIn)
@@ -284,10 +301,13 @@ final class CameraSettingsTests: XCTestCase {
         let set = #"""
             {"controls":{"volumeUpAction":"brighter","volumeDownAction":"nextLens","hapticStrength":"strong",
             "dialTicks":false},"display":{"dimDuringLongShots":true},
-            "capture":{"prioritizeSpeed":true,"artist":"Sam","copyright":""},"video":{"allowAudioPlayback":true},
+            "capture":{"prioritizeSpeed":true,"artist":"Sam","copyright":"","highQuality":true},
+            "focusOptions":{"magnifier":"off"},"video":{"allowAudioPlayback":true},
             "appearance":{"scheme":"light","accent":"green"},"topBar":{"leading":["level"],"trailing":[]}}
             """#
         let chosen = CameraSettings.decoded(from: Data(set.utf8))
+        XCTAssertTrue(chosen.capture.highQuality)
+        XCTAssertEqual(chosen.focusOptions.magnifier, .off)
         XCTAssertEqual(chosen.controls.volumeUpAction, .brighter)
         XCTAssertEqual(chosen.controls.volumeDownAction, .nextLens)
         XCTAssertEqual(chosen.controls.hapticStrength, .strong)
@@ -444,6 +464,14 @@ final class CameraSettingsTests: XCTestCase {
         XCTAssertFalse(CaptureMode.manual.usesStacking)
     }
 
+    func testNightHasNoHistogram() {
+        // The night shot and the scenes are stacks; every other mode shows one.
+        for mode in CaptureMode.allCases {
+            XCTAssertEqual(mode.hasHistogram, mode != .night && mode != .long, mode.rawValue)
+        }
+        XCTAssertEqual(CaptureMode.allCases.filter(\.hasHistogram), [.photo, .manual, .video])
+    }
+
     func testEnumsHaveTitlesAndUniqueIDs() {
         func check<T: CaseIterable & Identifiable>(_ type: T.Type, title: (T) -> String) where T.ID == String {
             let ids = T.allCases.map(\.id)
@@ -465,6 +493,8 @@ final class CameraSettingsTests: XCTestCase {
         check(VideoCodecChoice.self) { $0.title }
         check(StabilizationChoice.self) { $0.title }
         check(CameraControlItem.self) { $0.title }
+        check(PhotoFormatChoice.self) { $0.title }
+        check(FocusMagnifier.self) { $0.title }
     }
 
     func testTitlesUseSentenceCase() {

@@ -47,12 +47,6 @@ struct ViewfinderGeometry: Equatable {
         (picture.width * picture.width + picture.height * picture.height).squareRoot()
     }
 
-    /// The frame as far as it shows: at 16:9 the top bar covers its top, down to where the open area starts.
-    var visibleFrame: CGRect {
-        let top = min(max(frame.minY, open.minY), frame.maxY)
-        return CGRect(x: frame.minX, y: top, width: frame.width, height: frame.maxY - top)
-    }
-
     private static func snapped(_ rect: CropRect, scale: CGFloat) -> CGRect {
         func snap(_ value: Double) -> CGFloat {
             guard value.isFinite else { return 0 }
@@ -72,6 +66,27 @@ extension View {
     /// iOS, the picture cuts to its new size instead of zooming there, and the layers cut with it.
     func frameMotion<Value: Equatable>(value: Value) -> some View {
         modifier(FrameMotion(value: value))
+    }
+}
+
+/// The open part of the frame as a clip for a layer that covers the screen from its origin, so the marks made on the
+/// picture (the focus square, the sun) stop at the edges of the controls and the top bar, as a solid panel would hide
+/// them: the controls have no backing, and a mark under them shows between their ticks and chips. Animatable, so with
+/// frameMotion it moves with the open part on the frame's spring.
+struct OpenAreaClip: Shape {
+    var rect: CGRect
+
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(AnimatablePair(rect.minX, rect.minY), AnimatablePair(rect.width, rect.height)) }
+        set {
+            rect = CGRect(x: newValue.first.first, y: newValue.first.second,
+                          width: max(newValue.second.first, 0), height: max(newValue.second.second, 0))
+        }
+    }
+
+    func path(in bounds: CGRect) -> Path {
+        // The layer's bounds are the screen's, so the open part is already in them.
+        Path(rect)
     }
 }
 

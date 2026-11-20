@@ -1,19 +1,23 @@
 import SwiftUI
 import CameraCore
 
-// The rows and the words of the menus that list a control's choices. The clear button that puts such a menu on
-// touch and hold, leaving the tap to the control, is Theme's MenuOnHoldLayer.
+// The rows and the words of the menus that list a control's choices. The clear buttons that put such a menu on a
+// control are Theme's: MenuOnTapLayer where a tap lists the choices, MenuOnHoldLayer where touch and hold does and
+// the tap is left to the control.
 
-/// One row of a menu of choices. The current choice carries the checkmark.
+/// One row of a menu of choices. The current choice carries the checkmark. A detail goes on a second line under the
+/// title, for what the choice means or why it is dimmed.
 struct HoldMenuChoice: View {
     let title: String
     var icon: Image? = nil
+    var detail: String? = nil
     let isOn: Bool
     let action: () -> Void
 
-    init(_ title: String, icon: Image? = nil, isOn: Bool, action: @escaping () -> Void) {
+    init(_ title: String, icon: Image? = nil, detail: String? = nil, isOn: Bool, action: @escaping () -> Void) {
         self.title = title
         self.icon = icon
+        self.detail = detail
         self.isOn = isOn
         self.action = action
     }
@@ -23,13 +27,22 @@ struct HoldMenuChoice: View {
         Toggle(isOn: Binding(get: { isOn }, set: { _ in choose() })) {
             if let icon {
                 Label {
-                    Text(title)
+                    rowText
                 } icon: {
                     icon
                 }
             } else {
-                Text(title)
+                rowText
             }
+        }
+    }
+
+    /// A menu row takes a second text as its subtitle.
+    @ViewBuilder
+    private var rowText: some View {
+        Text(title)
+        if let detail {
+            Text(detail)
         }
     }
 
@@ -43,6 +56,9 @@ struct HoldMenuChoice: View {
 enum HoldMenuText {
     /// The hint every control with a touch and hold menu adds to what its tap does.
     static let hint = "Touch and hold for more options."
+
+    /// The hint for a control whose tap lists its choices.
+    static let choicesHint = "Shows the choices."
 
     /// "1/250", "4 s", "5 min".
     static func time(_ seconds: Double) -> String {

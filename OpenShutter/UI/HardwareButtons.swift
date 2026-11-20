@@ -155,8 +155,10 @@ private final class HardwarePresses {
         case .shutter:
             let isBulb = model.settings.mode == .long && model.settings.longExposure.bulb
             // The conditions the model starts a bulb hold on, so the AirPods sound only plays for one that starts.
+            // While the focus magnifier is on, the press only brings the whole frame back, as a half press would, so
+            // it is a plain press whose release does that.
             if isBulb, model.activity == .idle, model.intervalometer == nil, model.photosInFlight == 0,
-               model.canCapture {
+               model.canCapture, !model.isMagnified {
                 roles[button] = .bulb(started: Date())
                 model.shutterHoldBegan()
                 play(.shutter, for: event)
@@ -342,13 +344,14 @@ private final class HardwarePresses {
     }
 
     /// What the shutter press is about to do, as the AirPods sound for it: a photo or the start of a shot, the start
-    /// or end of a recording, and nothing for a press that stops a shot (a stop press has its own, in stop(_:model:)).
+    /// or end of a recording, and nothing for a press that stops a shot (a stop press has its own, in stop(_:model:))
+    /// or one that only ends the focus magnifier, which takes no picture.
     private static func sound(_ model: CameraModel) -> PressSound? {
         switch model.activity {
         case .recording:
             return .recordingEnd
         case .idle:
-            guard model.intervalometer == nil else { return nil }
+            guard model.intervalometer == nil, !model.isMagnified else { return nil }
             return model.settings.mode == .video ? .recordingStart : .shutter
         case .countdown, .capturing, .stacking, .saving:
             return nil

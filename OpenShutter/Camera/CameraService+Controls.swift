@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import CoreMedia
+import QuartzCore
 import CameraCore
 
 // Focus, white balance, points of interest, torch, zoom and the device options from Settings, on the session
@@ -217,7 +218,8 @@ extension CameraService {
         guard let device = activeCamera?.device, !stackInProgress else { return }
         // Values outside this range raise; it is also the capabilities' zoom range, so the dial and the device agree.
         let range = CapabilitiesBuilder.zoomRange(of: device)
-        let wanted = zoomTarget.isFinite ? min(max(zoomTarget, range.lowerBound), range.upperBound) : range.lowerBound
+        // The focus magnifier enlarges the middle on top of the target, as far as the lens goes.
+        let wanted = MagnifierMath.deviceZoom(base: baseZoom(of: device), power: focusMagnification, range: range)
         let factor = CGFloat(depthSafeZoom(wanted, device: device, within: range))
         guard Self.lockForChanges(device) else { return }
         defer { device.unlockForConfiguration() }
@@ -227,6 +229,45 @@ extension CameraService {
             device.videoZoomFactor = factor
         }
         appliedZoomTarget = zoomTarget
+    }
+
+    /// The zoom photos are taken at on `device`: the target, inside the lens's range. While the focus magnifier is on
+    /// the device itself is zoomed further.
+    nonisolated func baseZoom(of device: AVCaptureDevice) -> Double {
+        let range = CapabilitiesBuilder.zoomRange(of: device)
+        return zoomTarget.isFinite ? min(max(zoomTarget, range.lowerBound), range.upperBound) : range.lowerBound
+    }
+
+    /// A new zoom target. The focus magnifier ends with it, as a camera's does, and the zoom cuts there from the
+    /// enlarged frame rather than gliding out of it.
+    nonisolated func zoom(to target: Double, rate: Float?) {
+        zoomTarget = target
+        let magnified = focusMagnification > 1
+        focusMagnification = 1
+        applyZoom(rate: magnified ? nil : rate)
+        if magnified {
+            noteMagnifierEnded()
+            // The exposure held for the magnifier goes back to the request.
+            applyExposure()
+        }
+    }
+
+    /// Shows the whole frame again before anything that needs it, a photo, a stack or a recording. The model ends
+    /// the magnifier first; this is the guarantee.
+    nonisolated func endMagnifier() {
+        guard focusMagnification > 1 else { return }
+        focusMagnification = 1
+        applyZoom(rate: nil)
+        noteMagnifierEnded()
+        applyExposure()
+    }
+
+    /// Right after the zoom cuts out of the magnifier. The cut reaches the frames a frame or two later, so a photo
+    /// waits until then (beginPhotoCapture).
+    nonisolated func noteMagnifierEnded() {
+        guard let device = activeCamera?.device else { return }
+        let frame = max(device.exposureDuration.seconds, device.activeVideoMinFrameDuration.seconds)
+        magnifierSettlesAt = CACurrentMediaTime() + min(max(frame.isFinite ? 2 * frame : 0, 0.15), 2.5)
     }
 
     /// With depth delivery on, some formats only allow zoom inside listed ranges and raise outside them.

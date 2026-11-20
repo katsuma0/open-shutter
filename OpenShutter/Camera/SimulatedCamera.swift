@@ -69,8 +69,11 @@ final class SimulatedCamera: CameraBackend {
     private var meter: SceneMeter?
     private var meterGain = 1.0
     private var meterSpot: (point: CGPoint?, rect: CGRect?) = (nil, nil)
+    /// The zoom photos are taken at, and what readings report. The focus magnifier draws the street enlarged past it.
     private var zoomFactor = 1.0
     private var zoomTarget = 1.0
+    /// How many times the focus magnifier enlarges the middle; 1 is the whole frame.
+    private var magnification = 1.0
     /// The rate of the ramp in progress, in doublings per second.
     private var zoomRampRate = SimulatedSpec.zoomRampRate
     private var zoomRamps = false
@@ -104,6 +107,9 @@ final class SimulatedCamera: CameraBackend {
     private var stackJob: SimulatedStackJob?
     /// The stack's per-frame exposure, held while it runs.
     private var stackExposure: ExposureValues?
+    /// The exposure the whole frame had when the focus magnifier came on, held until it ends: the meter would read
+    /// the enlarged middle.
+    private var magnifierExposure: ExposureValues?
     /// The exposure the stack took over from, put back when it ends.
     private var exposureBeforeStack: ExposureValues?
     private var recorder: SimulatedMovieWriter?
@@ -208,6 +214,8 @@ final class SimulatedCamera: CameraBackend {
 
     func select(_ preset: LensPreset) async {
         guard let target = SimulatedLens.catalog.first(where: { $0.info.id == preset.lensID }) else { return }
+        // A lens button shows the whole frame, as on the real camera.
+        endMagnifier()
         if target.info.id != lens.info.id {
             // A real lens switch reconfigures the session; the preview holds its last frame for that moment.
             lensSwitching = true
@@ -221,8 +229,43 @@ final class SimulatedCamera: CameraBackend {
         publishCapabilities()
     }
 
+    func setFocusMagnification(_ power: Double) {
+        let next = power.isFinite ? max(power, 1) : 1
+        guard next != magnification else { return }
+        // A stack holds zoom and exposure while it runs, and a movie would record the enlarged middle.
+        guard next == 1 || (stackJob == nil && recorder == nil) else { return }
+        if magnification == 1 {
+            magnifierExposure = exposure
+        }
+        magnification = next
+        if next == 1 {
+            releaseMagnifierExposure()
+        }
+    }
+
+    /// Shows the whole frame again before a photo, a stack, a recording or a zoom. The model ends the magnifier
+    /// first; this is the guarantee, as on the real camera.
+    private func endMagnifier() {
+        guard magnification > 1 else { return }
+        magnification = 1
+        releaseMagnifierExposure()
+    }
+
+    private func releaseMagnifierExposure() {
+        guard magnifierExposure != nil else { return }
+        magnifierExposure = nil
+        // The requests that waited take effect at once, the auto values at their own pace.
+        stepExposure(allowAutoStep: false)
+    }
+
+    /// The zoom the street is drawn at: the photo's zoom, enlarged by the focus magnifier as far as the zoom goes.
+    private var renderedZoom: Double {
+        MagnifierMath.deviceZoom(base: zoomFactor, power: magnification, range: SimulatedSpec.zoomRange)
+    }
+
     func setZoomFactor(_ factor: Double, rampRate: Double?) {
         guard factor.isFinite else { return }
+        endMagnifier()
         zoomTarget = SimulatedSpec.clampedZoom(factor)
         if let rampRate, rampRate.isFinite, rampRate > 0 {
             zoomRampRate = rampRate
@@ -323,6 +366,8 @@ final class SimulatedCamera: CameraBackend {
         // A photo may start while earlier ones still render or save, as AVCapturePhotoOutput allows; the capture
         // queue draws them one after another.
         guard stackJob == nil else { throw CameraError.busy }
+        // Drawn at the photo's zoom, never the magnifier's.
+        endMagnifier()
         photosInFlight += 1
         defer { photosInFlight -= 1 }
 
@@ -355,7 +400,7 @@ final class SimulatedCamera: CameraBackend {
             shots: shots,
             exposures: exposures,
             offsets: request.bracket.kind == .exposure ? request.bracket.exposureOffsets() : [],
-            format: request.processedFormat == .none ? .heif : request.processedFormat,
+            format: request.processedFormat.saved,
             quality: request.quality,
             aspect: request.aspect,
             shot: recordedShot(described, exposure: current(exposures), date: date),
@@ -465,6 +510,7 @@ final class SimulatedCamera: CameraBackend {
         guard stackJob == nil, photosInFlight == 0 else { throw CameraError.busy }
         // Cancelled before anything was exposed: there is nothing to keep.
         guard !Task.isCancelled else { throw CameraError.cancelled }
+        endMagnifier()
         var plan = request.plan
         let frameExposure = exposureRanges.clamp(ExposureValues(
             seconds: plan.frameSeconds, iso: plan.iso,
@@ -556,6 +602,7 @@ final class SimulatedCamera: CameraBackend {
     func startRecording(_ request: VideoRequest) async throws {
         guard isRunning else { throw CameraError.captureFailed("The camera isn't running.") }
         guard recorder == nil, !recordingStarting else { throw CameraError.busy }
+        endMagnifier()
         recordingStarting = true
         defer {
             recordingStarting = false
@@ -767,7 +814,7 @@ final class SimulatedCamera: CameraBackend {
             kelvin: 1e6 / mired,
             tint: tint,
             blur: defocusBlur(aperture: values.aperture),
-            framing: SceneFraming(zoom: lens.info.relativeZoom * zoomFactor, mirrored: mirrored),
+            framing: SceneFraming(zoom: lens.info.relativeZoom * renderedZoom, mirrored: mirrored),
             foregroundLight: foregroundLight,
             meteringPoint: meteringPoint,
             meteringRect: meteringRect,
@@ -793,7 +840,7 @@ final class SimulatedCamera: CameraBackend {
         // sharp, so only focusing nearer blurs. The scenes that park focus at the far end stay crisp.
         let miss = max(0, SimulatedSpec.subjectLensPosition - lensPosition)
         let opening = aperture.isFinite && aperture > 0 ? 1.78 / aperture : 1
-        return min(SimulatedSpec.defocusPerPosition * miss * opening * lens.defocusScale * zoomFactor, SimulatedSpec.maxDefocus)
+        return min(SimulatedSpec.defocusPerPosition * miss * opening * lens.defocusScale * renderedZoom, SimulatedSpec.maxDefocus)
     }
 
     private var torchLight: Double {
@@ -825,7 +872,7 @@ final class SimulatedCamera: CameraBackend {
     /// line at the same light.
     private func stepExposure(allowAutoStep: Bool) {
         let ranges = exposureRanges
-        if let held = stackExposure {
+        if let held = stackExposure ?? magnifierExposure {
             exposure = ranges.clamp(held)
             exposureAdjusting = false
             return
@@ -1368,10 +1415,14 @@ private enum SimulatedAnalysis {
 
     static func analyze(_ frame: SceneFrame, _ job: SimulatedAnalysisJob) -> AnalysisFrame {
         frame.withPlane { plane in
-            // Always measured: the clipping warning needs the stats even with the histogram hidden.
-            let samplesStep = Int((Double(plane.width) * Double(plane.height) / histogramSamples).squareRoot().rounded())
-            let (histogram, stats) = HistogramComputer.compute(bgra: plane, step: max(1, samplesStep))
             let options = job.options
+            // Counted only while the histogram shows, as on the real camera: nothing else reads it.
+            var histogram = Histogram()
+            var stats = ExposureStats.empty
+            if options.histogram {
+                let samplesStep = Int((Double(plane.width) * Double(plane.height) / histogramSamples).squareRoot().rounded())
+                (histogram, stats) = HistogramComputer.compute(bgra: plane, step: max(1, samplesStep))
+            }
             let overlayOptions = OverlayOptions(
                 zebraThreshold: options.zebraThreshold,
                 stripePeriod: stripePeriod,
@@ -1640,7 +1691,8 @@ private final class SimulatedStackJob: @unchecked Sendable {
         record.record.pixelWidth = image.width
         record.record.pixelHeight = image.height
         record.record.isSRGB = MediaWriter.isSRGB(image)
-        let format: ProcessedFormat = request.processedFormat == .none ? .heif : request.processedFormat
+        // PNG and TIFF from the simulator's 8-bit picture: the real camera's stacks render 16 bits for them.
+        let format = request.processedFormat.saved
         do {
             let encoded = try MediaWriter.encode(image, as: format, quality: request.quality, metadata: record.rendered)
             let summary = MediaWriter.summary(exposureSeconds: captured.effectiveExposureSeconds, iso: captured.iso,

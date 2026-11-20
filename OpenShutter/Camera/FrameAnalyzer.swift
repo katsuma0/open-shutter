@@ -30,7 +30,7 @@ final class FrameAnalyzer: @unchecked Sendable {
         defer { lock.withLock { state.isWorking = false } }
 
         let wantsOverlay = !pass.overlay.isEmpty
-        guard let reading = measure(pixelBuffer, wantsLuma: wantsOverlay) else { return nil }
+        guard let reading = measure(pixelBuffer, wantsHistogram: pass.histogram, wantsLuma: wantsOverlay) else { return nil }
 
         var overlay: CGImage?
         if wantsOverlay, let luma = reading.luma, !luma.isEmpty {
@@ -105,6 +105,8 @@ final class FrameAnalyzer: @unchecked Sendable {
     }
 
     private struct Pass {
+        /// The histogram shows; without it the pass only draws the overlay.
+        var histogram: Bool
         var overlay: OverlayOptions
         var quarterTurns: Int
         var mirrored: Bool
@@ -147,13 +149,15 @@ final class FrameAnalyzer: @unchecked Sendable {
                 peakingColor: options.peakingColor.rgba,
                 falseColor: options.falseColor
             )
-            return Pass(overlay: overlay, quarterTurns: state.quarterTurns, mirrored: state.mirrored)
+            return Pass(histogram: options.histogram, overlay: overlay, quarterTurns: state.quarterTurns,
+                        mirrored: state.mirrored)
         }
     }
 
     /// Everything that reads the pixel buffer, so it stays locked only as long as needed. The histogram is
-    /// always computed: it is cheap at ~40k samples and the clipping warning needs its stats.
-    private func measure(_ pixelBuffer: CVPixelBuffer, wantsLuma: Bool) -> Reading? {
+    /// counted only while it shows: nothing else reads it or its stats, and NIGHT, which shows none, still runs the
+    /// overlays for peaking at the far end.
+    private func measure(_ pixelBuffer: CVPixelBuffer, wantsHistogram: Bool, wantsLuma: Bool) -> Reading? {
         guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return nil }
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
         if !Self.isTenBit(CVPixelBufferGetPixelFormatType(pixelBuffer)) {
@@ -161,17 +165,21 @@ final class FrameAnalyzer: @unchecked Sendable {
             wideLuma.release()
             wideChroma.release()
         }
-        guard let planes = Self.planes(of: pixelBuffer, wideLuma: wideLuma, wideChroma: wideChroma) else { return nil }
+        // The overlays read luma alone, so 10-bit chroma is narrowed only for the histogram's colors.
+        guard let planes = Self.planes(of: pixelBuffer, wideLuma: wideLuma,
+                                       wideChroma: wantsHistogram ? wideChroma : nil) else { return nil }
 
-        let histogram: Histogram
-        let stats: ExposureStats
-        switch planes {
-        case let .yCbCr(luma, chroma, fullRange):
-            let step = Self.histogramStep(width: luma.width, height: luma.height)
-            (histogram, stats) = HistogramComputer.compute(luma: luma, chroma: chroma, step: step, fullRange: fullRange)
-        case let .bgra(plane):
-            let step = Self.histogramStep(width: plane.width, height: plane.height)
-            (histogram, stats) = HistogramComputer.compute(bgra: plane, step: step)
+        var histogram = Histogram()
+        var stats = ExposureStats.empty
+        if wantsHistogram {
+            switch planes {
+            case let .yCbCr(luma, chroma, fullRange):
+                let step = Self.histogramStep(width: luma.width, height: luma.height)
+                (histogram, stats) = HistogramComputer.compute(luma: luma, chroma: chroma, step: step, fullRange: fullRange)
+            case let .bgra(plane):
+                let step = Self.histogramStep(width: plane.width, height: plane.height)
+                (histogram, stats) = HistogramComputer.compute(bgra: plane, step: step)
+            }
         }
         let luma = wantsLuma ? Self.lumaImage(from: planes, maxLongSide: Self.overlayLongSide, scratch: resample) : nil
         return Reading(histogram: histogram, stats: stats, luma: luma)

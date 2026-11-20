@@ -7,20 +7,32 @@ import CameraCore
 /// or plan them for the shot, so the line is PHOTO's alone, in the row where MANUAL has its chips.
 struct ReadoutHUD: View {
     let model: CameraModel
+    /// The line is the face of the button the camera screen puts around it in the scenes that hold the focus at the
+    /// far end, where a tap opens the focus dial. A focus mark after the values says so: without it the line would
+    /// look like PHOTO's, which has nothing to tap.
+    var opensFocusDial = false
 
     var body: some View {
         let items = readoutItems()
         let meter = model.meterOffset
         VStack(spacing: 3) {
-            // Four values fit the narrowest phone with Larger labels on, so the line needs no shorter form.
-            ReadoutLine(items: items)
+            // Four values and the focus mark fit the narrowest phone with Larger labels on, so the line needs no
+            // shorter form.
+            HStack(spacing: 6) {
+                ReadoutLine(items: items)
+                if opensFocusDial {
+                    Image(systemName: "scope")
+                        .font(.system(size: 10 * Theme.labelScale, weight: .medium))
+                        .foregroundStyle(Theme.secondaryText)
+                }
+            }
             LightMeter(offset: meter)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .cameraGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        // Nothing to tap: a touch goes through to the picture.
-        .allowsHitTesting(false)
+        // Nothing to tap, unless it is the focus dial's button: a touch goes through to the picture.
+        .allowsHitTesting(opensFocusDial)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Exposure readout")
         .accessibilityValue(Self.spokenSummary(items) + ". Meter " + EVFormat.label(meter))

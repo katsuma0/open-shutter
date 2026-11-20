@@ -50,6 +50,10 @@ struct ViewfinderAccessibilityTarget: View {
             .position(x: rect.midX, y: rect.midY)
             // Touches go to the picture's gesture recognizers underneath.
             .allowsHitTesting(false)
+            // The quick settings panel covers the top of the picture and a touch beside it only closes the panel,
+            // so VoiceOver keeps to the panel too; its escape closes it. The Camera Control's overlay hides the
+            // panel without closing it, and the viewfinder is back while it shows.
+            .accessibilityHidden(model.isDrawerOpen && !model.controlsFullscreen)
     }
 }
 
@@ -145,6 +149,13 @@ final class ViewfinderInteraction {
     ///   - point: Where the finger landed on screen.
     ///   - layerPoint: The same place in the preview layer's coordinates, for the model.
     func tap(at point: CGPoint, layerPoint: CGPoint, model: CameraModel) {
+        // While the focus magnifier enlarges the middle of the frame, a tap only brings the whole frame back: a point
+        // on the enlarged picture is not where the frame has it.
+        guard !model.isMagnified else {
+            lastTap = nil
+            model.setMagnified(false)
+            return
+        }
         let now = CACurrentMediaTime()
         if let last = lastTap, now - last.time <= Self.doubleTapInterval,
            Self.distance(last.point, point) <= Self.doubleTapSlop {
@@ -161,11 +172,17 @@ final class ViewfinderInteraction {
 
     func longPress(at point: CGPoint, layerPoint: CGPoint, model: CameraModel) {
         lastTap = nil
-        guard canAdjust(model), isOnFrame(point) else { return }
+        // A lock while magnified would meter and focus on the enlarged middle, which the exposure holds against.
+        guard canAdjust(model), isOnFrame(point), !model.isMagnified else { return }
         model.tapToFocus(at: layerPoint, lock: true)
     }
 
     func focusCenter(lock: Bool, model: CameraModel) {
+        // VoiceOver's double tap is the tap on the picture: while magnified it brings the whole frame back.
+        guard !model.isMagnified else {
+            model.setMagnified(false)
+            return
+        }
         let frame = geometry.frame
         guard canAdjust(model), frame.width > 0, frame.height > 0 else { return }
         let center = CGPoint(x: frame.midX, y: frame.midY)
@@ -370,6 +387,9 @@ final class ViewfinderInteraction {
     // MARK: Exposure
 
     func exposureDragBegan(model: CameraModel) {
+        // The exposure holds while the focus magnifier is on (the gesture coordinator doesn't start the drag then);
+        // this covers a drag that a turn of the focus dial overtakes.
+        guard !model.isMagnified else { return }
         lingerTask?.cancel()
         lingerTask = nil
         dragStartBias = Self.currentBias(model)
@@ -378,15 +398,18 @@ final class ViewfinderInteraction {
         // "Up" stays fixed for the whole drag; turning the phone halfway would otherwise reread the travel so far
         // along the other axis and throw the value back to where the drag began.
         dragQuarterTurns = model.motion.quarterTurns
-        // Beside the focus square when one is up, as in the Camera app; a faded square's old spot means nothing.
-        let frame = geometry.frame
-        sliderAnchor = visibleFocusPoint(model).map(screenPoint(fromLayer:)) ?? CGPoint(x: frame.midX, y: frame.midY)
+        // Beside the focus square when one is up and in sight, as in the Camera app; a faded square's old spot means
+        // nothing, and one under the controls can't be seen. Otherwise in the middle of the frame, held inside the
+        // part of it the controls leave open: a tall dial can reach over the frame's middle.
+        let open = geometry.open
+        let square = visibleFocusPoint(model).map(screenPoint(fromLayer:)).flatMap { open.contains($0) ? $0 : nil }
+        sliderAnchor = square ?? Self.middle(of: geometry.frame, inside: open)
         isDraggingExposure = true
     }
 
     func exposureDragChanged(translation: CGPoint, model: CameraModel) {
-        // A capture that starts mid-drag keeps the exposure it started with.
-        guard isDraggingExposure, canAdjust(model) else { return }
+        // A capture that starts mid-drag keeps the exposure it started with, and so does the focus magnifier.
+        guard isDraggingExposure, canAdjust(model), !model.isMagnified else { return }
         let travel = Self.userVector(translation, quarterTurns: dragQuarterTurns)
         let delta = -Double(travel.y / Self.pointsPerEV)
         guard delta.isFinite else { return }
@@ -421,10 +444,19 @@ final class ViewfinderInteraction {
 
     /// VoiceOver's swipe up and down: a third of a stop, the dial's step.
     func nudgeBias(by step: Double, model: CameraModel) {
-        guard canAdjust(model) else { return }
+        // As the drag on the picture: the exposure holds while the focus magnifier is on.
+        guard canAdjust(model), !model.isMagnified else { return }
         let range = Self.biasRange(model)
         let next = EVFormat.snap(Self.currentBias(model) + step, step: .third)
         model.setBias(min(max(next, range.lowerBound), range.upperBound))
+    }
+
+    /// The frame's middle, moved in from the edges of `open` where the open part doesn't reach it.
+    private static func middle(of frame: CGRect, inside open: CGRect) -> CGPoint {
+        let middle = CGPoint(x: frame.midX, y: frame.midY)
+        let area = open.insetBy(dx: 24, dy: 24)
+        guard area.width > 0, area.height > 0 else { return middle }
+        return CGPoint(x: min(max(middle.x, area.minX), area.maxX), y: min(max(middle.y, area.minY), area.maxY))
     }
 
     /// Night mode keeps its own compensation; every other mode uses the manual one.
@@ -748,8 +780,9 @@ private final class GestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pan = exposurePan, gestureRecognizer === pan, let view = pan.view else { return true }
         let velocity = ViewfinderInteraction.userVector(pan.velocity(in: view), quarterTurns: model.motion.quarterTurns)
-        // Only a mostly vertical drag is the exposure slider; sideways swipes stay free for other gestures.
-        return abs(velocity.y) > abs(velocity.x) * 1.2 && interaction.canAdjust(model)
+        // Only a mostly vertical drag is the exposure slider; sideways swipes stay free for other gestures. The
+        // exposure holds while the focus magnifier is on, so no drag starts then.
+        return abs(velocity.y) > abs(velocity.x) * 1.2 && interaction.canAdjust(model) && !model.isMagnified
     }
 }
 
@@ -854,7 +887,8 @@ private final class OverlayHostView: UIView {
 
 /// The Camera app's sun: it sits beside the focus square and slides along a short track while the exposure is
 /// dragged. Its own layer above the bands and the capture blink, which belong to the picture, laid out in the
-/// viewfinder's screen space.
+/// viewfinder's screen space. The sun, its track and its value keep to the open part of the frame, so none of them
+/// goes under the controls or the top bar.
 struct ExposureSliderLayer: View {
     let model: CameraModel
     let interaction: ViewfinderInteraction
@@ -864,11 +898,15 @@ struct ExposureSliderLayer: View {
         ZStack {
             if let anchor = visibleAnchor {
                 let turns = model.motion.quarterTurns
+                let area = geometry.open
+                let travel = Self.travel(from: anchor, quarterTurns: turns, in: area)
                 SunSliderGraphic(
                     bias: ViewfinderInteraction.currentBias(model),
                     showsTrack: interaction.isDraggingExposure,
                     showsValue: interaction.sliderAnchor != nil,
-                    side: Self.side(for: anchor, quarterTurns: turns, in: geometry.visibleFrame)
+                    side: Self.side(for: anchor, quarterTurns: turns, in: area),
+                    up: travel.up,
+                    down: travel.down
                 )
                 .rotationEffect(.degrees(Self.degrees(quarterTurns: turns)))
                 .position(anchor)
@@ -877,6 +915,13 @@ struct ExposureSliderLayer: View {
         }
         .frame(width: geometry.screen.width, height: geometry.screen.height)
         .animation(.easeOut(duration: 0.2), value: visibleAnchor == nil)
+        // Beside a square under the controls, the sun stops at their edge with it.
+        .clipShape(OpenAreaClip(rect: geometry.open))
+        .frameMotion(value: geometry.open)
+        // The Camera Control's overlay has an exposure slider of its own, which changes the same value: a second
+        // one beside the square would show each change twice.
+        .opacity(model.controlsFullscreen ? 0 : 1)
+        .animation(.easeOut(duration: 0.2), value: model.controlsFullscreen)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .onChange(of: model.focusPoint, initial: true) { _, point in
@@ -895,7 +940,7 @@ struct ExposureSliderLayer: View {
             interaction.freshnessExpired()
         }
         // A zoom or lens change moves the picture under the focus point, so the sun no longer belongs there. So
-        // does a new picture rect (another aspect ratio or VIDEO): the same point now lands somewhere else.
+        // does a new picture rect (another aspect ratio or VIDEO), and the focus magnifier, a zoom on the middle.
         .onChange(of: model.settings.zoom) {
             interaction.focusPointMoved()
         }
@@ -905,25 +950,50 @@ struct ExposureSliderLayer: View {
         .onChange(of: geometry.picture) {
             interaction.focusPointMoved()
         }
+        .onChange(of: model.isMagnified) {
+            interaction.focusPointMoved()
+        }
     }
 
-    /// The drag's anchor, or the focus point while its square is on screen.
+    /// The drag's anchor, or the focus point while its square is on screen. None while the focus magnifier enlarges
+    /// the middle of the frame: the square is hidden then, and the exposure holds.
     private var visibleAnchor: CGPoint? {
+        guard !model.isMagnified else { return nil }
         if let anchor = interaction.sliderAnchor { return anchor }
         let picture = geometry.picture
         return interaction.visibleFocusPoint(model).map { CGPoint(x: $0.x + picture.minX, y: $0.y + picture.minY) }
     }
 
-    /// 1 puts the sun on the user's right of the focus square, -1 on the left when the right side runs off the
-    /// part of the frame that shows.
+    /// 1 puts the sun on the user's right of the focus square, -1 on the left when the right side, the value beside
+    /// the sun included, runs off the open part of the frame.
     private static func side(for anchor: CGPoint, quarterTurns: Int, in area: CGRect) -> CGFloat {
-        let reach = SunSliderGraphic.sunDistance + 14
+        // Out to the far end of the value: its offset from the sun and about half a value's width.
+        let reach = SunSliderGraphic.sunDistance + SunSliderGraphic.valueOffset + 14
         let offset = ViewfinderInteraction.screenVector(CGPoint(x: reach, y: 0), quarterTurns: quarterTurns)
         let sun = CGPoint(x: anchor.x + offset.x, y: anchor.y + offset.y)
         let margin: CGFloat = 8
         let fits = sun.x >= area.minX + margin && sun.x <= area.maxX - margin
             && sun.y >= area.minY + margin && sun.y <= area.maxY - margin
         return fits ? 1 : -1
+    }
+
+    /// How far the sun may travel up and down the person's frame from the anchor before it would leave the open
+    /// part of the frame (ViewfinderInteraction.screenVector: one quarter turn puts the person's up at the screen's
+    /// right). An anchor outside the open part, as for a square tapped between the controls, gets no travel there.
+    private static func travel(from anchor: CGPoint, quarterTurns: Int,
+                               in area: CGRect) -> (up: CGFloat, down: CGFloat) {
+        // The sun is 17 pt: this keeps all of it in.
+        let margin: CGFloat = 12
+        let top = anchor.y - (area.minY + margin)
+        let bottom = (area.maxY - margin) - anchor.y
+        let left = anchor.x - (area.minX + margin)
+        let right = (area.maxX - margin) - anchor.x
+        switch ((quarterTurns % 4) + 4) % 4 {
+        case 1: return (right, left)
+        case 2: return (bottom, top)
+        case 3: return (left, right)
+        default: return (top, bottom)
+        }
     }
 
     private static func degrees(quarterTurns: Int) -> Double {
@@ -942,27 +1012,35 @@ private struct SunSliderGraphic: View {
     let showsValue: Bool
     /// 1 = right of the focus square, -1 = left, in the user's frame.
     let side: CGFloat
+    /// How far the sun may go up and down from the square in the user's frame and stay in the open part of the frame.
+    /// The track ends there too, so at a limit the sun waits at the end while the value goes on.
+    let up: CGFloat
+    let down: CGFloat
 
     /// Half the focus square drawn by ViewfinderOverlays (72 pt) plus a gap.
     static let sunDistance: CGFloat = 36 + 18
+    /// The value sits this far beyond the sun.
+    static let valueOffset: CGFloat = 30
     private static let trackHalf: CGFloat = 120
     private static let trackGap: CGFloat = 14
 
     var body: some View {
+        let up = Self.limit(self.up)
+        let down = Self.limit(self.down)
         let x = side * Self.sunDistance
-        let y = -min(max(CGFloat(bias) * ViewfinderInteraction.pointsPerEV, -Self.trackHalf), Self.trackHalf)
-        let upper = max(0, y - Self.trackGap + Self.trackHalf)
-        let lower = max(0, Self.trackHalf - y - Self.trackGap)
+        let y = -min(max(CGFloat(bias) * ViewfinderInteraction.pointsPerEV, -down), up)
+        let upper = max(0, y - Self.trackGap + up)
+        let lower = max(0, down - y - Self.trackGap)
         ZStack {
             Rectangle()
                 .fill(Theme.accent)
                 .frame(width: 1, height: upper)
-                .offset(x: x, y: -Self.trackHalf + upper / 2)
+                .offset(x: x, y: -up + upper / 2)
                 .opacity(showsTrack ? 1 : 0)
             Rectangle()
                 .fill(Theme.accent)
                 .frame(width: 1, height: lower)
-                .offset(x: x, y: Self.trackHalf - lower / 2)
+                .offset(x: x, y: down - lower / 2)
                 .opacity(showsTrack ? 1 : 0)
             Image(systemName: "sun.max.fill")
                 .font(.system(size: 17, weight: .semibold))
@@ -972,7 +1050,7 @@ private struct SunSliderGraphic: View {
                 .font(Theme.readoutFont)
                 .foregroundStyle(Theme.accent)
                 .fixedSize()
-                .offset(x: x + side * 30, y: y)
+                .offset(x: x + side * Self.valueOffset, y: y)
                 .opacity(showsValue ? 1 : 0)
         }
         .frame(width: 2 * (Self.sunDistance + 60), height: 2 * Self.trackHalf + 32)
@@ -980,5 +1058,10 @@ private struct SunSliderGraphic: View {
         .animation(Theme.snappy, value: bias)
         .animation(.easeOut(duration: 0.2), value: showsTrack)
         .animation(.easeOut(duration: 0.2), value: showsValue)
+    }
+
+    /// A limit inside the track's half length. One that isn't a number leaves the whole track.
+    private static func limit(_ value: CGFloat) -> CGFloat {
+        value.isFinite ? min(max(value, 0), trackHalf) : trackHalf
     }
 }

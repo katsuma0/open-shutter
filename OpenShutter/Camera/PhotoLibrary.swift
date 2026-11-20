@@ -22,8 +22,8 @@ enum PhotoLibrary {
         }
     }
 
-    /// Saves one photo asset. `primary` is the processed HEIF/JPEG, or the DNG when shooting RAW only.
-    /// `raw` is the paired DNG when shooting RAW plus HEIF/JPEG (stored as the alternate resource).
+    /// Saves one photo asset. `primary` is the processed HEIF, JPEG, PNG or TIFF, or the DNG when shooting RAW only.
+    /// `raw` is the paired DNG when shooting RAW plus a processed photo (stored as the alternate resource).
     /// `livePhotoMovie` is moved into the library. `creationDate` is when the shot was taken (a stack's first frame),
     /// so Photos sorts it there; nil lets Photos use the file's own date. `isCapture` names the files with the app's
     /// prefix; leave it off for anything the app didn't take. Returns the asset's localIdentifier.
@@ -98,6 +98,12 @@ enum PhotoLibrary {
     private static func resourceOptions(type: String, name: String?) -> PHAssetResourceCreationOptions {
         let options = PHAssetResourceCreationOptions()
         options.uniformTypeIdentifier = type
+        #if compiler(>=6.2)
+        // iOS 26 names the type with a UTType, the string's successor; both say the same.
+        if #available(iOS 26.0, *), let contentType = UTType(type) {
+            options.contentType = contentType
+        }
+        #endif
         if let name {
             let ending = fileExtension(for: type)
             options.originalFilename = ending.isEmpty ? name : name + "." + ending

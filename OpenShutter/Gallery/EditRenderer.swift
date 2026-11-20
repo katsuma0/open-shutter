@@ -206,7 +206,8 @@ enum EditRenderer {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
               CGImageSourceGetCount(source) > 0 else { throw Failure.unreadable }
         let index = CGImageSourceGetPrimaryImageIndex(source)
-        let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] ?? [:]
+        let properties = withoutContainer(CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] ?? [:],
+                                          of: source)
         let candidates = types ?? ownTypes(source)
 
         if keepsHDR, candidates.contains(.heic), hasGainMap(source, index: index),
@@ -281,7 +282,28 @@ enum EditRenderer {
         return output
     }
 
-    /// The photo's own format when it is HEIF or JPEG, then HEIF, then JPEG.
+    /// A PNG or TIFF photo's properties without the ones that describe its own file: the bit depth, the PNG details,
+    /// and TIFF's compression and layout. The edit is written as HEIF or JPEG, where they would describe nothing
+    /// that file has. Other photos keep everything.
+    private static func withoutContainer(_ properties: [CFString: Any], of source: CGImageSource) -> [CFString: Any] {
+        guard let type = (CGImageSourceGetType(source) as String?).flatMap({ UTType($0) }),
+              type.conforms(to: .png) || type.conforms(to: .tiff) else { return properties }
+        var output = properties
+        output.removeValue(forKey: kCGImagePropertyDepth)
+        output.removeValue(forKey: kCGImagePropertyPNGDictionary)
+        if var tiff = output[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
+            for key in [kCGImagePropertyTIFFCompression, kCGImagePropertyTIFFPhotometricInterpretation,
+                        kCGImagePropertyTIFFTileWidth, kCGImagePropertyTIFFTileLength] {
+                tiff.removeValue(forKey: key)
+            }
+            output[kCGImagePropertyTIFFDictionary] = tiff
+        }
+        return output
+    }
+
+    /// The photo's own format when it is HEIF or JPEG, then HEIF, then JPEG. An edit of a PNG or TIFF photo is saved
+    /// as HEIF: the edit is an 8-bit render like every other, and the PNG or TIFF original stays in the library as it
+    /// was, which is where every pixel is kept.
     private static func ownTypes(_ source: CGImageSource) -> [UTType] {
         let own = (CGImageSourceGetType(source) as String?).flatMap { UTType($0) }
         var types: [UTType] = []

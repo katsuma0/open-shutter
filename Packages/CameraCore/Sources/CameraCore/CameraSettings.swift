@@ -16,6 +16,9 @@ public enum CaptureMode: String, Codable, Sendable, CaseIterable, Identifiable {
     public var id: String { rawValue }
     public var title: String { rawValue.uppercased() }
     public var usesStacking: Bool { self == .night || self == .long }
+    /// NIGHT's shots are built from many frames, so a histogram of the framing frame says little about the picture.
+    /// It shows none, and its top bar holds the night shot's stability in the histogram's place.
+    public var hasHistogram: Bool { !usesStacking }
     /// Left to right in the mode carousel. NIGHT stands for both stacking modes: the night shot and the long
     /// exposure scenes are one mode on screen, picked between inside it, so LONG has no entry of its own.
     public static let carouselOrder: [CaptureMode] = [.night, .photo, .manual, .video]
@@ -24,16 +27,27 @@ public enum CaptureMode: String, Codable, Sendable, CaseIterable, Identifiable {
     public var carouselMode: CaptureMode { self == .long ? .night : self }
 }
 
+/// The processed file a photo saves, beside or instead of a RAW one. `.none` is RAW only. Saves hold the raw value,
+/// so a build that doesn't know a later format reads it as HEIF and keeps every other setting.
 public enum ProcessedFormat: String, Codable, Sendable, CaseIterable, Identifiable {
-    case heif, jpeg, none
+    case heif, jpeg, png, tiff, none
     public var id: String { rawValue }
     public var title: String {
         switch self {
         case .heif: return "HEIF"
         case .jpeg: return "JPEG"
+        case .png: return "PNG"
+        case .tiff: return "TIFF"
         case .none: return "None"
         }
     }
+
+    /// PNG and TIFF keep every pixel. They take no quality, and carry no Live Photo, depth or HDR gain map: ImageIO
+    /// writes auxiliary data into JPEG, HEIF and DNG only.
+    public var isLossless: Bool { self == .png || self == .tiff }
+
+    /// What a shot saves when it saves no RAW, a stack's picture included: HEIF in place of RAW only.
+    public var saved: ProcessedFormat { self == .none ? .heif : self }
 }
 
 public enum RawFormat: String, Codable, Sendable, CaseIterable, Identifiable {
@@ -44,6 +58,17 @@ public enum RawFormat: String, Codable, Sendable, CaseIterable, Identifiable {
         case .none: return "Off"
         case .bayer: return "RAW"
         case .proRAW: return "ProRAW"
+        }
+    }
+
+    /// One line under the choice in a menu, so the two RAW kinds read apart: RAW is the sensor's data with no
+    /// processing, which only a lens at its own zoom gives; ProRAW is Apple's processed picture in a RAW file. nil
+    /// for Off, which needs no words.
+    public var detail: String? {
+        switch self {
+        case .none: return nil
+        case .bayer: return "No processing. The sensor's data."
+        case .proRAW: return "Apple's processing. Any zoom."
         }
     }
 }
@@ -67,6 +92,42 @@ public enum PhotoResolution: String, Codable, Sendable, CaseIterable, Identifiab
         case .mp24: return 24
         case .mp48: return 48
         }
+    }
+
+    /// The sizes the camera and Settings offer. 24 MP is only delivered at that size through deferred delivery,
+    /// which the app keeps off so it can crop and save every photo itself, and Largest gives what 48 MP gives on
+    /// every lens there is. Both stay cases so saves that hold them still decode.
+    public static let offered: [PhotoResolution] = [.mp12, .mp48]
+
+    /// The offered row a stored value shows as: 24 MP is taken as 12 MP on a 48 MP lens, and Largest as 48 MP.
+    public var shownAs: PhotoResolution {
+        switch self {
+        case .mp12, .mp24: return .mp12
+        case .automatic, .mp48: return .mp48
+        }
+    }
+
+    /// Which of a lens's photo sizes this setting takes, given each size's pixel count: the index into
+    /// `pixelCounts`, or nil when none is usable. Automatic takes the largest size. A megapixel choice takes the
+    /// largest size not clearly above it (a "48 MP" sensor delivers 48.8), or the smallest when even that is
+    /// bigger. A count that isn't positive stands for a size with no width or height and is never taken. The photo
+    /// output and the menus that name the size share this rule, so a row says what a photo gets.
+    public func pick(amongPixelCounts pixelCounts: [Int]) -> Int? {
+        let limit = targetMegapixels.map { Double($0) * 1.1 * 1_000_000 }
+        // Equal counts go to the later size for the largest and to the earlier one for the smallest, as the
+        // stably sorted list the coordinator picked from left them.
+        var largest: Int?
+        var smallest: Int?
+        for (index, count) in pixelCounts.enumerated() where count > 0 {
+            let fits = limit.map { Double(count) <= $0 } ?? true
+            if fits, largest.map({ count >= pixelCounts[$0] }) ?? true {
+                largest = index
+            }
+            if smallest.map({ count < pixelCounts[$0] }) ?? true {
+                smallest = index
+            }
+        }
+        return largest ?? smallest
     }
 }
 
@@ -258,8 +319,11 @@ public enum StabilizationChoice: String, Codable, Sendable, CaseIterable, Identi
     }
 }
 
+/// A control the Camera Control can carry. Saves hold the raw values; the case order is the order Settings lists
+/// the ones not picked.
 public enum CameraControlItem: String, Codable, Sendable, CaseIterable, Identifiable {
-    case zoom, lens, exposureBias, shutter, iso, aperture, whiteBalance, focus, mode
+    case zoom, lens, exposureBias, shutter, nightDuration, nightScene, iso, aperture, whiteBalance, tint, focus
+    case timer, flash, histogram, mode
     public var id: String { rawValue }
     public var title: String {
         switch self {
@@ -267,10 +331,16 @@ public enum CameraControlItem: String, Codable, Sendable, CaseIterable, Identifi
         case .lens: return "Lens"
         case .exposureBias: return "Exposure"
         case .shutter: return "Shutter"
+        case .nightDuration: return "Night duration"
+        case .nightScene: return "Night scene"
         case .iso: return "ISO"
         case .aperture: return "Aperture"
         case .whiteBalance: return "White balance"
+        case .tint: return "Tint"
         case .focus: return "Focus"
+        case .timer: return "Timer"
+        case .flash: return "Flash"
+        case .histogram: return "Histogram"
         case .mode: return "Mode"
         }
     }
@@ -280,15 +350,26 @@ public enum CameraControlItem: String, Codable, Sendable, CaseIterable, Identifi
         case .lens: return "camera"
         case .exposureBias: return "plusminus.circle"
         case .shutter: return "camera.aperture"
+        case .nightDuration: return "hourglass"
+        case .nightScene: return "moon.stars"
         case .iso: return "camera.metering.matrix"
         case .aperture: return "camera.aperture"
         case .whiteBalance: return "thermometer.sun"
+        case .tint: return "drop.halffull"
         case .focus: return "scope"
+        case .timer: return "timer"
+        case .flash: return "bolt"
+        case .histogram: return "chart.bar"
         case .mode: return "camera.on.rectangle"
         }
     }
-    /// Zoom only moves within the current lens (Apple's slider drives one camera), so Lens comes next to it.
-    public static let defaultSelection: [CameraControlItem] = [.zoom, .lens, .exposureBias, .shutter, .iso, .whiteBalance]
+    /// Zoom only moves within the current lens (Apple's slider drives one camera), so Lens comes next to it. Night
+    /// duration sets NIGHT's time on every phone. Shutter needs manual shutter speeds; where there are none it drops
+    /// out and five remain.
+    public static let defaultSelection: [CameraControlItem] = [.zoom, .lens, .exposureBias, .shutter, .nightDuration, .iso]
+    /// The default before Night duration joined it. A saved list equal to this one was never changed by hand, so
+    /// the app moves it to the new default once.
+    public static let previousDefaultSelection: [CameraControlItem] = [.zoom, .lens, .exposureBias, .shutter, .iso, .whiteBalance]
 }
 
 public enum WhiteBalanceSetting: Codable, Hashable, Sendable {
@@ -361,6 +442,9 @@ public struct CaptureOptions: Codable, Hashable, Sendable {
     public var rawFormat: RawFormat = .none
     /// HEIF / JPEG compression quality, 0.5...1.
     public var quality: Double = 0.9
+    /// HEIF High or JPEG High: saved at `PhotoFormatChoice.highQuality` whatever the slider says. A flag of its
+    /// own, not a quality of 1, so going back to plain HEIF finds the slider where the person left it.
+    public var highQuality: Bool = false
     public var resolution: PhotoResolution = .automatic
     public var processing: ProcessingLevel = .balanced
     public var flash: FlashSetting = .off
@@ -387,13 +471,21 @@ public struct CaptureOptions: Codable, Hashable, Sendable {
 
     public init() {}
 
-    /// At least one output format has to be on.
+    /// At least one output format has to be on. PNG and TIFF count like HEIF and JPEG.
     public var isValid: Bool { processedFormat != .none || rawFormat != .none }
+
+    /// The compression quality the photo and a stack's picture are encoded at.
+    public var effectiveQuality: Double { highQuality ? PhotoFormatChoice.highQuality : quality }
+
+    /// A Live Photo's movie goes with a HEIF or JPEG photo taken without RAW. It can't accompany a RAW shot
+    /// (ProRAW refuses it outright), and PNG and TIFF are converted from the camera's photo after the shot, so they
+    /// go without it, as they go without depth. RAW only has no photo to pair it with.
+    public var allowsLivePhoto: Bool { rawFormat == .none && !processedFormat.saved.isLossless }
 
     enum CodingKeys: String, CodingKey {
         case processedFormat, rawFormat, quality, resolution, processing, flash, aspect, livePhoto, silentShutter, depth
         case constantColor, lensCorrection, mirrorFront, saveLocation, schedule, bracket
-        case prioritizeSpeed, artist, copyright
+        case prioritizeSpeed, artist, copyright, highQuality
     }
 
     public init(from decoder: Decoder) throws {
@@ -402,6 +494,7 @@ public struct CaptureOptions: Codable, Hashable, Sendable {
         processedFormat = c.value(.processedFormat, default: d.processedFormat)
         rawFormat = c.value(.rawFormat, default: d.rawFormat)
         quality = c.value(.quality, default: d.quality)
+        highQuality = c.value(.highQuality, default: d.highQuality)
         resolution = c.value(.resolution, default: d.resolution)
         processing = c.value(.processing, default: d.processing)
         flash = c.value(.flash, default: d.flash)
@@ -459,10 +552,13 @@ public struct FocusOptions: Codable, Hashable, Sendable {
     public var faceDriven: TriState = .automatic
     /// iOS 27 subject tracking autofocus.
     public var continuousTracking: Bool = false
+    /// How far turning the focus dial enlarges the middle of the frame. Nothing on the device changes with the
+    /// setting itself, only while the magnifier is on.
+    public var magnifier: FocusMagnifier = .x5
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case range, smooth, faceDriven, continuousTracking }
+    enum CodingKeys: String, CodingKey { case range, smooth, faceDriven, continuousTracking, magnifier }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -471,6 +567,7 @@ public struct FocusOptions: Codable, Hashable, Sendable {
         smooth = c.value(.smooth, default: d.smooth)
         faceDriven = c.value(.faceDriven, default: d.faceDriven)
         continuousTracking = c.value(.continuousTracking, default: d.continuousTracking)
+        magnifier = c.value(.magnifier, default: d.magnifier)
     }
 }
 
@@ -487,6 +584,8 @@ public struct DisplaySettings: Codable, Hashable, Sendable {
     public var peakingSensitivity: Double = 0.5
     public var falseColor: Bool = false
     public var showReadout: Bool = true
+    /// The clipping warning's switch. The camera shows no clipping warning any more; the key stays so saves that
+    /// hold it still decode, and nothing reads it.
     public var clippingWarnings: Bool = true
     /// Battery saver: darkens the screen during night and long exposure shots of 10 seconds or more once the phone
     /// is steady. Off by default, since a screen that goes black by itself surprises someone watching the shot.
@@ -520,7 +619,7 @@ public struct DisplaySettings: Codable, Hashable, Sendable {
 public struct NightSettings: Codable, Hashable, Sendable {
     /// nil = automatic duration from the light level.
     public var seconds: Double? = nil
-    /// A tripod unless Settings says otherwise: the camera screen has no control for it.
+    /// A tripod unless the person says otherwise, on NIGHT's top bar or in Settings > Night.
     public var stability: NightStabilityChoice = .tripod
     public var alignFrames: Bool = true
     public var maxISO: Double = 3200
@@ -725,6 +824,9 @@ public struct CameraSettings: Codable, Hashable, Sendable {
     public var topBar: TopBarOptions = .init()
     /// What the camera keeps from last time when it opens.
     public var startup: StartupOptions = .init()
+    /// The custom setups C1 to C3, three empty slots on a fresh install. They are the person's own, like the
+    /// accessibility options, so both interfaces keep them.
+    public var setups: CameraSetups = .init()
 
     public init() {}
 
@@ -732,7 +834,7 @@ public struct CameraSettings: Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case mode, lensID, zoom, manual, whiteBalance, focus, capture, exposure, focusOptions, display, night, longExposure, video, controls
-        case interface, appearance, accessibility, topBar, startup
+        case interface, appearance, accessibility, topBar, startup, setups
     }
 
     public init(from decoder: Decoder) throws {
@@ -757,6 +859,7 @@ public struct CameraSettings: Codable, Hashable, Sendable {
         accessibility = c.value(.accessibility, default: d.accessibility)
         topBar = c.value(.topBar, default: d.topBar)
         startup = c.value(.startup, default: d.startup)
+        setups = c.value(.setups, default: d.setups)
     }
 
     public func encoded() throws -> Data {

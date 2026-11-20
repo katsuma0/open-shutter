@@ -11,6 +11,9 @@ struct RulerDial: View {
     var majorTick: (Int) -> Bool = { _ in false }
     var label: (Int) -> String = { _ in "" }
     var spacing: CGFloat = 10
+    /// The ticks after this index, and their labels, are drawn in the warning orange: the values past a limit, such
+    /// as the longest time that keeps stars as points. -1 marks every tick, nil none.
+    var warnsAfter: Int? = nil
     var onEditingChanged: (Bool) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -146,19 +149,35 @@ struct RulerDial: View {
 
         var minor = Path()
         var major = Path()
+        // The same two kinds past the limit, in orange, keeping the long ticks the brighter ones.
+        var warnedMinor = Path()
+        var warnedMajor = Path()
         var labelled: [Int] = []
         for i in first...last {
             let x = CGFloat(midX + (Double(i) - position) * step)
+            let warned = isWarned(i)
             if majorTick(i) {
-                major.addRect(CGRect(x: snapped(x - majorWidth / 2), y: Self.tickBottom - Self.majorTickHeight, width: majorWidth, height: Self.majorTickHeight))
+                let tick = CGRect(x: snapped(x - majorWidth / 2), y: Self.tickBottom - Self.majorTickHeight, width: majorWidth, height: Self.majorTickHeight)
+                if warned { warnedMajor.addRect(tick) } else { major.addRect(tick) }
                 labelled.append(i)
             } else {
-                minor.addRect(CGRect(x: snapped(x - minorWidth / 2), y: Self.tickBottom - Self.minorTickHeight, width: minorWidth, height: Self.minorTickHeight))
+                let tick = CGRect(x: snapped(x - minorWidth / 2), y: Self.tickBottom - Self.minorTickHeight, width: minorWidth, height: Self.minorTickHeight)
+                if warned { warnedMinor.addRect(tick) } else { minor.addRect(tick) }
             }
         }
         context.fill(minor, with: .color(Theme.primaryText.opacity(0.45)))
         context.fill(major, with: .color(Theme.primaryText.opacity(0.9)))
+        if warnsAfter != nil {
+            context.fill(warnedMinor, with: .color(Theme.warning.opacity(0.6)))
+            context.fill(warnedMajor, with: .color(Theme.warning.opacity(0.95)))
+        }
         drawLabels(labelled, in: &context, midX: midX, position: position, accent: accent, labelFont: labelFont)
+    }
+
+    /// Past the limit `warnsAfter` sets, if any.
+    private func isWarned(_ i: Int) -> Bool {
+        guard let warnsAfter else { return false }
+        return i > warnsAfter
     }
 
     private func drawLabels(_ indices: [Int], in context: inout GraphicsContext, midX: Double, position: Double,
@@ -169,7 +188,9 @@ struct RulerDial: View {
             let string = label(i)
             guard !string.isEmpty else { continue }
             var text = context.resolve(Text(string).font(labelFont))
-            text.shading = .color(i == selected ? accent : Theme.primaryText.opacity(0.75))
+            // Past the limit the selected label is orange too: the accent would say the value is fine.
+            let ink = isWarned(i) ? Theme.warning : (i == selected ? accent : Theme.primaryText)
+            text.shading = .color(i == selected ? ink : ink.opacity(0.75))
             let width = text.measure(in: CGSize(width: 400, height: 40)).width
             items.append((i, CGFloat(midX + (Double(i) - position) * step), text, width))
         }
@@ -588,6 +609,8 @@ struct DialValueHeader: View {
     var isSetByPerson: Bool = true
     /// The value is built from several frames, which the STACK badge beside it says.
     var isStacked: Bool = false
+    /// The value is past a limit the title names, such as the time stars stay points for, and shows in orange.
+    var isWarning: Bool = false
     var onAuto: (() -> Void)? = nil
     /// False while a shot runs and a change would end up in the picture. Only AUTO locks: Done beside it changes
     /// nothing in the picture, so the way out stays open.
@@ -620,22 +643,25 @@ struct DialValueHeader: View {
         .animation(Theme.snappy, value: isAuto)
         .animation(Theme.snappy, value: isSetByPerson)
         .animation(Theme.snappy, value: isStacked)
+        .animation(Theme.snappy, value: isWarning)
     }
 
     private var readout: some View {
         VStack(spacing: 1) {
-            Text(title.uppercased())
+            // Spoken as the value row's label below.
+            Text(Self.capitals(title))
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(0.8)
                 .foregroundStyle(Theme.secondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                .accessibilityHidden(true)
             HStack(spacing: 5) {
                 // Not animated per value: a scrub or a live auto reading changes it many times a second, and the digits
                 // would never stop rolling long enough to read. Switching to or from auto still rolls them.
                 Text(value)
                     .font(Theme.bigValueFont)
-                    .foregroundStyle(isAuto || !isSetByPerson ? Theme.primaryText : Theme.accent)
+                    .foregroundStyle(valueInk)
                     .contentTransition(.numericText())
                 if isAuto {
                     Text("A")
@@ -650,22 +676,34 @@ struct DialValueHeader: View {
             .minimumScaleFactor(0.7)
             // At 16:9 the header sits on the picture, so its text carries a shadow.
             .shadow(color: .black.opacity(0.6), radius: 4)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(title))
-        .accessibilityValue(Text(spokenValue))
-        // The badge sits in the row beside the value, with a hidden twin on the other side: the value stays over
-        // the yellow line when the badge comes and goes as the dial crosses the longest single shutter, and the
-        // badge can never land on the value, which an offset from the value's edge did on a phone.
-        .padding(.horizontal, isStacked ? StackBadge.width + 6 : 0)
-        .overlay(alignment: .trailing) {
-            if isStacked {
-                StackBadge()
-                    // Level with the value, which sits under the title.
-                    .offset(y: 6)
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(title))
+            .accessibilityValue(Text(spokenValue))
+            // The badge sits in the row beside the value, with a hidden twin on the other side: the value stays over
+            // the yellow line when the badge comes and goes as the dial crosses the longest single shutter, and the
+            // badge can never land on the value, which an offset from the value's edge did on a phone. The room is
+            // the value row's alone, so a long title above it keeps the header's whole width.
+            .padding(.horizontal, isStacked ? StackBadge.width + 6 : 0)
+            .overlay(alignment: .trailing) {
+                if isStacked {
+                    StackBadge()
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                }
             }
         }
+    }
+
+    private var valueInk: Color {
+        if isWarning { return Theme.warning }
+        return isAuto || !isSetByPerson ? Theme.primaryText : Theme.accent
+    }
+
+    /// The title in capitals, but a word that starts with a digit as written: a time keeps its unit, and "15S"
+    /// would read as another one.
+    private static func capitals(_ title: String) -> String {
+        title.split(separator: " ", omittingEmptySubsequences: false)
+            .map { $0.first?.isNumber == true ? String($0) : $0.uppercased() }
+            .joined(separator: " ")
     }
 
     private var spokenValue: String {

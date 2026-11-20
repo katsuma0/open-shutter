@@ -12,6 +12,9 @@ enum Theme {
     /// Text and glyphs on an accent fill: black on the camera, white in light sheets.
     @MainActor static var onAccent: Color { AppearanceStore.shared.onAccent }
     static let recording = Color(red: 1.0, green: 0.231, blue: 0.188)
+    /// Orange for a warning that is not an error: the steady sign while the phone moves, star trails past the
+    /// sharp limit.
+    static let warning = Color(red: 1.0, green: 0.62, blue: 0.2)
     static let background = Color.black
     static let primaryText = Color.white
     @MainActor static var secondaryText: Color {
@@ -198,7 +201,8 @@ struct GlassChipButtonStyle: ButtonStyle {
     }
 }
 
-/// Touch and hold for a control whose tap does something else: a tap runs `action`, a hold lists `options`.
+/// Touch and hold for a control whose tap does something else: a tap runs `action`, a hold lists `options`. For a
+/// control whose tap has nothing else to do but list its choices, MenuOnTapLayer.
 ///
 /// A clear button to lay over the control, which stays the ordinary view it was: its icon still turns with the
 /// phone, its value still rolls, and VoiceOver reads it with its own label, value and actions. Give the layer a
@@ -224,7 +228,7 @@ struct MenuOnHoldLayer<Options: View>: View {
                 action()
             }
             .menuStyle(.button)
-            .buttonStyle(MenuOnHoldPressStyle(press: press))
+            .buttonStyle(MenuLayerPressStyle(press: press))
             .menuIndicator(.hidden)
             // Rows read top to bottom in the order they are written, whichever way the menu opens.
             .menuOrder(.fixed)
@@ -235,8 +239,47 @@ struct MenuOnHoldLayer<Options: View>: View {
     }
 }
 
-/// Whether a finger is down on a control's touch and hold layer, for the control's press feedback. A reference, so
-/// a press redraws the control and leaves the layer, with the menu button in it, as it was.
+/// A tap lists a control's choices: a clear menu button laid over the control, as MenuOnHoldLayer is, so the
+/// control's icon still turns with the phone and its value still rolls.
+///
+/// Build it inside a view of its own whose inputs compare equal between redraws (the model, an enum, the
+/// PressTracker, strings), never straight in a body that reads the settings: its options closure never compares
+/// equal, so the menu button would be rebuilt with every settings write, 120 a second while a dial turns. Unlike the
+/// hold layer it is the control's VoiceOver element, carrying the control's label, value and hint, so a double tap
+/// opens the same menu a tap does. Hide the control underneath from VoiceOver, before laying this over it.
+struct MenuOnTapLayer<Options: View>: View {
+    let press: PressTracker
+    let label: String
+    let value: String
+    var hint: String = HoldMenuText.choicesHint
+    @ViewBuilder let options: () -> Options
+
+    var body: some View {
+        // Sized to the control as the hold layer is.
+        GeometryReader { proxy in
+            Menu {
+                options()
+            } label: {
+                Color.clear
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.button)
+            .buttonStyle(MenuLayerPressStyle(press: press))
+            .menuIndicator(.hidden)
+            .menuOrder(.fixed)
+            // On the menu itself, as the scene button beside the shutter has them, so they land on the menu
+            // button's own element.
+            .accessibilityLabel(label)
+            .accessibilityValue(value)
+            .accessibilityHint(hint)
+        }
+        .onDisappear { press.isPressed = false }
+    }
+}
+
+/// Whether a finger is down on a control's menu layer, for the control's press feedback. A reference, so a press
+/// redraws the control and leaves the layer, with the menu button in it, as it was.
 @MainActor
 @Observable
 final class PressTracker {
@@ -244,7 +287,7 @@ final class PressTracker {
 }
 
 /// Draws nothing of its own; it tells the control underneath when to look pressed.
-private struct MenuOnHoldPressStyle: ButtonStyle {
+private struct MenuLayerPressStyle: ButtonStyle {
     let press: PressTracker
 
     func makeBody(configuration: Configuration) -> some View {

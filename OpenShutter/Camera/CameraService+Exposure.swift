@@ -23,8 +23,9 @@ extension CameraService {
         // of a stack asked for no longer stands in for the device's report.
         exposureGeneration &+= 1
         restoreTarget = nil
-        // The stack owns exposure while it runs, and applies the request again when it ends.
-        guard let camera = activeCamera, !stackInProgress else { return }
+        // The stack owns exposure while it runs, and applies the request again when it ends. The focus magnifier holds
+        // it as well, and applies the latest request when the whole frame comes back.
+        guard let camera = activeCamera, !stackInProgress, focusMagnification <= 1 else { return }
         let device = camera.device
         let request = exposureRequest
         let format = device.activeFormat
@@ -354,6 +355,38 @@ extension CameraService {
         setCustomExposure(duration: duration, iso: iso, aperture: variable ? values.aperture : nil, device: device,
                           completion: landed)
         return true
+    }
+
+    /// Session queue, as the focus magnifier comes on: the exposure stays where the whole frame put it. Auto exposure
+    /// would meter the enlarged middle, and NIGHT's plan and a held stack ISO would follow a star field for a moment
+    /// after the frame came back. Requests wait in applyExposure until the magnifier ends.
+    nonisolated func holdExposureForMagnifier() {
+        // The software loop's last values stay on the device once it stops, which holds them.
+        let softwareLoop = softwareAELocks != nil
+        stopSoftwareAE()
+        guard let device = activeCamera?.device, !stackInProgress, Self.lockForChanges(device) else { return }
+        defer { device.unlockForConfiguration() }
+        let format = device.activeFormat
+        switch device.exposureMode {
+        case .continuousAutoExposure, .autoExpose:
+            if device.isExposureModeSupported(.locked) {
+                device.exposureMode = .locked
+            }
+        case .custom:
+            // iOS 27 runs a priority mode in custom mode with its auto values left to the camera; fixing what they
+            // settled on, the iris included, holds them. A fully manual exposure holds by itself.
+            let variable = CapabilitiesBuilder.apertureInfo(device: device, format: format).variable
+            let target = Self.exposureTarget(for: exposureRequest, format: format, variableAperture: variable,
+                                             customSupported: true)
+            guard !softwareLoop, case .priority = target, let values = Self.currentExposure(of: device),
+                  let duration = Self.clampedDuration(values.seconds, in: format) else { return }
+            // Any exposure still on its way is replaced by this one.
+            exposureGeneration &+= 1
+            setCustomExposure(duration: duration, iso: Self.clampedISO(values.iso, in: format),
+                              aperture: variable ? values.aperture : nil, device: device, completion: nil)
+        default:
+            break
+        }
     }
 
     /// Session queue: what the end of a stack asked for is in effect, so the device reports it itself from here on.

@@ -77,7 +77,14 @@ final class CameraService: NSObject, CameraBackend, @unchecked Sendable {
     nonisolated(unsafe) var whiteBalanceRequest: WhiteBalanceRequest = .auto
     nonisolated(unsafe) var deviceOptions: DeviceOptions?
     nonisolated(unsafe) var torchLevel: Double?
+    /// The zoom photos are taken at. The focus magnifier zooms the device past it, and this stays where it was.
     nonisolated(unsafe) var zoomTarget: Double = 1
+    /// How many times the focus magnifier enlarges the middle of the frame; 1 shows the whole frame. While it is above
+    /// 1 the exposure holds and exposure requests wait.
+    nonisolated(unsafe) var focusMagnification: Double = 1
+    /// Media time from which the frames after the magnifier's end show the whole frame. The frames already on their
+    /// way still show the middle, and a photo can come from them.
+    nonisolated(unsafe) var magnifierSettlesAt: CFTimeInterval = 0
 
     nonisolated(unsafe) var softwareAETimer: DispatchSourceTimer?
     nonisolated(unsafe) var softwareAELocks: ExposureLocks?
@@ -187,6 +194,12 @@ final class CameraService: NSObject, CameraBackend, @unchecked Sendable {
                 self.delegate?.cameraBackend(self, controlsFullscreenDidChange: isFullscreen)
             }
         }
+        controlsBridge.onBecomeActive = { [weak self] in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.delegate?.cameraBackendControlsDidBecomeActive(self)
+            }
+        }
         appActiveObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -284,8 +297,28 @@ final class CameraService: NSObject, CameraBackend, @unchecked Sendable {
 
     @MainActor func setZoomFactor(_ factor: Double, rampRate: Double?) {
         sessionQueue.async {
-            self.zoomTarget = factor
-            self.applyZoom(rate: rampRate.map { Float($0) })
+            self.zoom(to: factor, rate: rampRate.map { Float($0) })
+        }
+    }
+
+    @MainActor func setFocusMagnification(_ power: Double) {
+        sessionQueue.async {
+            let next = power.isFinite ? max(power, 1) : 1
+            guard next != self.focusMagnification, self.activeCamera != nil else { return }
+            // A stack owns zoom and exposure while it runs, and a movie would record the enlarged middle.
+            guard next == 1 || (!self.stackInProgress && !self.recorder.isRecording) else { return }
+            let was = self.focusMagnification
+            self.focusMagnification = next
+            if was == 1 {
+                self.holdExposureForMagnifier()
+            }
+            // A cut, as a camera's magnify button does.
+            self.applyZoom(rate: nil)
+            if next == 1 {
+                self.noteMagnifierEnded()
+                // The requests that waited.
+                self.applyExposure()
+            }
         }
     }
 
@@ -723,8 +756,7 @@ extension CameraService {
             return
         }
         if camera.lens.id == activeCamera?.lens.id {
-            zoomTarget = preset.zoomFactor
-            applyZoom(rate: Self.zoomRampRate)
+            zoom(to: preset.zoomFactor, rate: Self.zoomRampRate)
         } else if stackJob == nil, !recorder.isRecording {
             switchCamera(to: camera, zoomFactor: preset.zoomFactor)
         }
@@ -733,6 +765,9 @@ extension CameraService {
 
     /// Swaps the session input to another physical camera and carries every setting over to it.
     nonisolated private func switchCamera(to camera: DeviceCatalog.Camera, zoomFactor: Double) {
+        // The magnifier belongs to the lens it enlarged; the new one starts on the whole frame, and its exposure from
+        // the request, which reapplyDeviceState applies.
+        focusMagnification = 1
         stopSoftwareAE()
         let wasRunning = session.isRunning
         session.beginConfiguration()
@@ -745,6 +780,9 @@ extension CameraService {
             activeCamera = camera
             // The factor belongs to the new lens, so it only becomes the target once the switch has happened.
             zoomTarget = zoomFactor
+            // The new camera's frames are whole from the first one, so a photo on it has nothing to wait for
+            // (beginPhotoCapture). An old camera put back keeps its wait: its frames can still show the middle.
+            magnifierSettlesAt = 0
         } else if let previous, session.canAddInput(previous) {
             // The new camera refused; put the old one back rather than leave the session empty.
             session.addInput(previous)
@@ -792,7 +830,11 @@ extension CameraService {
         // Frame limits first: a long manual shutter applied after them stretches the frames it needs, while
         // limits applied after it would cut it short.
         applyFrameRateLimits()
+        // Waits while the magnifier is on, which holds the exposure again on a device that may have forgotten it.
         applyExposure()
+        if focusMagnification > 1 {
+            holdExposureForMagnifier()
+        }
         applyFocus()
         applyWhiteBalance()
         applyTorch()
@@ -833,6 +875,8 @@ extension CameraService {
             capabilities = CapabilitiesBuilder.keepingPhotoFeatures(of: photoMode, in: capabilities)
         }
         capabilities.supportsCameraControls = session.supportsControls
+        // Apple gives no number for it anywhere; the session says on the phone itself.
+        capabilities.maxCameraControls = session.supportsControls ? max(session.maxControlsCount, 0) : 0
         capabilities.activeVideo = activeVideo
         sessionCapabilities = capabilities
         return sessionCapabilities
@@ -976,7 +1020,10 @@ extension CameraService {
         let gains = Self.clamped(device.deviceWhiteBalanceGains, maxGain: maxGain)
         // Gains outside 1...maxWhiteBalanceGain make this conversion raise, hence the clamp above.
         let temperatureAndTint = device.temperatureAndTintValues(for: gains)
-        let zoom = Double(device.videoZoomFactor)
+        // While the focus magnifier is on, the device's zoom is the magnifier's. The zoom photos are taken at is
+        // reported instead, so the lens buttons, the zoom dial and the model's adoption of outside zooms never see
+        // it; the device's own would also be wrong for the frame or two it takes to land.
+        let zoom = focusMagnification > 1 ? baseZoom(of: device) : Double(device.videoZoomFactor)
         let readings = LiveReadings(
             exposureSeconds: Self.finite(device.exposureDuration.seconds, positive: true) ?? previous.exposureSeconds,
             iso: Self.finite(Double(device.iso), positive: true) ?? previous.iso,
@@ -1274,6 +1321,18 @@ extension CameraService {
             completion(.failure(CameraError.captureFailed("The camera isn't ready for photos.")))
             return
         }
+        // The model ends the focus magnifier before a shot; should it still be on, it ends here. Whichever side ended
+        // it, the photo waits for the whole frame to land: the camera can take a photo from frames just before the
+        // press, and a press soon after the half press finds those frames still enlarged.
+        endMagnifier()
+        let settle = magnifierSettlesAt - CACurrentMediaTime()
+        if settle > 0 {
+            sessionQueue.asyncAfter(deadline: .now() + settle) {
+                self.beginPhotoCapture(request, rotationAngle: rotationAngle, mirrorFront: mirrorFront,
+                                       completion: completion)
+            }
+            return
+        }
         let device = camera.device
         guard !Self.colorSpaceBlocksPhotos(device) else {
             completion(.failure(CameraError.captureFailed("Photos can't be taken while the camera is set to Apple Log.")))
@@ -1379,6 +1438,9 @@ extension CameraService {
             completion(.failure(CameraError.unsupported("Long exposure")))
             return
         }
+        // Every frame of the stack shows the whole frame. The exposure from before it is then the one the magnifier
+        // held, which the whole frame metered.
+        endMagnifier()
         // A lock still metering once (a long press just before the shutter) has settled on nothing yet, so it meters
         // again after the stack. What the last stack's end asked for may not be in effect yet, and until it is the
         // device reports that stack's frame.
@@ -1687,9 +1749,13 @@ extension CameraService {
         captured.frameCount = max(1, frames)
         // A stack is taken when its first frame was, however long it ran.
         let date = facts.firstFrameDate ?? job.shot.record.date
+        // HEIF in place of RAW only: stacks make no RAW file.
+        let format = request.processedFormat.saved
         let image: CGImage
         do {
-            image = try engine.renderFinal(aspect: request.aspect, noiseReduction: request.noiseReduction)
+            // PNG and TIFF keep 16 bits a channel of the merge; HEIF and JPEG are written from 8.
+            image = try engine.renderFinal(aspect: request.aspect, noiseReduction: request.noiseReduction,
+                                           deep: format.isLossless)
         } catch {
             // A discard during either try means no photo, whatever went wrong on the first one.
             if engine.isCancelled {
@@ -1713,7 +1779,6 @@ extension CameraService {
         let shot = renderedShot(job, facts: facts, image: image)
         let encoded: EncodedImage
         do {
-            let format: ProcessedFormat = request.processedFormat == .none ? .heif : request.processedFormat
             encoded = try MediaWriter.encode(image, as: format, quality: request.quality, metadata: shot.rendered)
         } catch {
             completeMerge(job, engine: engine, result: .failure(error))
@@ -1997,6 +2062,8 @@ extension CameraService {
             throw CameraError.captureFailed("Video isn't ready yet.")
         }
         guard !recorder.isRecording, !recorder.output.isRecording else { throw CameraError.busy }
+        // A movie records the whole frame, never the magnifier's.
+        endMagnifier()
         recorder.start(rotationAngle: rotationAngle, shot: movieShot(request)) { [weak self] result in
             self?.recordingFinished(result, generation: generation)
         }
@@ -2070,14 +2137,22 @@ extension CameraService {
 // MARK: - Camera Control
 
 extension CameraService {
-    /// Installs controls for the latest state on the active camera. Skips identical re-installs, which the
-    /// model asks for often, because each one reconfigures the session.
+    /// Installs controls for the latest state on the active camera. Only new controls (another lens, list, or titles
+    /// on one that is installed) reconfigure the session; values and enabled flags, which change with every mode and
+    /// pick, go straight to the controls.
     nonisolated func installCameraControls() {
         guard let state = cameraControlState, let camera = activeCamera, session.supportsControls else { return }
-        if let installed = installedControls, installed.state == state, installed.deviceID == camera.lens.id { return }
-        session.beginConfiguration()
-        controlsBridge.install(on: session, device: camera.device, state: state)
-        session.commitConfiguration()
+        // The model asks often with nothing new. The same state still matters after a move on the button: it is
+        // how a pick the model refused goes back.
+        if let installed = installedControls, installed.state == state, installed.deviceID == camera.lens.id,
+           !controlsBridge.touchedSinceLatestState { return }
+        if controlsBridge.needsRebuild(on: session, device: camera.device, state: state) {
+            session.beginConfiguration()
+            controlsBridge.install(on: session, device: camera.device, state: state)
+            session.commitConfiguration()
+        } else {
+            controlsBridge.update(on: session, device: camera.device, state: state)
+        }
         installedControls = (state, camera.lens.id)
     }
 }
