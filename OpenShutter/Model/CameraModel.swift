@@ -18,7 +18,14 @@ final class CameraModel {
     private(set) var sessionState: SessionState = .idle
     private(set) var capabilities: CameraCapabilities = .placeholder
     private(set) var readings: LiveReadings = .initial
-    private(set) var analysis: AnalysisFrame?
+    private(set) var analysis: AnalysisFrame? {
+        // Written 12 times a second, so the flag that layout reads is only written when frames start or stop.
+        didSet { if (analysis != nil) != hasAnalysisFrames { hasAnalysisFrames = analysis != nil } }
+    }
+    /// There is an analysis frame to draw from: false until the first one comes, again once the last one is dropped
+    /// (everything off, a VIDEO format change), and for good on a VIDEO format past the hardware budget, which runs
+    /// without the analysis output (histogramOnScreen).
+    private(set) var hasAnalysisFrames = false
     private(set) var lenses: [LensInfo] = []
     private(set) var lensPresets: [LensPreset] = []
     private(set) var activePresetID: String? {

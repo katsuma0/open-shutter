@@ -498,28 +498,40 @@ private struct ModeSwitchVeil: View {
     }
 }
 
-/// Reads the analysis frame on its own, so 12 histograms a second redraw only this corner.
+/// Reads the analysis frame on its own, so 12 histograms a second redraw only this slot. The histogram sits at the
+/// top of the open part of the frame, in the middle, under the steady status while that shows there.
 private struct HistogramSlot: View {
     let model: CameraModel
     let open: CGRect
-    let topShift: CGFloat
+    let furniture: TopFurniture
 
     var body: some View {
         let style = model.settings.display.histogram
-        ZStack(alignment: .topLeading) {
-            // Under the battery saver's black layer the analysis isn't read, so nothing here redraws.
-            if style != .off, !model.dimmer.isDimmed, let histogram = model.analysis?.histogram {
+        let steady = furniture.steady
+        // With the phone on its side the steady status runs down a side edge instead of across the top, so the
+        // histogram stays at the top and keeps narrow enough to pass between it and the other edge.
+        let width = steady.onSide
+            ? min(HistogramView.width(openWidth: open.width), max(open.width - 2 * SteadyRoom.sideReach, 0))
+            : HistogramView.width(openWidth: open.width)
+        // Under the quick settings panel's glass the curves would only smear behind its first row. The Camera
+        // Control's overlay hides the panel without closing it, and the histogram is back for as long as it shows.
+        let underPanel = model.isDrawerOpen && !model.controlsFullscreen
+        ZStack(alignment: .top) {
+            // Under the battery saver's black layer and the panel the analysis isn't read, so nothing here redraws.
+            if model.histogramOnScreen, !underPanel, let histogram = model.analysis?.histogram {
                 HistogramView(histogram: histogram, style: style)
-                    .frame(width: HistogramView.size.width, height: HistogramView.size.height)
-                    .padding(.leading, 12)
-                    .padding(.top, 12 + topShift)
+                    .frame(width: width, height: HistogramView.height)
+                    .padding(.top, 12 + steady.top)
                     .transition(.opacity)
             }
         }
-        .frame(width: max(open.width, 0), height: max(open.height, 0), alignment: .topLeading)
+        .frame(width: max(open.width, 0), height: max(open.height, 0), alignment: .top)
         .position(x: open.midX, y: open.midY)
         .frameMotion(value: open)
-        .animation(Theme.spring, value: topShift)
+        .animation(Theme.spring, value: steady)
+        .opacity(underPanel ? 0 : 1)
+        .animation(Theme.snappy, value: underPanel)
+        .accessibilityHidden(underPanel)
         .allowsHitTesting(false)
     }
 }
