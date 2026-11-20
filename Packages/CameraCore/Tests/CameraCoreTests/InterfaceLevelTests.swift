@@ -27,6 +27,8 @@ final class InterfaceLevelTests: XCTestCase {
         "startup.keepMode", "startup.keepLensAndZoom", "startup.keepBrightness",
     ]
     private let levelSwitch = "interface.advanced"
+    /// The modes the simple interface's carousel offered: all but MANUAL.
+    private let simpleModes: [CaptureMode] = [.night, .photo, .video]
 
     // MARK: - Fixtures
 
@@ -120,7 +122,7 @@ final class InterfaceLevelTests: XCTestCase {
         s.accessibility.reduceMotion = true
         s.accessibility.leftHanded = true
         s.accessibility.speakStatus = true
-        // An advanced-only button among them: the simple interface hides it from the bar but keeps it in the list.
+        // Lists from when people arranged the bar: neither direction touches them.
         s.topBar = TopBarOptions(leading: [.timer, .grid, .histogram], trailing: [.level, .location])
         s.startup.keepMode = false
         s.startup.keepLensAndZoom = false
@@ -248,16 +250,6 @@ final class InterfaceLevelTests: XCTestCase {
         XCTAssertTrue(CameraSettings.simpleGrids.contains(CameraSettings.default.display.grid))
     }
 
-    func testSimpleCameraControlLeadsNowhereManual() {
-        XCTAssertEqual(CameraSettings.simpleCameraControlItems, [.zoom, .lens, .exposureBias])
-        // The mode item would offer MANUAL, and the others set what the simple interface keeps on auto.
-        for item in [CameraControlItem.shutter, .iso, .aperture, .whiteBalance, .focus, .mode] {
-            XCTAssertFalse(CameraSettings.simpleCameraControlItems.contains(item), item.rawValue)
-        }
-        // The same first three as the advanced default, so the Camera Control opens on the same thing.
-        XCTAssertEqual(Array(CameraControlItem.defaultSelection.prefix(3)), CameraSettings.simpleCameraControlItems)
-    }
-
     // MARK: - Going simple
 
     func testDefaultsGoSimpleByTurningTheMeasuringToolsOff() {
@@ -323,7 +315,7 @@ final class InterfaceLevelTests: XCTestCase {
             change(&settings)
             choices.append(settings)
         }
-        for mode in CaptureMode.carouselOrder(advanced: false) {
+        for mode in simpleModes {
             add { $0.mode = mode }
         }
         for aspect in CameraSettings.simpleAspects {
@@ -377,7 +369,7 @@ final class InterfaceLevelTests: XCTestCase {
             let simple = settings.simplified().mode
             XCTAssertEqual(simple, mode == .manual ? .photo : mode, mode.rawValue)
             // LONG shows under NIGHT's entry.
-            XCTAssertTrue(CaptureMode.carouselOrder(advanced: false).contains(simple.carouselMode), mode.rawValue)
+            XCTAssertTrue(simpleModes.contains(simple.carouselMode), mode.rawValue)
         }
     }
 
@@ -707,7 +699,7 @@ final class InterfaceLevelTests: XCTestCase {
     func testManualComesBackWhileTheModeIsStillPhoto() {
         // Going simple put MANUAL on PHOTO. Another mode picked since is where the person is now, and stays.
         let snapshot = advancedSetup()
-        for mode in CaptureMode.carouselOrder(advanced: false) {
+        for mode in simpleModes {
             var simple = snapshot.simplified()
             simple.mode = mode
             XCTAssertEqual(simple.restoringAdvanced(from: snapshot).mode, mode == .photo ? .manual : mode, mode.rawValue)
@@ -716,7 +708,7 @@ final class InterfaceLevelTests: XCTestCase {
         for saved in CaptureMode.allCases where saved != .manual {
             var other = snapshot
             other.mode = saved
-            for mode in CaptureMode.carouselOrder(advanced: false) {
+            for mode in simpleModes {
                 var simple = other.simplified()
                 simple.mode = mode
                 XCTAssertEqual(simple.restoringAdvanced(from: other).mode, mode, "\(saved.rawValue) \(mode.rawValue)")

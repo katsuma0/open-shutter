@@ -1,9 +1,8 @@
 import Foundation
 
 // How the app looks and handles, as opposed to how it takes pictures: the look of Settings, accessibility, the top
-// bar's buttons, what the hardware buttons do, how haptics feel and what the camera opens on. Both interfaces share
-// all of it (none of it is in copyAdvancedFields), so switching between simple and advanced changes none of it. The
-// simple interface only leaves out the top bar buttons it doesn't offer, and they are back with the advanced one.
+// bar's buttons, what the hardware buttons do, how haptics feel and what the camera opens on. None of it is in
+// copyAdvancedFields, so bringing back a save from the earlier simple interface leaves all of it as it was.
 
 // MARK: - Appearance
 
@@ -179,18 +178,6 @@ public enum TopBarItem: String, Codable, Sendable, CaseIterable, Identifiable {
 
     public var id: String { rawValue }
 
-    /// Sets something the simple interface keeps on automatic or doesn't show.
-    public var isAdvancedOnly: Bool {
-        switch self {
-        case .flash, .livePhoto, .timer, .aspect, .grid, .level, .location, .quietShutter, .batterySaver,
-             .nightDuration:
-            return false
-        case .raw, .exposureLock, .format, .resolution, .processing, .histogram, .zebras, .peaking, .falseColor,
-             .whiteBalance, .stabilization, .sound:
-            return true
-        }
-    }
-
     /// The modes where it has something to do. What depends on the camera or on other settings at the moment
     /// (a flash on this lens, Live Photo support, a bulb shot) is for the app's `isAvailable` to say.
     public func applies(in mode: CaptureMode) -> Bool {
@@ -215,9 +202,8 @@ public enum TopBarItem: String, Codable, Sendable, CaseIterable, Identifiable {
         }
     }
 
-    /// Its name in Settings and for VoiceOver. Where the interfaces word a setting differently, each keeps its own,
-    /// and the simple one's words carry no camera jargon. An advanced-only button has the one name.
-    public func title(advanced: Bool) -> String {
+    /// Its name, which the bar's buttons give VoiceOver.
+    public var title: String {
         switch self {
         case .flash: return "Flash"
         case .livePhoto: return "Live Photo"
@@ -226,9 +212,9 @@ public enum TopBarItem: String, Codable, Sendable, CaseIterable, Identifiable {
         case .grid: return "Grid"
         case .level: return "Level"
         case .location: return "Location tags"
-        case .quietShutter: return advanced ? "Silent shutter" : "Quiet shutter"
+        case .quietShutter: return "Silent shutter"
         case .batterySaver: return "Battery saver"
-        case .nightDuration: return advanced ? "Night duration" : "Night time"
+        case .nightDuration: return "Night duration"
         case .raw: return "RAW"
         case .exposureLock: return "AE lock"
         case .format: return "Format"
@@ -279,12 +265,7 @@ public enum TopBarItem: String, Codable, Sendable, CaseIterable, Identifiable {
 /// chevron, two for the right side and the gear. The app's bar is fixed now and no longer reads this. It stays in the
 /// settings so saves from that time still decode.
 public struct TopBarOptions: Codable, Hashable, Sendable {
-    /// Slots left of the chevron.
-    public static let leadingRoom = 3
-    /// Slots between the chevron and the gear.
-    public static let trailingRoom = 2
-    /// The most a side keeps. A side may hold more than its room: buttons that only the advanced interface or
-    /// another mode shows wait their turn in the list. Capped all the same, so a damaged save can't grow without end.
+    /// The most a side keeps, so a damaged save can't grow without end.
     public static let storedLimit = 8
 
     /// Left of the chevron, the first nearest the edge.
@@ -327,73 +308,6 @@ public struct TopBarOptions: Codable, Hashable, Sendable {
         }
         return (sides[0], sides[1])
     }
-
-    /// What the bar shows: on each side, the first buttons that work at this level, in this mode and on this
-    /// camera, as many as the side has room for. One that doesn't work steps aside and the next moves up, so the
-    /// bar never shows a dead button or a gap.
-    /// - Parameters:
-    ///   - leadingRoom: Left slots free of furniture; `layout` works out both rooms.
-    ///   - trailingRoom: Right slots free of furniture.
-    ///   - isAvailable: What only the app knows: a flash on this camera, Live Photo support, a bulb shot.
-    public func shown(advanced: Bool, mode: CaptureMode, leadingRoom: Int = TopBarOptions.leadingRoom,
-                      trailingRoom: Int = TopBarOptions.trailingRoom,
-                      isAvailable: (TopBarItem) -> Bool) -> (leading: [TopBarItem], trailing: [TopBarItem]) {
-        var placed = Set<TopBarItem>()
-        var sides: [[TopBarItem]] = []
-        for (items, room) in [(leading, leadingRoom), (trailing, trailingRoom)] {
-            var picked: [TopBarItem] = []
-            // A button can be on both sides when the lists were changed directly; it shows once.
-            for item in items where picked.count < room {
-                guard advanced || !item.isAdvancedOnly, item.applies(in: mode), !placed.contains(item),
-                      isAvailable(item) else { continue }
-                placed.insert(item)
-                picked.append(item)
-            }
-            sides.append(picked)
-        }
-        return (sides[0], sides[1])
-    }
-
-    /// The bar in `mode` with its furniture in place. In VIDEO the format chip takes the right side, and a Flash
-    /// placed there moves to the front of the left side: in VIDEO it is the flashlight, which the chip must not hide.
-    /// When a timer, intervalometer or bracket is set, its badge takes the last left slot, unless a Timer button on
-    /// the bar already shows it: the button then stands in for the badge. A Flash in that slot moves to the front of
-    /// the left side and the button before it gives way instead: the flash still fires while the badge shows.
-    /// - Parameters:
-    ///   - wantsBadge: A timer, intervalometer or bracket is set and the badge belongs in this mode.
-    ///   - isAvailable: As for `shown`.
-    public func layout(advanced: Bool, mode: CaptureMode, wantsBadge: Bool,
-                       isAvailable: (TopBarItem) -> Bool) -> TopBarLayout {
-        var bar = self
-        if mode == .video, !leading.contains(.flash), trailing.contains(.flash) {
-            // Not through init(leading:trailing:): its cleaning would cut the last button of a left side stored full.
-            bar.leading.insert(.flash, at: 0)
-        }
-        let trailingRoom = mode == .video ? 0 : Self.trailingRoom
-        let full = bar.shown(advanced: advanced, mode: mode, trailingRoom: trailingRoom, isAvailable: isAvailable)
-        guard wantsBadge, !full.leading.contains(.timer), !full.trailing.contains(.timer) else {
-            return TopBarLayout(leading: full.leading, trailing: full.trailing, showsBadge: false)
-        }
-        var rest = bar.shown(advanced: advanced, mode: mode, leadingRoom: Self.leadingRoom - 1,
-                             trailingRoom: trailingRoom, isAvailable: isAvailable)
-        if full.leading.contains(.flash), !rest.leading.contains(.flash) {
-            // The flash would still fire, with nothing on screen to show it or turn it off. Only a Flash the bar
-            // shows moves: one past the side's room was never on the bar, and Settings marks it "No room".
-            bar.leading.removeAll { $0 == .flash }
-            bar.leading.insert(.flash, at: 0)
-            rest = bar.shown(advanced: advanced, mode: mode, leadingRoom: Self.leadingRoom - 1,
-                             trailingRoom: trailingRoom, isAvailable: isAvailable)
-        }
-        return TopBarLayout(leading: rest.leading, trailing: rest.trailing, showsBadge: true)
-    }
-}
-
-/// The top bar's buttons as placed in one mode.
-public struct TopBarLayout: Equatable, Sendable {
-    public var leading: [TopBarItem]
-    public var trailing: [TopBarItem]
-    /// The timer badge holds one of the left slots, so `leading` has a slot fewer.
-    public var showsBadge: Bool
 }
 
 /// One entry of a saved list of buttons: the button, or nil for anything this version can't read.

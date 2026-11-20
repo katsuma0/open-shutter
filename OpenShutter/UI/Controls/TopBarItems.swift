@@ -286,7 +286,7 @@ private struct BarTimer: View {
             }
         }
         .buttonStyle(BarCircleStyle(isActive: !preview.isEmpty, isPressed: press.isPressed))
-        .accessibilityLabel(TopBarItem.timer.title(advanced: true))
+        .accessibilityLabel(TopBarItem.timer.title)
         .accessibilityValue(preview.spokenValue)
         .accessibilityHint(HoldMenuText.hint)
         .overlay {
@@ -486,7 +486,7 @@ private struct BarAspect: View {
             }
         }
         .buttonStyle(BarCircleStyle(isActive: QuickActions.aspectIsActive(aspect), isPressed: press.isPressed))
-        .accessibilityLabel(TopBarItem.aspect.title(advanced: true))
+        .accessibilityLabel(TopBarItem.aspect.title)
         .accessibilityValue(aspect.label)
         .accessibilityHint(HoldMenuText.hint)
         .overlay {
@@ -539,7 +539,7 @@ private struct BarFormat: View {
             }
         }
         .buttonStyle(BarCircleStyle(isActive: format != .heif))
-        .accessibilityLabel(TopBarItem.format.title(advanced: true))
+        .accessibilityLabel(TopBarItem.format.title)
         .accessibilityValue(value)
     }
 }
@@ -561,7 +561,7 @@ private struct BarHistogram: View {
             }
         }
         .buttonStyle(BarCircleStyle(isActive: style != .off, isPressed: press.isPressed))
-        .accessibilityLabel(TopBarItem.histogram.title(advanced: true))
+        .accessibilityLabel(TopBarItem.histogram.title)
         .accessibilityValue(style.title)
         .accessibilityHint(HoldMenuText.hint)
         .overlay {

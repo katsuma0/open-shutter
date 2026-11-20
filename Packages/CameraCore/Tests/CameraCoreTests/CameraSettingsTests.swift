@@ -436,21 +436,12 @@ final class CameraSettingsTests: XCTestCase {
             XCTAssertEqual(mode.carouselMode, mode)
         }
         XCTAssertEqual(Set(CaptureMode.allCases.map(\.carouselMode)), Set(CaptureMode.carouselOrder))
+        // A fresh install opens on a mode the carousel shows.
+        XCTAssertTrue(CaptureMode.carouselOrder.contains(CameraSettings.default.mode))
         XCTAssertEqual(CaptureMode.photo.title, "PHOTO")
         XCTAssertTrue(CaptureMode.night.usesStacking)
         XCTAssertTrue(CaptureMode.long.usesStacking)
         XCTAssertFalse(CaptureMode.manual.usesStacking)
-    }
-
-    func testCarouselOrderForEachInterface() {
-        XCTAssertEqual(CaptureMode.carouselOrder(advanced: true), CaptureMode.carouselOrder)
-        // The simple carousel is the same row without MANUAL, so the other modes keep their neighbours.
-        XCTAssertEqual(CaptureMode.carouselOrder(advanced: false), [.night, .photo, .video])
-        XCTAssertEqual(CaptureMode.carouselOrder(advanced: false), CaptureMode.carouselOrder.filter { $0 != .manual })
-        // Both start on the mode a fresh install opens in.
-        for advanced in [false, true] {
-            XCTAssertTrue(CaptureMode.carouselOrder(advanced: advanced).contains(CameraSettings.default.mode))
-        }
     }
 
     func testEnumsHaveTitlesAndUniqueIDs() {
