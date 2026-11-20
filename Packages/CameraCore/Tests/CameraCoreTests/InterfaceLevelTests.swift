@@ -790,4 +790,40 @@ final class InterfaceLevelTests: XCTestCase {
         expected.interface.welcomed = true
         XCTAssertEqual(simple.restoringAdvanced(from: loaded), expected)
     }
+
+    // MARK: - Removed keys
+
+    /// `settings` as saved, plus keys this version has no field for, the way a setting that is taken out stays behind
+    /// in saves made before: one at the top, one inside a group, a whole group of its own, and a name in the top
+    /// bar's lists.
+    private func savedWithRemovedKeys(_ settings: CameraSettings) throws -> Data {
+        XCTAssertFalse(settings.topBar.leading.isEmpty, "The name goes in front of a saved one")
+        var json = try XCTUnwrap(String(data: settings.encoded(), encoding: .utf8))
+        let additions = [
+            (#"{"accessibility":"#, #"{"removedSetting":true,"accessibility":"#),
+            (#""interface":{"#, #""interface":{"removedLevel":"simple","#),
+            (#""display":{"#, #""display":{"removedOverlay":0.5,"#),
+            (#""topBar":{"#, #""removedGroup":{"showsBadge":true,"items":["raw"]},"topBar":{"#),
+            (#""leading":["#, #""leading":["removedButton","#),
+        ]
+        for (anchor, replacement) in additions {
+            XCTAssertEqual(json.components(separatedBy: anchor).count, 2, "\(anchor) in \(json)")
+            json = json.replacingOccurrences(of: anchor, with: replacement)
+        }
+        return Data(json.utf8)
+    }
+
+    func testASaveWithRemovedKeysStillLoads() throws {
+        // The decoders read their own keys by name and skip the rest, so each key this version lacks costs nothing,
+        // and a button name it doesn't know drops out of its list alone.
+        let simple = everythingChanged().simplified()
+        for settings in [simple, everythingChanged(), advancedSetup(), adjustedScene()] {
+            XCTAssertEqual(CameraSettings.decoded(from: try savedWithRemovedKeys(settings)), settings)
+        }
+        // A save the simple interface wrote still says so, and the one-time move brings it back whole.
+        let loaded = CameraSettings.decoded(from: try savedWithRemovedKeys(simple))
+        XCTAssertFalse(loaded.interface.advanced)
+        XCTAssertTrue(loaded.interface.welcomed)
+        XCTAssertEqual(loaded.restoringAdvanced(from: everythingChanged()), everythingChanged())
+    }
 }
