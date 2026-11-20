@@ -453,7 +453,7 @@ enum GalleryText {
         return live ? "Live Photo" : "Photo"
     }
 
-    /// The advanced interface also names what the camera made: a RAW photo, a stack, a bracket frame, a copy.
+    /// What the camera made, where it is more than a photo or a video: a RAW photo, a stack, a bracket frame, a copy.
     static func detailTitle(_ kind: CapturedAssetKind?) -> String? {
         switch kind {
         case .raw: return "RAW photo"

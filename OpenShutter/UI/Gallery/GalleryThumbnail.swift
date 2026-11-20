@@ -34,7 +34,7 @@ struct ThumbnailButton: View {
         .buttonStyle(PressScaleButtonStyle(isPressed: press.isPressed && canOpen))
         .disabled(!canOpen)
         .accessibilityLabel("Photos")
-        .modifier(ThumbnailSpokenValue(model: model, picture: picture))
+        .accessibilityValue(picture.spokenValue)
         .accessibilityHint("Shows the photos and videos you took. Touch and hold for more options.")
         .accessibilityAction(named: "Open Photos") { Self.openPhotos(model) }
         // Laid over the disabled button as well: Photos can be opened before anything has been captured.
@@ -117,25 +117,13 @@ private struct ThumbnailPicture {
             self.entry = entry
         }
     }
-}
 
-/// The thumbnail's VoiceOver value. The exposure summary is shutter speed and ISO, which the simple interface never
-/// shows or says. Reading the interface level is reading the settings, which dials write many times a second, so it
-/// happens in this modifier and not in the button.
-private struct ThumbnailSpokenValue: ViewModifier {
-    let model: CameraModel
-    let picture: ThumbnailPicture
-
-    func body(content: Content) -> some View {
-        content.accessibilityValue(Self.value(picture, detailed: model.isAdvanced))
-    }
-
-    private static func value(_ picture: ThumbnailPicture, detailed: Bool) -> String {
-        if let capture = picture.capture {
-            return detailed ? capture.summary : capture.kind.title(detailed: false)
-        }
-        if let entry = picture.entry {
-            if detailed, !entry.summary.isEmpty { return entry.summary }
+    /// The thumbnail's VoiceOver value: the exposure the camera reported, or for a photo from the library its stored
+    /// summary where there is one.
+    var spokenValue: String {
+        if let capture { return capture.summary }
+        if let entry {
+            if !entry.summary.isEmpty { return entry.summary }
             return entry.kind == .video ? "Video" : "Photo"
         }
         return "None yet"

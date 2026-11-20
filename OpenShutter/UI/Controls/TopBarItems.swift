@@ -263,8 +263,8 @@ private struct BarLivePhoto: View {
 
 // MARK: - Timer
 
-/// Steps the self timer, and in the advanced interface ends the cycle in the timer sheet, like the drawer's item. It
-/// also shows an intervalometer or a bracket that is set, so the bar says what the next press starts.
+/// Steps the self timer and ends the cycle in the timer sheet, like the drawer's item. It also shows an intervalometer
+/// or a bracket that is set, so the bar says what the next press starts.
 private struct BarTimer: View {
     let model: CameraModel
     let mode: CaptureMode
@@ -286,7 +286,7 @@ private struct BarTimer: View {
             }
         }
         .buttonStyle(BarCircleStyle(isActive: !preview.isEmpty, isPressed: press.isPressed))
-        .accessibilityLabel(TopBarItem.timer.title(advanced: model.isAdvanced))
+        .accessibilityLabel(TopBarItem.timer.title(advanced: true))
         .accessibilityValue(preview.spokenValue)
         .accessibilityHint(HoldMenuText.hint)
         .overlay {
@@ -299,10 +299,7 @@ private struct BarTimer: View {
     }
 
     static func step(_ model: CameraModel, cycle: TimerCycle, timerSheetRequested: Binding<Bool>) {
-        let advanced = model.isAdvanced
-        switch QuickActions.timerStep(after: model.settings.capture.schedule,
-                                      delays: QuickActions.delays(advanced: advanced),
-                                      endsInSheet: advanced, sheetOffered: cycle.sheetOffered) {
+        switch QuickActions.timerStep(after: model.settings.capture.schedule, sheetOffered: cycle.sheetOffered) {
         case .schedule(let schedule):
             cycle.sheetOffered = false
             QuickActions.setSchedule(schedule, model)
@@ -337,16 +334,14 @@ private struct TimerItemTouchLayer: View {
     }
 }
 
-/// The self timer's delays. The simple interface offers the ones its drawer steps through; the advanced one adds the
-/// rest and the way into the timer sheet.
+/// The self timer's delays, and the way into the timer sheet for the rest.
 private struct TimerOptions: View {
     let model: CameraModel
     @Binding var timerSheetRequested: Bool
 
     var body: some View {
-        let advanced = model.isAdvanced
         let schedule = model.settings.capture.schedule
-        ForEach(QuickActions.delays(advanced: advanced), id: \.self) { delay in
+        ForEach(CaptureSchedule.delayPresets, id: \.self) { delay in
             // A burst or an intervalometer is none of the plain delays, so no row is marked for it.
             let isCurrent = schedule.shots == 1 && abs(schedule.delay - delay) < 0.01
             Toggle(isOn: Binding(get: { isCurrent }, set: { _ in choose(delay) })) {
@@ -354,11 +349,9 @@ private struct TimerOptions: View {
                 Text(QuickActions.delayTitle(delay))
             }
         }
-        if advanced {
-            Section {
-                Button(action: showSheet) {
-                    Label("More\u{2026}", systemImage: "slider.horizontal.3")
-                }
+        Section {
+            Button(action: showSheet) {
+                Label("More\u{2026}", systemImage: "slider.horizontal.3")
             }
         }
     }
@@ -493,7 +486,7 @@ private struct BarAspect: View {
             }
         }
         .buttonStyle(BarCircleStyle(isActive: QuickActions.aspectIsActive(aspect), isPressed: press.isPressed))
-        .accessibilityLabel(TopBarItem.aspect.title(advanced: model.isAdvanced))
+        .accessibilityLabel(TopBarItem.aspect.title(advanced: true))
         .accessibilityValue(aspect.label)
         .accessibilityHint(HoldMenuText.hint)
         .overlay {
@@ -508,8 +501,7 @@ private struct AspectOptions: View {
     let model: CameraModel
 
     var body: some View {
-        let advanced = model.isAdvanced
-        let presets = QuickActions.aspects(advanced: advanced)
+        let presets = AspectRatio.presets
         let aspect = model.settings.capture.aspect
         let isPreset = presets.contains(where: { $0.matches(aspect) })
         Picker("Aspect ratio", selection: Binding(get: { QuickActions.aspectSelection(aspect, among: presets) },
@@ -522,13 +514,11 @@ private struct AspectOptions: View {
             }
         }
         .pickerStyle(.inline)
-        if advanced {
-            Button {
-                // Settings holds the side fields; the bar shows the new ratio once it closes.
-                model.isSettingsPresented = true
-            } label: {
-                Label("Custom\u{2026}", systemImage: "slider.horizontal.3")
-            }
+        Button {
+            // Settings holds the side fields; the bar shows the new ratio once it closes.
+            model.isSettingsPresented = true
+        } label: {
+            Label("Custom\u{2026}", systemImage: "slider.horizontal.3")
         }
     }
 }
@@ -761,11 +751,6 @@ private struct Upright<Content: View>: View {
 enum QuickActions {
     // MARK: Photo shape
 
-    /// The shapes a tap steps through and a menu lists: the simple interface's three, or every preset.
-    static func aspects(advanced: Bool) -> [AspectRatio] {
-        advanced ? AspectRatio.presets : CameraSettings.simpleAspects
-    }
-
     /// Lit whenever the shape isn't the one a fresh install starts with, so a new phone's bar starts unlit.
     static func aspectIsActive(_ aspect: AspectRatio) -> Bool {
         !aspect.matches(CameraSettings.default.capture.aspect)
@@ -776,10 +761,10 @@ enum QuickActions {
         presets.first(where: { $0.matches(aspect) }) ?? aspect
     }
 
-    /// Steps through the interface's shapes. A ratio entered in Settings sits after the last one, so the next tap goes
-    /// to the first.
+    /// Steps through every preset shape. A ratio entered in Settings sits after the last one, so the next tap goes to
+    /// the first.
     static func stepAspect(_ model: CameraModel) {
-        let presets = aspects(advanced: model.isAdvanced)
+        let presets = AspectRatio.presets
         guard !presets.isEmpty else { return }
         let current = model.settings.capture.aspect
         let index = presets.firstIndex(where: { $0.matches(current) })
@@ -812,11 +797,6 @@ enum QuickActions {
 
     // MARK: Timer
 
-    /// The self timer's delays: the simple interface's, or every preset.
-    static func delays(advanced: Bool) -> [Double] {
-        advanced ? CaptureSchedule.delayPresets : CameraSettings.simpleDelays
-    }
-
     /// Video and bulb start on the press itself, so a timer would never run there.
     static func timerApplies(_ model: CameraModel) -> Bool {
         let mode = model.settings.mode
@@ -830,10 +810,10 @@ enum QuickActions {
         case sheet
     }
 
-    /// Off, then each delay, then the timer sheet where the cycle ends there, and Off again. A burst, an
-    /// intervalometer or a delay off the list steps back to Off, and so does the tap after the sheet was offered.
-    static func timerStep(after schedule: CaptureSchedule, delays: [Double], endsInSheet: Bool,
-                          sheetOffered: Bool) -> TimerStep {
+    /// Off, then each preset delay, then the timer sheet, and Off again. A burst, an intervalometer or a delay off the
+    /// list steps back to Off, and so does the tap after the sheet was offered.
+    static func timerStep(after schedule: CaptureSchedule, sheetOffered: Bool) -> TimerStep {
+        let delays = CaptureSchedule.delayPresets
         guard schedule.shots == 1,
               let index = delays.firstIndex(where: { abs($0 - schedule.delay) < 0.01 }) else {
             return .schedule(.off)
@@ -841,7 +821,7 @@ enum QuickActions {
         if index + 1 < delays.count {
             return .schedule(CaptureSchedule(delay: delays[index + 1]))
         }
-        return endsInSheet && !sheetOffered ? .sheet : .schedule(.off)
+        return sheetOffered ? .schedule(.off) : .sheet
     }
 
     static func setSchedule(_ schedule: CaptureSchedule, _ model: CameraModel) {

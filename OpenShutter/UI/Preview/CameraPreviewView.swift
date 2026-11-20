@@ -60,17 +60,12 @@ private struct ViewfinderAccessibility: ViewModifier {
     let interaction: ViewfinderInteraction
 
     func body(content: Content) -> some View {
-        // The simple interface calls exposure compensation brightness, here as on its chip and dial.
-        let advanced = model.isAdvanced
         content
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Viewfinder")
             // Without a value VoiceOver says nothing after a swipe, so the change would go unheard.
-            .accessibilityValue((advanced ? "Exposure " : "Brightness ")
-                + EVFormat.label(ViewfinderInteraction.currentBias(model)))
-            .accessibilityHint(advanced
-                ? "Double tap to focus in the middle. Swipe up or down to change exposure."
-                : "Double tap to focus in the middle. Swipe up or down to change brightness.")
+            .accessibilityValue("Exposure " + EVFormat.label(ViewfinderInteraction.currentBias(model)))
+            .accessibilityHint("Double tap to focus in the middle. Swipe up or down to change exposure.")
             .accessibilityAction {
                 interaction.focusCenter(lock: false, model: model)
             }
@@ -81,7 +76,7 @@ private struct ViewfinderAccessibility: ViewModifier {
                 @unknown default: break
                 }
             }
-            .accessibilityAction(named: advanced ? "Lock focus and exposure" : "Lock focus and brightness") {
+            .accessibilityAction(named: "Lock focus and exposure") {
                 interaction.focusCenter(lock: true, model: model)
             }
             .accessibilityAction(named: "Switch zoom") {

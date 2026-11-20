@@ -7,9 +7,8 @@ import CameraCore
 /// follows the finger and springs to the mode it lands on.
 struct ModeCarousel: View {
     @Binding var mode: CaptureMode
-    /// The modes on offer, left to right, each once. The simple interface leaves MANUAL out, and the list can change
-    /// while the strip is on screen: titles are told apart by their mode, so the ones that stay slide to their new
-    /// places.
+    /// The modes on offer, left to right, each once. The list can change while the strip is on screen: titles are told
+    /// apart by their mode, so the ones that stay slide to their new places.
     var modes: [CaptureMode] = CaptureMode.carouselOrder
 
     @Environment(\.legibilityWeight) private var legibilityWeight
@@ -111,10 +110,9 @@ struct ModeCarousel: View {
 
     // MARK: - Layout
 
-    /// Where the strip rests. The selected mode can be missing from the list for a moment while the list changes
-    /// (MANUAL leaves with the advanced interface). The strip then rests on that mode's nearest neighbour in the
-    /// usual order, the earlier one of two, which is the mode the camera lands on, instead of jumping to the
-    /// first title.
+    /// Where the strip rests. The selected mode can be missing from the list for a moment while the list changes. The
+    /// strip then rests on that mode's nearest neighbour in the usual order, the earlier one of two, instead of jumping
+    /// to the first title.
     private var selectedIndex: Int {
         if let index = modes.firstIndex(of: mode) { return index }
         let order = CaptureMode.carouselOrder

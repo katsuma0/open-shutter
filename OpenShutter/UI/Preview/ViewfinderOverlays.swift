@@ -284,31 +284,18 @@ private struct FocusSquare: Equatable {
     var isLocked: Bool
 }
 
-/// Names a lock by what it holds, in the words of the model's lock toasts: the advanced interface the way cameras
-/// do, the simple one in plain words. A long press holds the focus and the exposure, or only the one of them still
-/// left to the camera; the AE-L chip holds the exposure alone.
+/// Names a lock by what it holds, in the words of the model's lock toasts, the way cameras do. A long press holds the
+/// focus and the exposure, or only the one of them still left to the camera; the AE-L chip holds the exposure alone.
 private struct LockWording {
     let focus: Bool
     let exposure: Bool
-    let advanced: Bool
 
     var badgeLabel: String {
-        if advanced {
-            return focus && exposure ? "AE/AF LOCK" : (exposure ? "AE LOCK" : "AF LOCK")
-        }
-        return focus && exposure ? "Focus and brightness locked" : (exposure ? "Brightness locked" : "Focus locked")
-    }
-
-    /// One short word on the square for a full lock in the simple interface: the square and the sun beside it
-    /// show what is held, and a longer label would run off the picture next to its edges. A lock of only one of
-    /// them names it, because the square and the sun would claim both.
-    var squareLabel: String {
-        !advanced && focus && exposure ? "Locked" : badgeLabel
+        focus && exposure ? "AE/AF LOCK" : (exposure ? "AE LOCK" : "AF LOCK")
     }
 
     var spokenLabel: String {
-        guard advanced else { return badgeLabel }
-        return focus && exposure ? "Exposure and focus locked" : (exposure ? "Exposure locked" : "Focus locked")
+        focus && exposure ? "Exposure and focus locked" : (exposure ? "Exposure locked" : "Focus locked")
     }
 }
 
@@ -329,7 +316,7 @@ private struct FocusReticleLayer: View {
                 let point = CGPoint(x: square.point.x + origin.x, y: square.point.y + origin.y)
                 FocusReticle(
                     isLocked: square.isLocked,
-                    lock: LockWording(focus: model.focusLocked, exposure: model.aeLocked, advanced: model.isAdvanced),
+                    lock: LockWording(focus: model.focusLocked, exposure: model.aeLocked),
                     bias: Self.bias(model),
                     quarterTurns: turns,
                     labelBelow: labelBelow(point, turns: turns)
@@ -386,7 +373,7 @@ private struct FocusReticle: View {
                 .opacity(faded ? (isLocked ? 0.6 : 0) : 1)
                 .accessibilityHidden(true)
             if isLocked {
-                Text(lock.squareLabel)
+                Text(lock.badgeLabel)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Theme.onAccent)
                     .padding(.horizontal, 8)
@@ -456,11 +443,8 @@ private struct StatusBadges: View {
     @State private var showsStackInfo = false
 
     var body: some View {
-        let advanced = model.isAdvanced
-        // How a long shutter is built is the advanced interface's business. In the simple one LONG would wear this
-        // badge nearly all the time, for a word it never explains.
-        let stacked = advanced && model.shutterIsStacked
-        let lock = LockWording(focus: model.focusLocked, exposure: model.aeLocked, advanced: advanced)
+        let stacked = model.shutterIsStacked
+        let lock = LockWording(focus: model.focusLocked, exposure: model.aeLocked)
         // Stands in for the square's label when the square is gone: a zoom moved the picture under it, or the AE-L
         // chip locked without one.
         let showsLock = (lock.focus || lock.exposure) && !reticleShowsLock
@@ -569,8 +553,7 @@ private struct ClippingBadge: View {
 
     var body: some View {
         let clipping = analysisIsRunning && model.showsClippingWarning
-        // The hold below is for clipping that comes and goes. A warning that is switched off goes at once, which
-        // is also what leaving the advanced interface does to it.
+        // The hold below is for clipping that comes and goes. A warning that is switched off goes at once.
         let isOn = model.settings.display.clippingWarnings
         ZStack(alignment: .topTrailing) {
             // Keeps the view alive while the badge is hidden, so the task below keeps watching.
