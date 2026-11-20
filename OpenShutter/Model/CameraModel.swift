@@ -48,8 +48,12 @@ final class CameraModel {
     private(set) var intervalometer: IntervalometerStatus? {
         didSet {
             updateIdleTimer()
-            // A run that ends while the gallery is up lets the camera stop under it.
-            if (oldValue == nil) != (intervalometer == nil) { updateGalleryPause() }
+            if (oldValue == nil) != (intervalometer == nil) {
+                // A run that ends while the gallery is up lets the camera stop under it.
+                updateGalleryPause()
+                // The mode stays put for the whole run, so the Camera Control's Mode and Night scene dim with it.
+                applyCameraControls()
+            }
         }
     }
     private(set) var recordingDuration: TimeInterval = 0
@@ -650,6 +654,15 @@ final class CameraModel {
             }
             store.nightMovedToTripod = true
         }
+        // Night duration joined the Camera Control's default list. A list still equal to the default before it was
+        // never changed by hand, so it moves to the new default once; a list the person made stays as it is.
+        if !store.cameraControlMovedToNightDuration {
+            if stored.controls.cameraControlItems == CameraControlItem.previousDefaultSelection {
+                stored.controls.cameraControlItems = CameraControlItem.defaultSelection
+                store.save(stored)
+            }
+            store.cameraControlMovedToNightDuration = true
+        }
         // What the startup options don't keep goes back to where a fresh install starts, after the restore, so a
         // MANUAL it brings back doesn't open a camera that is set to start in PHOTO.
         var loaded = stored.applyingStartupOptions()
@@ -796,6 +809,8 @@ final class CameraModel {
         refreshSteadyStatus()
         updateDimming()
         updateGalleryPause()
+        // The Camera Control's controls dim while a shot runs and the mode can't change, and come back after.
+        applyCameraControls()
         // The camera is free again: a lens button's swap parked behind the shot, a recording, a cancelled countdown or
         // a bracket happens now. Not as a countdown runs out, whose shot starts in this same turn on the lens it was
         // framed with, and not under a gallery that has just stopped the camera.
@@ -1307,18 +1322,21 @@ final class CameraModel {
     /// nil = auto. Values longer than the hardware maximum become stacked exposures.
     func setShutter(_ seconds: Double?) {
         let value = seconds.map { max($0, 1.0 / 1_000_000) }
-        // A long exposure's shutter is its duration, which every phone sets. Elsewhere it is a shutter speed.
-        guard settings.mode == .long || allowsManualShutter else { return }
+        // NIGHT's shutter is its duration, which every phone sets. Elsewhere it is a shutter speed.
+        guard settings.mode.usesStacking || allowsManualShutter else { return }
         switch settings.mode {
         case .long:
             guard let value else { return }
             setLongExposureSeconds(value)
+        case .night:
+            // The night shot's time, as its dial sets it; nil is the camera's own. It stays in NIGHT.
+            setNightSeconds(value)
         case .video:
             let limit = 1.0 / max(recordedVideo.frameRate, 1)
             updateSettings { $0.manual.shutter = value.map { min($0, limit) } }
         case .manual:
             updateSettings { $0.manual.shutter = value }
-        case .photo, .night:
+        case .photo:
             guard let value else { return }
             switchToManual { $0.manual.shutter = value }
         }
@@ -2440,10 +2458,12 @@ final class CameraModel {
         if old.display != new.display || old.focus != new.focus || sceneChanged || levelChanged {
             applyAnalysis()
         }
-        // The Camera Control overlay shows these too. An open dial updates it when it closes, since every
-        // reinstall reconfigures the session.
+        // The Camera Control overlay shows these too, and which of its controls work follows some of them. An open
+        // dial updates it when it closes, as it would otherwise send a state at the dial's rate.
         let controlValuesChanged = old.manual.locks != new.manual.locks || old.whiteBalance != new.whiteBalance
             || old.focus != new.focus || old.longExposure != new.longExposure || old.video.frameRate != new.video.frameRate
+            || old.night.seconds != new.night.seconds || old.capture.schedule != new.capture.schedule
+            || old.capture.flash != new.capture.flash || old.display.histogram != new.display.histogram
         // The simple interface carries its own short list of controls.
         if old.controls.cameraControlItems != new.controls.cameraControlItems || levelChanged
             || (controlValuesChanged && activeDial == nil && !applyingControlChange) {
@@ -2571,16 +2591,24 @@ final class CameraModel {
         )
     }
 
+    /// Sends the Camera Control what it shows. One set of controls serves every mode: what a control can't do in
+    /// this mode, or while a shot runs, it shows dimmed (disabledItems), so a mode change only changes values and
+    /// the overlay never rebuilds under the finger. The backend skips a state equal to the one it has.
     private func applyCameraControls() {
+        // The simple interface has no MANUAL to land in, so its Camera Control carries nothing that leads there.
+        let items = (isAdvanced ? settings.controls.cameraControlItems : CameraSettings.simpleCameraControlItems)
+            // Without manual shutter speeds the shutter picker would have nothing to set: NIGHT's time is Night
+            // duration's, on every phone.
+            .filter { allowsManualShutter || $0 != .shutter }
+        let context = cameraControlContext
+        let night = nightControlChoice
+        let whiteBalance = effectiveWhiteBalance
+        let lensButtons = backLensPresets
         let state = CameraControlState(
-            // The simple interface has no MANUAL to land in, so its Camera Control carries nothing that leads there.
-            items: (isAdvanced ? settings.controls.cameraControlItems : CameraSettings.simpleCameraControlItems)
-                // Without manual shutter speeds the shutter picker could only set a long exposure's time, and in
-                // the other modes it would do nothing.
-                .filter { allowsManualShutter || $0 != .shutter },
-            shutterStops: shutterScale.map(\.seconds),
-            // LONG's shutter picker sets the duration, which Blur and Trails have as well; it is never Auto there.
-            shutter: settings.mode == .long ? settings.longExposure.seconds : (isShutterAuto ? nil : displayShutter),
+            items: items,
+            shutterStops: cameraControlShutterStops,
+            // NIGHT's time is Night duration's, so its Shutter sits dimmed on Auto.
+            shutter: settings.mode.usesStacking || isShutterAuto ? nil : displayShutter,
             isoStops: isoScale,
             // Auto on the ISO and aperture pickers is wherever the person has set nothing, which in LONG can be a
             // value the scene fixes: Auto leads back to it, as the dial's does.
@@ -2588,13 +2616,87 @@ final class CameraModel {
             apertureStops: apertureScale,
             aperture: locksByHand && capabilities.supportsVariableAperture && settings.manual.aperture != nil
                 ? displayAperture : nil,
-            kelvin: effectiveWhiteBalance.kelvinValue,
+            kelvin: whiteBalance.kelvinValue,
             lensPosition: effectiveFocus.lensPosition,
             mode: settings.mode,
-            lensTitles: backLensPresets.map(\.selectedLabel),
-            lensIndex: backLensPresets.firstIndex(where: { $0.id == activePresetID })
+            lensTitles: lensButtons.map(\.selectedLabel),
+            // A choice parked behind a save or a lens switch is where the camera is heading, so the picker keeps the
+            // pick rather than going back to the lens in use and forward again. A parked preset that is no button (the
+            // selfie camera, a recall's own zoom, macro) leaves it on the active one.
+            lensIndex: pendingPreset.flatMap { parked in lensButtons.firstIndex { $0.id == parked.id } }
+                ?? lensButtons.firstIndex(where: { $0.id == activePresetID }),
+            durationStops: NightControlStops.durations(manualShutter: allowsManualShutter),
+            duration: night.duration,
+            sceneTitles: Self.nightSceneTitles,
+            // Star trails is no longer on the menu: its picker stays where it is.
+            sceneIndex: LongExposureScene.nightMenuChoices.firstIndex(of: night.scene),
+            tint: whiteBalance.isAuto ? nil : whiteBalance.tintValue,
+            timerIndex: timerPresetIndex,
+            flash: settings.capture.flash,
+            histogram: settings.display.histogram,
+            disabledItems: Set(items.filter { !cameraControlWorks($0, in: context) })
         )
         backend.configureCameraControls(state)
+    }
+
+    /// A Camera Control control does something now: CameraCore's rule for the mode and the shot, and Flash only
+    /// where this camera's photos can fire one, as for the top bar's flash (the selfie camera's screen flash counts).
+    private func cameraControlWorks(_ item: CameraControlItem, in context: CameraControlContext) -> Bool {
+        item.isActive(in: context) && (item != .flash || capabilities.hasFlash)
+    }
+
+    /// What the camera is doing, as the Camera Control's rule for which controls work reads it
+    /// (CameraControlItem.isActive).
+    private var cameraControlContext: CameraControlContext {
+        CameraControlContext(
+            mode: settings.mode,
+            scene: settings.longExposure.scene,
+            bulb: settings.longExposure.bulb,
+            // A scene's fixed temperature counts as set: its tint moves from there, as the strip's tint chip does.
+            whiteBalanceIsAuto: effectiveWhiteBalance.isAuto,
+            stackedShutter: settings.mode == .manual && shutterIsStacked,
+            // The dials' own rule: a photo, a stack or a save locks them; a countdown and a recording don't.
+            shotRunning: activity == .capturing || activity == .stacking || activity == .saving,
+            // canChangeMode without the photos still being saved, whose end sends the controls nothing. A mode pick
+            // meanwhile is refused and the overlay goes back.
+            modeLocked: activity.isBusy || intervalometer != nil,
+            manualShutterAllowed: allowsManualShutter
+        )
+    }
+
+    /// The Shutter picker's speeds: MANUAL's list in PHOTO, MANUAL and NIGHT, so a PHOTO pick that leads to MANUAL
+    /// keeps the titles on show (one past the longest frame lands as a stacked shutter, as on MANUAL's dial), and
+    /// VIDEO's own, up to one frame. Titles can't change without a rebuild of the controls, which only VIDEO's
+    /// session change brings anyway.
+    private var cameraControlShutterStops: [Double] {
+        if settings.mode == .video { return shutterScale.map(\.seconds) }
+        return ShutterSpeed.scale(minSeconds: capabilities.exposure.seconds.lowerBound, maxSeconds: 1800).map(\.seconds)
+    }
+
+    /// The night choice and time the Camera Control shows: NIGHT's own in NIGHT, and elsewhere the ones NIGHT would
+    /// open with, so the dimmed pickers are already right when it does. The night shot's nil time is the camera's
+    /// own; a scene always has a time.
+    private var nightControlChoice: (scene: LongExposureScene?, duration: Double?) {
+        let family = settings.mode.usesStacking ? settings.mode : lastNightFamilyMode
+        guard family == .long else { return (nil, settings.night.seconds) }
+        return (settings.longExposure.scene, settings.longExposure.seconds)
+    }
+
+    /// The Night scene picker's titles, in the scene menu's order and words (NightText): the night shot, Manual
+    /// night, then the scenes.
+    private static let nightSceneTitles: [String] = LongExposureScene.nightMenuChoices.map { scene in
+        guard let scene else { return "Night" }
+        return scene == .custom ? "Manual night" : scene.title
+    }
+
+    /// The self timer as the Timer picker lists it: an index into CaptureSchedule.delayPresets, Off first. A burst,
+    /// an intervalometer or a delay set in the timer sheet has no row of its own and shows on Custom, the spot after
+    /// them, so a rebuilt picker never reads Off while the next press starts a sequence.
+    private var timerPresetIndex: Int {
+        let delays = CaptureSchedule.delayPresets
+        let schedule = settings.capture.schedule
+        guard schedule.shots == 1 else { return delays.count }
+        return delays.firstIndex { abs($0 - schedule.delay) < 0.001 } ?? delays.count
     }
 
     /// MANUAL, LONG and VIDEO expose with the shared manual values. PHOTO and NIGHT leave them alone.
@@ -3482,13 +3584,19 @@ extension CameraModel: CameraBackendDelegate {
         // interface switched. Everything it could set is hidden there, or leads to MANUAL.
         if !isAdvanced {
             switch change {
-            case .shutter, .iso, .aperture, .kelvin, .focus: return
-            case .mode, .lens: break
+            case .shutter, .iso, .aperture, .kelvin, .focus, .tint: return
+            case .mode, .lens, .duration, .scene, .timer, .flash, .histogram: break
             }
         }
-        // PHOTO and NIGHT have no focus or white balance control to go back to auto with, so a pick there moves
-        // to MANUAL, as a shutter or ISO pick does.
-        let leavesAutoMode = settings.mode == .photo || settings.mode == .night
+        // A pick still on its way as its control went dim (a shot started, the mode changed) does nothing. The state
+        // sent here puts the control back where the camera is.
+        guard cameraControlWorks(Self.controlItem(of: change), in: cameraControlContext) else {
+            applyCameraControls()
+            return
+        }
+        // PHOTO has no focus or white balance control to go back to auto with, so a pick there moves to MANUAL, as
+        // a shutter or ISO pick does. NIGHT keeps them to Manual night, where they are set in place.
+        let leavesAutoMode = settings.mode == .photo
         switch change {
         case .shutter(let value): setShutter(value)
         case .iso(let value): setISO(value)
@@ -3528,7 +3636,83 @@ extension CameraModel: CameraBackendDelegate {
                 // The Camera Control clicks on its own.
                 select(presets[index], haptic: false)
             }
+        case .duration(let seconds):
+            setNightControlDuration(seconds)
+        case .scene(let index):
+            let choices = LongExposureScene.nightMenuChoices
+            guard choices.indices.contains(index) else { break }
+            // A slide passes back over the choice in use: picked again, it would only clear what was set by hand.
+            if choices[index] != nightControlChoice.scene {
+                selectNightScene(choices[index])
+            }
+        case .tint(let value):
+            let range = WhiteBalanceMath.tintRange
+            let tint = min(max(value, range.lowerBound), range.upperBound)
+            if leavesAutoMode {
+                let kelvin = displayKelvin
+                switchToManual(keepingAutoExposure: true) { $0.whiteBalance = .kelvin(kelvin, tint: tint) }
+            } else {
+                setTint(tint)
+            }
+        case .timer(let index):
+            let delays = CaptureSchedule.delayPresets
+            // Custom, after the delays, stands for what the timer sheet sets and has nothing to set here: the state
+            // sent below puts the picker back on what is set.
+            guard delays.indices.contains(index) else { break }
+            // A plain delay, in place of a burst or an intervalometer too, as the top bar's timer menu picks one.
+            updateSettings { $0.capture.schedule = CaptureSchedule(delay: delays[index]) }
+        case .flash(let flash):
+            updateSettings { $0.capture.flash = flash }
+        case .histogram(let style):
+            updateSettings { $0.display.histogram = style }
         }
+        // The overlay shows what the pick did: a scene's own time, Manual night's ISO coming alive, a clamped value or
+        // a refused pick going back. The bridge spares the control under the finger until it rests.
+        applyCameraControls()
+    }
+
+    /// The control a pick came from.
+    private static func controlItem(of change: CameraControlChange) -> CameraControlItem {
+        switch change {
+        case .shutter: return .shutter
+        case .iso: return .iso
+        case .aperture: return .aperture
+        case .kelvin: return .whiteBalance
+        case .focus: return .focus
+        case .mode: return .mode
+        case .lens: return .lens
+        case .duration: return .nightDuration
+        case .scene: return .nightScene
+        case .tint: return .tint
+        case .timer: return .timer
+        case .flash: return .flash
+        case .histogram: return .histogram
+        }
+    }
+
+    /// The Camera Control's Night duration. The night shot takes any time, nil for its own. A scene's Auto is the
+    /// time the scene starts at; Manual night has none to go back to, so its Auto only puts the picker back.
+    private func setNightControlDuration(_ seconds: Double?) {
+        switch settings.mode {
+        case .night:
+            setNightSeconds(seconds)
+        case .long:
+            if let seconds {
+                setLongExposureSeconds(seconds)
+            } else if let start = sceneStartSeconds(settings.longExposure.scene) {
+                setLongExposureSeconds(start)
+            }
+        case .photo, .manual, .video:
+            break
+        }
+    }
+
+    func cameraBackendControlsDidBecomeActive(_ backend: CameraBackend) {
+        // A light press shows the overlay before any fullscreen appearance, and its zoom slider reads the device from
+        // then on: the magnifier's zoom would show as the photo's, and a swipe would start from it. The press is also
+        // someone looking at the screen.
+        setMagnified(false)
+        wakeScreen()
     }
 
     func cameraBackend(_ backend: CameraBackend, controlsFullscreenDidChange isFullscreen: Bool) {

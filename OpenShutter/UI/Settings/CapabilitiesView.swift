@@ -186,7 +186,7 @@ private enum CapabilityReport {
     }
 
     static func groups(for c: CameraCapabilities) -> [CapabilityGroup] {
-        [lens(c), exposure(c), priority(c), focus(c), whiteBalance(c), photo(c), image(c), video(c)]
+        [lens(c), exposure(c), priority(c), focus(c), whiteBalance(c), photo(c), image(c), video(c), cameraControl(c)]
     }
 
     static func text(groups: [CapabilityGroup], formats: [FormatDescriptor]) -> String {
@@ -340,6 +340,16 @@ private enum CapabilityReport {
             CapabilityRow("Low light noise reduction", flag: c.lowLightVideoNoiseReductionSupported),
         ]
         return CapabilityGroup(title: "Video", rows: rows)
+    }
+
+    /// What the capture session takes for Camera Control. iOS publishes no number for the control limit, so the row
+    /// shows what this phone reports, or that it hasn't yet.
+    private static func cameraControl(_ c: CameraCapabilities) -> CapabilityGroup {
+        var rows = [CapabilityRow("Camera Control", flag: c.supportsCameraControls)]
+        if c.supportsCameraControls {
+            rows.append(CapabilityRow("App controls", text: c.maxCameraControls > 0 ? "Up to \(c.maxCameraControls)" : "Not reported"))
+        }
+        return CapabilityGroup(title: "Camera Control", rows: rows)
     }
 
     private static func kindTitle(_ kind: LensInfo.Kind) -> String {

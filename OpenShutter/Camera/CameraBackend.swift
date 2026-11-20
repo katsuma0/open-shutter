@@ -84,4 +84,7 @@ protocol CameraBackendDelegate: AnyObject {
     func cameraBackend(_ backend: CameraBackend, didReceiveControl change: CameraControlChange)
     /// The Camera Control overlay is taking the screen; hide busy UI while it shows.
     func cameraBackend(_ backend: CameraBackend, controlsFullscreenDidChange isFullscreen: Bool)
+    /// A light press brought up the Camera Control's overlay, before any fullscreen appearance. Its zoom slider
+    /// reads the device's zoom from then on.
+    func cameraBackendControlsDidBecomeActive(_ backend: CameraBackend)
 }

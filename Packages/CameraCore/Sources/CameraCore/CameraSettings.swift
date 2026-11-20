@@ -324,8 +324,11 @@ public enum StabilizationChoice: String, Codable, Sendable, CaseIterable, Identi
     }
 }
 
+/// A control the Camera Control can carry. Saves hold the raw values; the case order is the order Settings lists
+/// the ones not picked.
 public enum CameraControlItem: String, Codable, Sendable, CaseIterable, Identifiable {
-    case zoom, lens, exposureBias, shutter, iso, aperture, whiteBalance, focus, mode
+    case zoom, lens, exposureBias, shutter, nightDuration, nightScene, iso, aperture, whiteBalance, tint, focus
+    case timer, flash, histogram, mode
     public var id: String { rawValue }
     public var title: String {
         switch self {
@@ -333,10 +336,16 @@ public enum CameraControlItem: String, Codable, Sendable, CaseIterable, Identifi
         case .lens: return "Lens"
         case .exposureBias: return "Exposure"
         case .shutter: return "Shutter"
+        case .nightDuration: return "Night duration"
+        case .nightScene: return "Night scene"
         case .iso: return "ISO"
         case .aperture: return "Aperture"
         case .whiteBalance: return "White balance"
+        case .tint: return "Tint"
         case .focus: return "Focus"
+        case .timer: return "Timer"
+        case .flash: return "Flash"
+        case .histogram: return "Histogram"
         case .mode: return "Mode"
         }
     }
@@ -346,15 +355,26 @@ public enum CameraControlItem: String, Codable, Sendable, CaseIterable, Identifi
         case .lens: return "camera"
         case .exposureBias: return "plusminus.circle"
         case .shutter: return "camera.aperture"
+        case .nightDuration: return "hourglass"
+        case .nightScene: return "moon.stars"
         case .iso: return "camera.metering.matrix"
         case .aperture: return "camera.aperture"
         case .whiteBalance: return "thermometer.sun"
+        case .tint: return "drop.halffull"
         case .focus: return "scope"
+        case .timer: return "timer"
+        case .flash: return "bolt"
+        case .histogram: return "chart.bar"
         case .mode: return "camera.on.rectangle"
         }
     }
-    /// Zoom only moves within the current lens (Apple's slider drives one camera), so Lens comes next to it.
-    public static let defaultSelection: [CameraControlItem] = [.zoom, .lens, .exposureBias, .shutter, .iso, .whiteBalance]
+    /// Zoom only moves within the current lens (Apple's slider drives one camera), so Lens comes next to it. Night
+    /// duration sets NIGHT's time on every phone. Shutter needs manual shutter speeds; where there are none it drops
+    /// out and five remain.
+    public static let defaultSelection: [CameraControlItem] = [.zoom, .lens, .exposureBias, .shutter, .nightDuration, .iso]
+    /// The default before Night duration joined it. A saved list equal to this one was never changed by hand, so
+    /// the app moves it to the new default once.
+    public static let previousDefaultSelection: [CameraControlItem] = [.zoom, .lens, .exposureBias, .shutter, .iso, .whiteBalance]
 }
 
 public enum WhiteBalanceSetting: Codable, Hashable, Sendable {

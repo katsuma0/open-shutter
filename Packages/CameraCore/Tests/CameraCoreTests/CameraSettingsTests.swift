@@ -222,7 +222,11 @@ final class CameraSettingsTests: XCTestCase {
         // Night's hand or tripod choice was saved too, as the Auto it started at then. Decoding keeps it; the app
         // moves a save like this to the tripod default once, when it launches.
         expected.night.stability = .automatic
+        // So was the Camera Control's list, that version's default. Decoding keeps it too; the app moves a list
+        // still equal to it to the new default once.
+        expected.controls.cameraControlItems = CameraControlItem.previousDefaultSelection
         XCTAssertEqual(loaded, expected)
+        XCTAssertEqual(loaded.controls.cameraControlItems, [.zoom, .lens, .exposureBias, .shutter, .iso, .whiteBalance])
     }
 
     func testOldSavesKeepEveryValueAndGetTheNewSettingsAtTheirDefaults() throws {

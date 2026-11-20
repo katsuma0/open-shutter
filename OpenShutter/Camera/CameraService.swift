@@ -187,6 +187,12 @@ final class CameraService: NSObject, CameraBackend, @unchecked Sendable {
                 self.delegate?.cameraBackend(self, controlsFullscreenDidChange: isFullscreen)
             }
         }
+        controlsBridge.onBecomeActive = { [weak self] in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.delegate?.cameraBackendControlsDidBecomeActive(self)
+            }
+        }
         appActiveObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -833,6 +839,8 @@ extension CameraService {
             capabilities = CapabilitiesBuilder.keepingPhotoFeatures(of: photoMode, in: capabilities)
         }
         capabilities.supportsCameraControls = session.supportsControls
+        // Apple gives no number for it anywhere; the session says on the phone itself.
+        capabilities.maxCameraControls = session.supportsControls ? max(session.maxControlsCount, 0) : 0
         capabilities.activeVideo = activeVideo
         sessionCapabilities = capabilities
         return sessionCapabilities
@@ -2073,14 +2081,22 @@ extension CameraService {
 // MARK: - Camera Control
 
 extension CameraService {
-    /// Installs controls for the latest state on the active camera. Skips identical re-installs, which the
-    /// model asks for often, because each one reconfigures the session.
+    /// Installs controls for the latest state on the active camera. Only new controls (another lens, list, or titles
+    /// on one that is installed) reconfigure the session; values and enabled flags, which change with every mode and
+    /// pick, go straight to the controls.
     nonisolated func installCameraControls() {
         guard let state = cameraControlState, let camera = activeCamera, session.supportsControls else { return }
-        if let installed = installedControls, installed.state == state, installed.deviceID == camera.lens.id { return }
-        session.beginConfiguration()
-        controlsBridge.install(on: session, device: camera.device, state: state)
-        session.commitConfiguration()
+        // The model asks often with nothing new. The same state still matters after a move on the button: it is
+        // how a pick the model refused goes back.
+        if let installed = installedControls, installed.state == state, installed.deviceID == camera.lens.id,
+           !controlsBridge.touchedSinceLatestState { return }
+        if controlsBridge.needsRebuild(on: session, device: camera.device, state: state) {
+            session.beginConfiguration()
+            controlsBridge.install(on: session, device: camera.device, state: state)
+            session.commitConfiguration()
+        } else {
+            controlsBridge.update(on: session, device: camera.device, state: state)
+        }
         installedControls = (state, camera.lens.id)
     }
 }
