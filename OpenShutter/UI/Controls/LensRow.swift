@@ -138,79 +138,65 @@ private struct ExposureChip: View {
     @State private var press = PressTracker()
 
     var body: some View {
-        let advanced = model.isAdvanced
         let bias = Self.bias(model)
         let isAdjusted = abs(bias) >= 0.05
         let isOpen = model.activeDial == .bias
-        let isShown = advanced || isAdjusted || isOpen
         let locked = Self.isLocked(model.activity)
-        // Typed strings, picked here: written as ternaries of literals inside the modifiers below, they take the
-        // type checker seconds.
-        let symbol: String = advanced ? "plusminus.circle" : "sun.max.fill"
-        let label: String = advanced ? "Exposure compensation" : "Brightness"
-        let hint: String = advanced ? "Opens the exposure dial. Touch and hold for more options."
-                                    : "Opens the brightness dial. Touch and hold for more options."
 
-        ZStack {
-            if isShown {
-                HStack(spacing: 4) {
-                    // Only the glyph turns with the phone, as on the strip's chips; the whole chip turned upright
-                    // would stand out of its row. The simple interface wears the viewfinder's sun.
-                    Upright(model: model) {
-                        Image(systemName: symbol)
-                    }
-                    HStack(alignment: .firstTextBaseline, spacing: 1) {
-                        Text(EVFormat.label(bias))
-                            .contentTransition(.numericText(value: bias))
-                        if !isAdjusted {
-                            AutoMark()
-                                .transition(.opacity)
-                        }
-                    }
+        HStack(spacing: 4) {
+            // Only the glyph turns with the phone, as on the strip's chips; the whole chip turned upright would
+            // stand out of its row.
+            Upright(model: model) {
+                Image(systemName: "plusminus.circle")
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text(EVFormat.label(bias))
+                    .contentTransition(.numericText(value: bias))
+                if !isAdjusted {
+                    AutoMark()
+                        .transition(.opacity)
                 }
-                .font(Theme.chipFont)
-                .foregroundStyle(isAdjusted || isOpen ? Theme.accent : Theme.primaryText)
-                .lineLimit(1)
-                // The shutter chip's floor: inside the room beside the lens buttons a long value shrinks a little.
-                .minimumScaleFactor(0.7)
-                .padding(.horizontal, 9)
-                .frame(height: 30)
-                .cameraGlass(in: Capsule())
-                .overlay {
-                    if isOpen {
-                        Capsule().strokeBorder(Theme.accent.opacity(0.8), lineWidth: 1)
-                    }
-                }
-                .scaleEffect(press.isPressed ? 0.94 : 1)
-                .animation(Theme.snappy, value: press.isPressed)
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
-                .onTapGesture { Self.toggleDial(model) }
-                .accessibilityElement(children: .ignore)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(Text(label))
-                // The A is drawn only; the value says it, as the dial's header does ("0 EV, auto").
-                .accessibilityValue(Text(isAdjusted ? EVFormat.label(bias) : EVFormat.label(bias) + ", auto"))
-                .accessibilityHint(Text(hint))
-                .accessibilityAction { Self.toggleDial(model) }
-                .accessibilityAction(named: "Reset") { Self.reset(model) }
-                .overlay {
-                    ExposureChipTouchLayer(model: model, press: press)
-                }
-                // Locked along with the strip and the dial it opens, menu included: a bracket takes each frame at the
-                // current exposure. Not dimmed while capturing, because every single photo passes through it. Saving
-                // follows only stacks and recordings, long enough to show the chip is resting.
-                .disabled(locked)
-                .opacity(model.activity == .saving ? 0.45 : 1)
-                .transition(.opacity.combined(with: .scale(scale: 0.8)))
             }
         }
+        .font(Theme.chipFont)
+        .foregroundStyle(isAdjusted || isOpen ? Theme.accent : Theme.primaryText)
+        .lineLimit(1)
+        // The shutter chip's floor: inside the room beside the lens buttons a long value shrinks a little.
+        .minimumScaleFactor(0.7)
+        .padding(.horizontal, 9)
+        .frame(height: 30)
+        .cameraGlass(in: Capsule())
+        .overlay {
+            if isOpen {
+                Capsule().strokeBorder(Theme.accent.opacity(0.8), lineWidth: 1)
+            }
+        }
+        .scaleEffect(press.isPressed ? 0.94 : 1)
+        .animation(Theme.snappy, value: press.isPressed)
+        .frame(minWidth: 44, minHeight: 44)
+        .contentShape(Rectangle())
+        .onTapGesture { Self.toggleDial(model) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(Text("Exposure compensation"))
+        // The A is drawn only; the value says it, as the dial's header does ("0 EV, auto").
+        .accessibilityValue(Text(isAdjusted ? EVFormat.label(bias) : EVFormat.label(bias) + ", auto"))
+        .accessibilityHint(Text("Opens the exposure dial. Touch and hold for more options."))
+        .accessibilityAction { Self.toggleDial(model) }
+        .accessibilityAction(named: "Reset") { Self.reset(model) }
+        .overlay {
+            ExposureChipTouchLayer(model: model, press: press)
+        }
+        // Locked along with the strip and the dial it opens, menu included: a bracket takes each frame at the
+        // current exposure. Not dimmed while capturing, because every single photo passes through it. Saving
+        // follows only stacks and recordings, long enough to show the chip is resting.
+        .disabled(locked)
+        .opacity(model.activity == .saving ? 0.45 : 1)
         // Outside the glass, which would otherwise stretch over the whole room.
         .frame(maxWidth: max(maxWidth, 44), alignment: Alignment(horizontal: edge, vertical: .center))
         // Keyed to adjusted or not, not the value: a drag of the EV dial changes it on every tick, and the digits
         // would never finish rolling.
         .animation(Theme.snappy, value: isAdjusted)
-        .animation(Theme.snappy, value: isShown)
     }
 
     fileprivate static func toggleDial(_ model: CameraModel) {
@@ -263,11 +249,10 @@ private struct ExposureChipOptions: View {
     private static let steps: [Double] = [-2, -1, 1, 2]
 
     var body: some View {
-        let advanced = model.isAdvanced
         let bias = ExposureChip.bias(model)
         let range = model.capabilities.biasRange
         // Titled like the dial the chip opens.
-        Section(advanced ? "Exposure" : "Brightness") {
+        Section("Exposure") {
             Button {
                 ExposureChip.reset(model)
             } label: {
@@ -276,8 +261,7 @@ private struct ExposureChipOptions: View {
             .disabled(abs(bias) < 0.05)
             ForEach(Self.steps.filter { range.contains($0) }, id: \.self) { step in
                 Toggle(isOn: Binding(get: { abs(bias - step) < 0.05 }, set: { _ in choose(step) })) {
-                    // The advanced interface names the unit; the simple one counts in steps of brightness.
-                    Text(advanced ? EVFormat.label(step) + " EV" : EVFormat.label(step))
+                    Text(EVFormat.label(step) + " EV")
                 }
             }
         }

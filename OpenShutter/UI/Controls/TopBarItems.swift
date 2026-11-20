@@ -298,7 +298,7 @@ struct TimerMenuLayer: View {
     @Binding var timerSheetRequested: Bool
 
     var body: some View {
-        MenuOnTapLayer(press: press, label: TopBarItem.timer.title(advanced: true), value: value) {
+        MenuOnTapLayer(press: press, label: TopBarItem.timer.title, value: value) {
             TimerOptions(model: model, mode: mode, timerSheetRequested: $timerSheetRequested)
         }
     }
@@ -313,7 +313,7 @@ private struct TimerOptions: View {
 
     var body: some View {
         let schedule = model.settings.capture.schedule
-        let delays = QuickActions.delays(advanced: true)
+        let delays = CaptureSchedule.delayPresets
         // A burst, an intervalometer or a delay set in the sheet is none of the plain delays.
         let preset = schedule.shots == 1 ? delays.first(where: { abs($0 - schedule.delay) < 0.01 }) : nil
         let bracket = SchedulePreview(model: model, mode: mode).bracket
@@ -465,7 +465,7 @@ private struct BarAspect: View {
         .accessibilityHidden(true)
         .overlay {
             ItemMenuLayer(model: model, control: .aspect, press: press,
-                          label: TopBarItem.aspect.title(advanced: true), value: aspect.label)
+                          label: TopBarItem.aspect.title, value: aspect.label)
         }
     }
 }
@@ -476,8 +476,7 @@ private struct AspectOptions: View {
     let model: CameraModel
 
     var body: some View {
-        let advanced = model.isAdvanced
-        let presets = QuickActions.aspects(advanced: advanced)
+        let presets = AspectRatio.presets
         let aspect = model.settings.capture.aspect
         let isPreset = presets.contains(where: { $0.matches(aspect) })
         Picker("Aspect ratio", selection: Binding(get: { QuickActions.aspectSelection(aspect, among: presets) },
@@ -490,13 +489,11 @@ private struct AspectOptions: View {
             }
         }
         .pickerStyle(.inline)
-        if advanced {
-            Button {
-                // Settings holds the side fields; the bar shows the new ratio once it closes.
-                model.isSettingsPresented = true
-            } label: {
-                Label("Custom\u{2026}", systemImage: "slider.horizontal.3")
-            }
+        Button {
+            // Settings holds the side fields; the bar shows the new ratio once it closes.
+            model.isSettingsPresented = true
+        } label: {
+            Label("Custom\u{2026}", systemImage: "slider.horizontal.3")
         }
     }
 }
@@ -518,7 +515,7 @@ private struct BarFormat: View {
         .accessibilityHidden(true)
         .overlay {
             ItemMenuLayer(model: model, control: .format, press: press,
-                          label: TopBarItem.format.title(advanced: true), value: shown.spokenValue)
+                          label: TopBarItem.format.title, value: shown.spokenValue)
         }
     }
 }
@@ -730,7 +727,7 @@ private struct BarHistogram: View {
         .accessibilityHidden(true)
         .overlay {
             ItemMenuLayer(model: model, control: .histogram, press: press,
-                          label: TopBarItem.histogram.title(advanced: true), value: style.title)
+                          label: TopBarItem.histogram.title, value: style.title)
         }
     }
 }
@@ -771,7 +768,7 @@ private struct BarNightStability: View {
         .accessibilityHidden(true)
         .overlay {
             ItemMenuLayer(model: model, control: .nightStability, press: press,
-                          label: TopBarItem.nightStability.title(advanced: true), value: choice.title,
+                          label: TopBarItem.nightStability.title, value: choice.title,
                           hint: mode == .night ? HoldMenuText.choicesHint : "Only the night shot uses it.")
         }
     }
@@ -966,11 +963,6 @@ private struct Upright<Content: View>: View {
 enum QuickActions {
     // MARK: Photo shape
 
-    /// The shapes a menu lists: the simple interface's three, or every preset.
-    static func aspects(advanced: Bool) -> [AspectRatio] {
-        advanced ? AspectRatio.presets : CameraSettings.simpleAspects
-    }
-
     /// Lit whenever the shape isn't the one a fresh install starts with, so a new phone's bar starts unlit.
     static func aspectIsActive(_ aspect: AspectRatio) -> Bool {
         !aspect.matches(CameraSettings.default.capture.aspect)
@@ -1012,11 +1004,6 @@ enum QuickActions {
     }
 
     // MARK: Timer
-
-    /// The self timer's delays: the simple interface's, or every preset.
-    static func delays(advanced: Bool) -> [Double] {
-        advanced ? CaptureSchedule.delayPresets : CameraSettings.simpleDelays
-    }
 
     /// Video and bulb start on the press itself, so a timer would never run there.
     static func timerApplies(_ model: CameraModel) -> Bool {

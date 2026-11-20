@@ -285,13 +285,11 @@ struct ZoomWheelScale: Equatable {
     /// The one lens the camera keeps for this opening: switching is off, or a countdown, a recording or a photo
     /// still saving holds the session on its lens.
     var fixedLens: Lens?
-    /// Millimetres are for people who think in lenses; the simple interface counts in times.
-    var showsFocalLength: Bool
     /// Larger labels makes the ruler's numbers bigger, and spaces them further apart to match.
     var labelScale: CGFloat
 
     static let empty = ZoomWheelScale(span: 1...1, minorTicks: [], labels: [], lensStops: [], lenses: [],
-                                      fixedLens: nil, showsFocalLength: false, labelScale: 1)
+                                      fixedLens: nil, labelScale: 1)
 
     /// Round values labelled after the lens buttons, as on the Camera app's wheel.
     private static let roundLabels: [Double] = [10, 15, 20, 25, 30, 40]
@@ -299,14 +297,13 @@ struct ZoomWheelScale: Equatable {
     private static let labelGap = 26.0
 
     init(span: ClosedRange<Double>, minorTicks: [Double], labels: [Label], lensStops: [Double], lenses: [Lens],
-         fixedLens: Lens?, showsFocalLength: Bool, labelScale: CGFloat) {
+         fixedLens: Lens?, labelScale: CGFloat) {
         self.span = span
         self.minorTicks = minorTicks
         self.labels = labels
         self.lensStops = lensStops
         self.lenses = lenses
         self.fixedLens = fixedLens
-        self.showsFocalLength = showsFocalLength
         self.labelScale = labelScale
     }
 
@@ -350,7 +347,6 @@ struct ZoomWheelScale: Equatable {
                   lensStops: Array(Set(marks.map { ZoomMath.snapped($0) })).sorted(),
                   lenses: backLenses.sorted { $0.zoom < $1.zoom },
                   fixedLens: followsLenses ? nil : lens(active),
-                  showsFocalLength: model.isAdvanced,
                   labelScale: labelScale)
     }
 
@@ -530,8 +526,8 @@ private struct ZoomRuler: View, Animatable {
     }
 }
 
-/// The value above the ruler's centre line: "1.4x", and in the advanced interface the equivalent focal length under
-/// it. It turns upright with the phone; the ruler's labels stay level, as RulerDial's do.
+/// The value above the ruler's centre line: "1.4x", with the equivalent focal length under it. It turns upright with
+/// the phone; the ruler's labels stay level, as RulerDial's do.
 struct ZoomReadout: View {
     let model: CameraModel
     let wheel: ZoomWheelModel
@@ -541,7 +537,7 @@ struct ZoomReadout: View {
         let scale = wheel.scale
         ZoomReadoutBubble(
             value: LensMath.zoomLabel(zoom, selected: true),
-            detail: scale.showsFocalLength ? scale.focalLength(at: zoom).map(LensMath.focalLengthLabel) : nil
+            detail: scale.focalLength(at: zoom).map(LensMath.focalLengthLabel)
         )
         // Motion updates 30 times a second; read here, it redraws this bubble and nothing else of the wheel.
         .uprightRotation(model.motion.iconRotationDegrees)

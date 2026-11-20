@@ -29,6 +29,8 @@ final class InterfaceLevelTests: XCTestCase {
         "setups.slots",
     ]
     private let levelSwitch = "interface.advanced"
+    /// The modes the simple interface's carousel offered: all but MANUAL.
+    private let simpleModes: [CaptureMode] = [.night, .photo, .video]
 
     // MARK: - Fixtures
 
@@ -124,7 +126,7 @@ final class InterfaceLevelTests: XCTestCase {
         s.accessibility.reduceMotion = true
         s.accessibility.leftHanded = true
         s.accessibility.speakStatus = true
-        // An advanced-only button among them: the simple interface hides it from the bar but keeps it in the list.
+        // Lists from when people arranged the bar: neither direction touches them.
         s.topBar = TopBarOptions(leading: [.timer, .grid, .histogram], trailing: [.level, .location])
         s.startup.keepMode = false
         s.startup.keepLensAndZoom = false
@@ -256,16 +258,6 @@ final class InterfaceLevelTests: XCTestCase {
         XCTAssertTrue(CameraSettings.simpleGrids.contains(CameraSettings.default.display.grid))
     }
 
-    func testSimpleCameraControlLeadsNowhereManual() {
-        XCTAssertEqual(CameraSettings.simpleCameraControlItems, [.zoom, .lens, .exposureBias])
-        // The mode item would offer MANUAL, and the others set what the simple interface keeps on auto.
-        for item in [CameraControlItem.shutter, .iso, .aperture, .whiteBalance, .focus, .mode] {
-            XCTAssertFalse(CameraSettings.simpleCameraControlItems.contains(item), item.rawValue)
-        }
-        // The same first three as the advanced default, so the Camera Control opens on the same thing.
-        XCTAssertEqual(Array(CameraControlItem.defaultSelection.prefix(3)), CameraSettings.simpleCameraControlItems)
-    }
-
     // MARK: - Going simple
 
     func testDefaultsGoSimpleByTurningTheMeasuringToolsOff() {
@@ -331,7 +323,7 @@ final class InterfaceLevelTests: XCTestCase {
             change(&settings)
             choices.append(settings)
         }
-        for mode in CaptureMode.carouselOrder(advanced: false) {
+        for mode in simpleModes {
             add { $0.mode = mode }
         }
         for aspect in CameraSettings.simpleAspects {
@@ -385,7 +377,7 @@ final class InterfaceLevelTests: XCTestCase {
             let simple = settings.simplified().mode
             XCTAssertEqual(simple, mode == .manual ? .photo : mode, mode.rawValue)
             // LONG shows under NIGHT's entry.
-            XCTAssertTrue(CaptureMode.carouselOrder(advanced: false).contains(simple.carouselMode), mode.rawValue)
+            XCTAssertTrue(simpleModes.contains(simple.carouselMode), mode.rawValue)
         }
     }
 
@@ -737,7 +729,7 @@ final class InterfaceLevelTests: XCTestCase {
     func testManualComesBackWhileTheModeIsStillPhoto() {
         // Going simple put MANUAL on PHOTO. Another mode picked since is where the person is now, and stays.
         let snapshot = advancedSetup()
-        for mode in CaptureMode.carouselOrder(advanced: false) {
+        for mode in simpleModes {
             var simple = snapshot.simplified()
             simple.mode = mode
             XCTAssertEqual(simple.restoringAdvanced(from: snapshot).mode, mode == .photo ? .manual : mode, mode.rawValue)
@@ -746,7 +738,7 @@ final class InterfaceLevelTests: XCTestCase {
         for saved in CaptureMode.allCases where saved != .manual {
             var other = snapshot
             other.mode = saved
-            for mode in CaptureMode.carouselOrder(advanced: false) {
+            for mode in simpleModes {
                 var simple = other.simplified()
                 simple.mode = mode
                 XCTAssertEqual(simple.restoringAdvanced(from: other).mode, mode, "\(saved.rawValue) \(mode.rawValue)")
@@ -827,5 +819,42 @@ final class InterfaceLevelTests: XCTestCase {
         expected.interface.advanced = true
         expected.interface.welcomed = true
         XCTAssertEqual(simple.restoringAdvanced(from: loaded), expected)
+    }
+
+    // MARK: - Removed keys
+
+    /// `settings` as saved, plus keys this version has no field for, the way a setting that is taken out stays behind
+    /// in saves made before: one at the top, one inside a group, a whole group of its own, and a name in the top
+    /// bar's lists.
+    private func savedWithRemovedKeys(_ settings: CameraSettings) throws -> Data {
+        XCTAssertFalse(settings.topBar.leading.isEmpty, "The name goes in front of a saved one")
+        var json = try XCTUnwrap(String(data: settings.encoded(), encoding: .utf8))
+        let additions = [
+            (#"{"accessibility":"#, #"{"removedSetting":true,"accessibility":"#),
+            (#""interface":{"#, #""interface":{"removedLevel":"simple","#),
+            // Not the display group: a saved custom setup holds one of those too.
+            (#""controls":{"#, #""controls":{"removedControl":0.5,"#),
+            (#""topBar":{"#, #""removedGroup":{"showsBadge":true,"items":["raw"]},"topBar":{"#),
+            (#""leading":["#, #""leading":["removedButton","#),
+        ]
+        for (anchor, replacement) in additions {
+            XCTAssertEqual(json.components(separatedBy: anchor).count, 2, "\(anchor) in \(json)")
+            json = json.replacingOccurrences(of: anchor, with: replacement)
+        }
+        return Data(json.utf8)
+    }
+
+    func testASaveWithRemovedKeysStillLoads() throws {
+        // The decoders read their own keys by name and skip the rest, so each key this version lacks costs nothing,
+        // and a button name it doesn't know drops out of its list alone.
+        let simple = everythingChanged().simplified()
+        for settings in [simple, everythingChanged(), advancedSetup(), adjustedScene()] {
+            XCTAssertEqual(CameraSettings.decoded(from: try savedWithRemovedKeys(settings)), settings)
+        }
+        // A save the simple interface wrote still says so, and the one-time move brings it back whole.
+        let loaded = CameraSettings.decoded(from: try savedWithRemovedKeys(simple))
+        XCTAssertFalse(loaded.interface.advanced)
+        XCTAssertTrue(loaded.interface.welcomed)
+        XCTAssertEqual(loaded.restoringAdvanced(from: everythingChanged()), everythingChanged())
     }
 }

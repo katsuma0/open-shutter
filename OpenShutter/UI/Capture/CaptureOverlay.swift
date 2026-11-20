@@ -238,7 +238,7 @@ private struct StatusBlock: View {
                 }
                 if isStacking {
                     StackStatusLine(progress: model.stackProgress, isFinishing: finishing,
-                                    countsFrames: model.isAdvanced, isQuiet: model.dimmer.isDimmed)
+                                    isQuiet: model.dimmer.isDimmed)
                 }
                 StatusButtons(
                     canDiscard: isStacking && !finishing,
@@ -374,8 +374,6 @@ private struct BracketStatusLine: View {
 private struct StackStatusLine: View {
     let progress: StackProgress?
     let isFinishing: Bool
-    /// The advanced interface counts the frames a shot is built from. The simple one shows the clock alone.
-    let countsFrames: Bool
     /// The battery saver has the screen dark: nothing under it animates, so the display can rest.
     var isQuiet = false
 
@@ -408,7 +406,7 @@ private struct StackStatusLine: View {
             } else {
                 ProgressRing(fraction: fraction, isQuiet: isQuiet)
             }
-            Text(processing ? "Processing" : Self.text(progress, countsFrames: countsFrames))
+            Text(processing ? "Processing" : Self.text(progress))
                 .contentTransition(.numericText())
         }
         .font(Theme.valueFont)
@@ -419,7 +417,7 @@ private struct StackStatusLine: View {
         .animation(Theme.snappy, value: processing)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(processing ? "Processing" : "Exposure in progress")
-        .accessibilityValue(processing ? "" : Self.text(progress, countsFrames: countsFrames))
+        .accessibilityValue(processing ? "" : Self.text(progress))
     }
 
     private static func fraction(_ progress: StackProgress?) -> Double {
@@ -427,9 +425,8 @@ private struct StackStatusLine: View {
         return min(max(value, 0), 1)
     }
 
-    /// "12 of 30 · 0:08" counting down to the planned end; bulb counts up: "12 frames · 0:08". Without the frame
-    /// count it is the clock alone, "0:08".
-    static func text(_ progress: StackProgress?, countsFrames: Bool = true) -> String {
+    /// "12 of 30 · 0:08" counting down to the planned end; bulb counts up: "12 frames · 0:08".
+    static func text(_ progress: StackProgress?) -> String {
         guard let progress else { return "Starting" }
         let captured = max(0, progress.framesCaptured)
         let elapsed = progress.elapsed.isFinite ? max(0, progress.elapsed) : 0
@@ -440,10 +437,9 @@ private struct StackStatusLine: View {
             } else {
                 clock = Formatting.clock(elapsed.rounded(.down))
             }
-            return countsFrames ? "\(captured) of \(progress.framesPlanned) \u{00B7} \(clock)" : clock
+            return "\(captured) of \(progress.framesPlanned) \u{00B7} \(clock)"
         }
         let clock = Formatting.clock(elapsed.rounded(.down))
-        guard countsFrames else { return clock }
         let frames = captured == 1 ? "1 frame" : "\(captured) frames"
         return frames + " \u{00B7} " + clock
     }

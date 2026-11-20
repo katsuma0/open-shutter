@@ -2,8 +2,6 @@ import XCTest
 @testable import CameraCore
 
 final class InterfacePreferencesTests: XCTestCase {
-    private let anything: (TopBarItem) -> Bool = { _ in true }
-
     private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
         try JSONDecoder().decode(type, from: Data(json.utf8))
     }
@@ -290,16 +288,6 @@ final class InterfacePreferencesTests: XCTestCase {
 
     // MARK: - Top bar buttons
 
-    func testWhichButtonsOnlyTheAdvancedInterfaceOffers() {
-        let advancedOnly: Set<TopBarItem> = [
-            .raw, .exposureLock, .format, .resolution, .processing, .histogram, .zebras, .peaking, .falseColor,
-            .whiteBalance, .stabilization, .sound,
-        ]
-        for item in TopBarItem.allCases {
-            XCTAssertEqual(item.isAdvancedOnly, advancedOnly.contains(item), item.rawValue)
-        }
-    }
-
     func testWhereEachButtonApplies() {
         let every = Set(CaptureMode.allCases)
         let stills: Set<CaptureMode> = [.night, .long, .photo, .manual]
@@ -321,10 +309,6 @@ final class InterfacePreferencesTests: XCTestCase {
                                "\(item.rawValue) in \(mode.rawValue)")
             }
         }
-        // Each mode of the simple interface has buttons to offer.
-        for mode in CaptureMode.carouselOrder(advanced: false) {
-            XCTAssertTrue(TopBarItem.allCases.contains { !$0.isAdvancedOnly && $0.applies(in: mode) }, mode.rawValue)
-        }
     }
 
     func testNightTakesStabilityInTheHistogramsPlace() {
@@ -337,34 +321,21 @@ final class InterfacePreferencesTests: XCTestCase {
         }
         XCTAssertTrue(TopBarItem.nightStability.applies(in: .night))
         XCTAssertFalse(TopBarItem.nightStability.applies(in: .long))
-        XCTAssertFalse(TopBarItem.nightStability.isAdvancedOnly)
         // Added at the end, so the names saves hold keep their places.
         XCTAssertEqual(TopBarItem.allCases.last, .nightStability)
-        XCTAssertEqual(TopBarItem.nightStability.title(advanced: true), "Stability")
-        XCTAssertEqual(TopBarItem.nightStability.title(advanced: false), "Stability")
+        XCTAssertEqual(TopBarItem.nightStability.title, "Stability")
         XCTAssertEqual(TopBarItem.nightStability.symbolNames, ["hand.raised"])
     }
 
     func testTopBarTitlesAndSymbols() {
-        XCTAssertEqual(TopBarItem.allCases.map { $0.title(advanced: true) },
+        let titles = TopBarItem.allCases.map(\.title)
+        XCTAssertEqual(titles,
                        ["Flash", "Live Photo", "Timer", "Aspect ratio", "Grid", "Level", "Location tags",
                         "Silent shutter", "Battery saver", "Night duration", "RAW", "AE lock", "Format", "Resolution",
                         "Processing", "Histogram", "Zebras", "Focus peaking", "False color", "White balance",
                         "Stabilization", "Sound", "Stability"])
-        // The simple interface's own words where they differ, the same names elsewhere.
-        for item in TopBarItem.allCases {
-            let simple = item.title(advanced: false)
-            switch item {
-            case .quietShutter: XCTAssertEqual(simple, "Quiet shutter")
-            case .nightDuration: XCTAssertEqual(simple, "Night time")
-            default: XCTAssertEqual(simple, item.title(advanced: true), item.rawValue)
-            }
-        }
-        // The names tell the buttons apart at either level.
-        for advanced in [false, true] {
-            let titles = TopBarItem.allCases.filter { advanced || !$0.isAdvancedOnly }.map { $0.title(advanced: advanced) }
-            XCTAssertEqual(Set(titles).count, titles.count)
-        }
+        // The names tell the buttons apart.
+        XCTAssertEqual(Set(titles).count, titles.count)
         for item in TopBarItem.allCases {
             XCTAssertFalse(item.symbolNames.isEmpty, item.rawValue)
             XCTAssertFalse(item.symbolNames.contains(""), item.rawValue)
@@ -378,25 +349,6 @@ final class InterfacePreferencesTests: XCTestCase {
         let bar = TopBarOptions()
         XCTAssertEqual(bar.leading, [.flash])
         XCTAssertEqual(bar.trailing, [.raw, .livePhoto])
-        func shown(_ mode: CaptureMode, advanced: Bool, has: Set<TopBarItem> = Set(TopBarItem.allCases)) -> [[TopBarItem]] {
-            let sides = bar.shown(advanced: advanced, mode: mode) { has.contains($0) }
-            return [sides.leading, sides.trailing]
-        }
-        // Flash on the left; RAW (advanced) and Live on the right of PHOTO; RAW alone in MANUAL; nothing in NIGHT
-        // and LONG; the flashlight in VIDEO.
-        XCTAssertEqual(shown(.photo, advanced: false), [[.flash], [.livePhoto]])
-        XCTAssertEqual(shown(.photo, advanced: true), [[.flash], [.raw, .livePhoto]])
-        XCTAssertEqual(shown(.manual, advanced: true), [[.flash], [.raw]])
-        for mode in [CaptureMode.night, .long] {
-            for advanced in [false, true] {
-                XCTAssertEqual(shown(mode, advanced: advanced), [[], []], mode.rawValue)
-            }
-        }
-        XCTAssertEqual(shown(.video, advanced: false), [[.flash], []])
-        XCTAssertEqual(shown(.video, advanced: true), [[.flash], []])
-        // A camera without a flash or RAW shows what it has.
-        XCTAssertEqual(shown(.photo, advanced: true, has: [.livePhoto]), [[], [.livePhoto]])
-        XCTAssertEqual(shown(.photo, advanced: true, has: []), [[], []])
     }
 
     func testUnknownButtonsDropOutAlone() throws {
@@ -427,8 +379,6 @@ final class InterfacePreferencesTests: XCTestCase {
 
     func testASideKeepsAtMostEight() throws {
         XCTAssertEqual(TopBarOptions.storedLimit, 8)
-        // A side may hold more than it shows, for buttons waiting on another interface or mode.
-        XCTAssertGreaterThan(TopBarOptions.storedLimit, TopBarOptions.leadingRoom)
         let names = TopBarItem.allCases.map { #""\#($0.rawValue)""# }.joined(separator: ",")
         let long = try decode(TopBarOptions.self, #"{"leading":[\#(names)],"trailing":[\#(names)]}"#)
         XCTAssertEqual(long.leading, Array(TopBarItem.allCases.prefix(8)))
@@ -474,157 +424,9 @@ final class InterfacePreferencesTests: XCTestCase {
         XCTAssertTrue(json.contains(#""trailing":["livePhoto"]"#), json)
     }
 
-    // MARK: - Top bar: what it shows
-
-    func testEachSideShowsItsFirstButtonsUpToItsRoom() {
-        XCTAssertEqual(TopBarOptions.leadingRoom, 3)
-        XCTAssertEqual(TopBarOptions.trailingRoom, 2)
-        let bar = TopBarOptions(leading: [.timer, .grid, .level, .location, .aspect],
-                                trailing: [.livePhoto, .quietShutter, .flash])
-        let photo = bar.shown(advanced: false, mode: .photo, isAvailable: anything)
-        XCTAssertEqual(photo.leading, [.timer, .grid, .level])
-        XCTAssertEqual(photo.trailing, [.livePhoto, .quietShutter])
-        // Less room shows the first ones, none shows nothing, and more shows more, in order.
-        let narrow = bar.shown(advanced: false, mode: .photo, leadingRoom: 1, trailingRoom: 0, isAvailable: anything)
-        XCTAssertEqual(narrow.leading, [.timer])
-        XCTAssertEqual(narrow.trailing, [])
-        let none = bar.shown(advanced: false, mode: .photo, leadingRoom: -2, trailingRoom: -1, isAvailable: anything)
-        XCTAssertEqual(none.leading, [])
-        XCTAssertEqual(none.trailing, [])
-        let wide = bar.shown(advanced: false, mode: .photo, leadingRoom: 9, trailingRoom: 9, isAvailable: anything)
-        XCTAssertEqual(wide.leading, [.timer, .grid, .level, .location, .aspect])
-        XCTAssertEqual(wide.trailing, [.livePhoto, .quietShutter, .flash])
-    }
-
-    func testButtonsThatDontApplyStepAside() {
-        let bar = TopBarOptions(leading: [.timer, .flash, .aspect, .grid, .level],
-                                trailing: [.livePhoto, .nightDuration, .batterySaver, .sound])
-        func shown(_ mode: CaptureMode) -> [[TopBarItem]] {
-            let sides = bar.shown(advanced: true, mode: mode, isAvailable: anything)
-            return [sides.leading, sides.trailing]
-        }
-        XCTAssertEqual(shown(.photo), [[.timer, .flash, .aspect], [.livePhoto]])
-        // No flash in NIGHT or LONG: the next button moves up.
-        XCTAssertEqual(shown(.night), [[.timer, .aspect, .grid], [.nightDuration, .batterySaver]])
-        XCTAssertEqual(shown(.long), [[.timer, .aspect, .grid], [.batterySaver]])
-        // Live only in PHOTO.
-        XCTAssertEqual(shown(.manual), [[.timer, .flash, .aspect], []])
-        // No timer or frame shape in VIDEO; sound only there.
-        XCTAssertEqual(shown(.video), [[.flash, .grid, .level], [.sound]])
-    }
-
-    func testAdvancedButtonsWaitInTheSimpleInterface() {
-        let bar = TopBarOptions(leading: [.histogram, .flash, .zebras, .grid, .level],
-                                trailing: [.raw, .whiteBalance, .livePhoto])
-        let simple = bar.shown(advanced: false, mode: .photo, isAvailable: anything)
-        XCTAssertEqual(simple.leading, [.flash, .grid, .level])
-        XCTAssertEqual(simple.trailing, [.livePhoto])
-        let advanced = bar.shown(advanced: true, mode: .photo, isAvailable: anything)
-        XCTAssertEqual(advanced.leading, [.histogram, .flash, .zebras])
-        XCTAssertEqual(advanced.trailing, [.raw, .whiteBalance])
-    }
-
-    func testTheAppSaysWhatTheCameraHas() {
-        let bar = TopBarOptions(leading: [.flash, .timer, .quietShutter, .grid], trailing: [.livePhoto, .location])
-        // No flash on this camera, and its shutter sound can't be turned off: the next buttons move up.
-        let sides = bar.shown(advanced: false, mode: .photo) { $0 != .flash && $0 != .quietShutter }
-        XCTAssertEqual(sides.leading, [.timer, .grid])
-        XCTAssertEqual(sides.trailing, [.livePhoto, .location])
-    }
-
-    func testAButtonShowsOnceWhateverTheLists() {
-        // Lists changed directly are not cleaned, so the bar keeps each button to one place itself.
-        var bar = TopBarOptions()
-        bar.trailing = [.flash, .livePhoto]
-        let once = bar.shown(advanced: false, mode: .photo, isAvailable: anything)
-        XCTAssertEqual(once.leading, [.flash])
-        XCTAssertEqual(once.trailing, [.livePhoto])
-        bar.leading = [.grid, .grid, .level]
-        let again = bar.shown(advanced: false, mode: .photo, isAvailable: anything)
-        XCTAssertEqual(again.leading, [.grid, .level])
-        XCTAssertEqual(again.trailing, [.flash, .livePhoto])
-    }
-
-    func testTheFurnitureTakesItsPlace() {
-        let bar = TopBarOptions(leading: [.grid, .level, .location, .timer], trailing: [.histogram, .sound])
-        // In VIDEO the format chip fills the right side.
-        XCTAssertEqual(bar.shown(advanced: true, mode: .video, isAvailable: anything).trailing, [.histogram, .sound])
-        XCTAssertEqual(bar.layout(advanced: true, mode: .video, wantsBadge: false, isAvailable: anything),
-                       TopBarLayout(leading: [.grid, .level, .location], trailing: [], showsBadge: false))
-        XCTAssertEqual(bar.layout(advanced: true, mode: .photo, wantsBadge: false, isAvailable: anything),
-                       TopBarLayout(leading: [.grid, .level, .location], trailing: [.histogram], showsBadge: false))
-        // A set timer's badge takes the last left slot. The Timer button is fourth, so it isn't there to stand in.
-        XCTAssertEqual(bar.layout(advanced: true, mode: .photo, wantsBadge: true, isAvailable: anything),
-                       TopBarLayout(leading: [.grid, .level], trailing: [.histogram], showsBadge: true))
-
-        // A Timer button on the bar shows the timer itself: no badge, and nothing gives way.
-        let timerFirst = TopBarOptions(leading: [.timer, .grid, .level], trailing: [.histogram])
-        XCTAssertEqual(timerFirst.layout(advanced: true, mode: .photo, wantsBadge: true, isAvailable: anything),
-                       TopBarLayout(leading: [.timer, .grid, .level], trailing: [.histogram], showsBadge: false))
-        let timerRight = TopBarOptions(leading: [.grid, .level, .location], trailing: [.timer])
-        XCTAssertEqual(timerRight.layout(advanced: false, mode: .night, wantsBadge: true, isAvailable: anything),
-                       TopBarLayout(leading: [.grid, .level, .location], trailing: [.timer], showsBadge: false))
-        // One that can't show doesn't stand in.
-        XCTAssertEqual(timerFirst.layout(advanced: true, mode: .photo, wantsBadge: true) { $0 != .timer },
-                       TopBarLayout(leading: [.grid, .level], trailing: [.histogram], showsBadge: true))
-
-        // The default bar with a timer set: the badge after Flash in PHOTO, alone in NIGHT, as before.
-        XCTAssertEqual(TopBarOptions().layout(advanced: true, mode: .photo, wantsBadge: true, isAvailable: anything),
-                       TopBarLayout(leading: [.flash], trailing: [.raw, .livePhoto], showsBadge: true))
-        XCTAssertEqual(TopBarOptions().layout(advanced: false, mode: .night, wantsBadge: true, isAvailable: anything),
-                       TopBarLayout(leading: [], trailing: [], showsBadge: true))
-    }
-
-    func testAFlashOnTheRightStaysTheFlashlightInVideo() {
-        // The format chip takes the right side in VIDEO, so a Flash placed there moves to the front of the left.
-        let bar = TopBarOptions(leading: [.timer, .aspect, .grid], trailing: [.flash, .livePhoto])
-        XCTAssertEqual(bar.layout(advanced: false, mode: .photo, wantsBadge: false, isAvailable: anything),
-                       TopBarLayout(leading: [.timer, .aspect, .grid], trailing: [.flash, .livePhoto],
-                                    showsBadge: false))
-        XCTAssertEqual(bar.layout(advanced: false, mode: .video, wantsBadge: false, isAvailable: anything),
-                       TopBarLayout(leading: [.flash, .grid], trailing: [], showsBadge: false))
-
-        // It takes the first slot of a full left side, and steps aside on a camera without a light.
-        let fullLeft = TopBarOptions(leading: [.grid, .level, .location], trailing: [.flash])
-        XCTAssertEqual(fullLeft.layout(advanced: true, mode: .video, wantsBadge: false, isAvailable: anything),
-                       TopBarLayout(leading: [.flash, .grid, .level], trailing: [], showsBadge: false))
-        XCTAssertEqual(fullLeft.layout(advanced: true, mode: .video, wantsBadge: false) { $0 != .flash },
-                       TopBarLayout(leading: [.grid, .level, .location], trailing: [], showsBadge: false))
-        // Outside VIDEO it stays where it was placed.
-        XCTAssertEqual(fullLeft.layout(advanced: true, mode: .manual, wantsBadge: false, isAvailable: anything),
-                       TopBarLayout(leading: [.grid, .level, .location], trailing: [.flash], showsBadge: false))
-
-        // A left side stored full loses none of its buttons to the light.
-        let stored = TopBarOptions(leading: [.timer, .aspect, .format, .livePhoto, .quietShutter, .raw, .resolution,
-                                             .grid],
-                                   trailing: [.flash])
-        XCTAssertEqual(stored.leading.count, TopBarOptions.storedLimit)
-        XCTAssertEqual(stored.layout(advanced: true, mode: .video, wantsBadge: false, isAvailable: anything).leading,
-                       [.flash, .grid])
-    }
-
-    func testATimerBadgeLeavesTheFlashOnTheBar() {
-        // The flash still fires while the badge shows, so a Flash in the badge's slot moves to the front of the left
-        // and the button before it gives way.
-        let bar = TopBarOptions(leading: [.grid, .level, .flash], trailing: [.livePhoto])
-        XCTAssertEqual(bar.layout(advanced: false, mode: .photo, wantsBadge: false, isAvailable: anything),
-                       TopBarLayout(leading: [.grid, .level, .flash], trailing: [.livePhoto], showsBadge: false))
-        XCTAssertEqual(bar.layout(advanced: false, mode: .photo, wantsBadge: true, isAvailable: anything),
-                       TopBarLayout(leading: [.flash, .grid], trailing: [.livePhoto], showsBadge: true))
-        XCTAssertEqual(bar.layout(advanced: true, mode: .manual, wantsBadge: true, isAvailable: anything),
-                       TopBarLayout(leading: [.flash, .grid], trailing: [], showsBadge: true))
-
-        // A Flash the badge leaves on the bar keeps its place, and on a camera without a flash nothing moves.
-        let flashSecond = TopBarOptions(leading: [.grid, .flash, .level], trailing: [.livePhoto])
-        XCTAssertEqual(flashSecond.layout(advanced: false, mode: .photo, wantsBadge: true, isAvailable: anything),
-                       TopBarLayout(leading: [.grid, .flash], trailing: [.livePhoto], showsBadge: true))
-        XCTAssertEqual(bar.layout(advanced: false, mode: .photo, wantsBadge: true) { $0 != .flash },
-                       TopBarLayout(leading: [.grid, .level], trailing: [.livePhoto], showsBadge: true))
-    }
-
     // MARK: - Words
 
-    /// Camera jargon the simple interface doesn't show.
+    /// Camera jargon, which the names of the app's own preferences do without.
     private let jargon: Set<String> = ["iso", "ev", "kelvin", "raw", "histogram", "stack", "blend", "frames", "bulb",
                                        "ae", "mm"]
     private let bannedWords = ["delve", "leverage", "utilize", "robust", "seamless", "elevate", "unlock", "harness",
@@ -645,12 +447,11 @@ final class InterfacePreferencesTests: XCTestCase {
     }
 
     func testTitlesAreShortSentenceCaseAndPlain() {
-        let shared = AppearanceScheme.allCases.map(\.title) + AccentChoice.allCases.map(\.title)
+        let preferenceNames = AppearanceScheme.allCases.map(\.title) + AccentChoice.allCases.map(\.title)
             + HapticStrength.allCases.map(\.title) + ZoomTickStyle.allCases.map(\.title)
             + HardwareButtonAction.allCases.map(\.title)
-        let simpleBar = TopBarItem.allCases.filter { !$0.isAdvancedOnly }.map { $0.title(advanced: false) }
-        let advancedBar = TopBarItem.allCases.map { $0.title(advanced: true) }
-        for title in shared + simpleBar + advancedBar {
+        let bar = TopBarItem.allCases.map(\.title)
+        for title in preferenceNames + bar {
             XCTAssertFalse(title.contains("\u{2014}"), title)
             XCTAssertTrue(isSentenceCase(title), title)
             XCTAssertLessThanOrEqual(title.count, 20, title)
@@ -658,13 +459,13 @@ final class InterfacePreferencesTests: XCTestCase {
                 XCTAssertFalse(title.lowercased().contains(banned), "\(title): \(banned)")
             }
         }
-        // Both interfaces show these, so no jargon.
-        for title in shared + simpleBar {
+        // The app's own preferences, so no jargon.
+        for title in preferenceNames {
             XCTAssertTrue(words(title).isDisjoint(with: jargon), title)
             XCTAssertFalse(title.lowercased().contains("f-number"), title)
         }
         // The checks see what they look for.
-        XCTAssertFalse(words(TopBarItem.exposureLock.title(advanced: true)).isDisjoint(with: jargon))
+        XCTAssertFalse(words(TopBarItem.exposureLock.title).isDisjoint(with: jargon))
         XCTAssertFalse(isSentenceCase("Zoom In"))
         XCTAssertFalse(isSentenceCase("zoom in"))
         XCTAssertTrue(isSentenceCase("Match iPhone"))
@@ -707,8 +508,8 @@ final class InterfacePreferencesTests: XCTestCase {
         settings.video.allowAudioPlayback = true
         let wanted = preferences(settings)
 
-        // Going simple resets the advanced settings and keeps these, the advanced-only buttons in the bar's lists
-        // included; twice changes nothing more.
+        // Going simple resets the advanced settings and keeps these, the bar's saved lists included; twice changes
+        // nothing more.
         let simple = settings.simplified()
         XCTAssertEqual(simple.capture.rawFormat, .none)
         XCTAssertEqual(preferences(simple), wanted)

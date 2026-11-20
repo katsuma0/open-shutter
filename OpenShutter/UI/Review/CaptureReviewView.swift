@@ -8,12 +8,10 @@ struct SessionCapturesList: View {
 
     var body: some View {
         let captures = model.recentCaptures
-        // The summaries are shutter speeds and ISO values, which belong to the advanced interface.
-        let detailed = model.isAdvanced
         if !captures.isEmpty {
             Section {
                 ForEach(captures) { capture in
-                    CaptureRow(capture: capture, detailed: detailed)
+                    CaptureRow(capture: capture)
                 }
             } header: {
                 Text(Self.countLabel(captures.count))
@@ -54,10 +52,8 @@ enum PhotosApp {
 }
 
 extension CaptureResult.Kind {
-    /// What a capture is called in the session list and by VoiceOver on the thumbnail. The simple interface tells
-    /// photos from videos and leaves it there.
-    func title(detailed: Bool) -> String {
-        guard detailed else { return self == .video ? "Video" : "Photo" }
+    /// What a capture is called in the session list.
+    var title: String {
         switch self {
         case .photo: return "Photo"
         case .raw: return "RAW photo"
@@ -72,17 +68,15 @@ extension CaptureResult.Kind {
 /// system's colors rather than the camera's white.
 private struct CaptureRow: View {
     let capture: CaptureResult
-    /// The advanced interface names the kind of capture and shows its exposure.
-    let detailed: Bool
 
     var body: some View {
         HStack(spacing: 14) {
             thumbnail
             VStack(alignment: .leading, spacing: 3) {
-                Text(capture.kind.title(detailed: detailed))
+                Text(capture.kind.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
-                if detailed, !capture.summary.isEmpty {
+                if !capture.summary.isEmpty {
                     Text(capture.summary)
                         .font(.footnote.monospacedDigit())
                         .foregroundStyle(.secondary)

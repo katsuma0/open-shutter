@@ -481,12 +481,11 @@ private enum DialValues {
         var isWarning = false
     }
 
-    /// What the dial is called, on screen and to VoiceOver. The simple interface knows exposure compensation as
-    /// brightness.
+    /// What the dial is called, on screen and to VoiceOver.
     static func name(_ kind: DialKind, model: CameraModel) -> String {
         // In NIGHT the shutter dial is how long the shot runs.
         if kind == .shutter, model.settings.mode.usesStacking { return "Duration" }
-        return kind == .bias && !model.isAdvanced ? "Brightness" : kind.title
+        return kind.title
     }
 
     /// Done, a swipe down and VoiceOver's escape gesture all end here.
@@ -614,8 +613,7 @@ private enum DialValues {
                               offersAuto: caps.supportsVariableAperture, model: model)
         case .bias:
             let bias = bias(model)
-            // The unit is for people who count in stops; the simple interface shows the number alone.
-            let value = model.isAdvanced ? EVFormat.label(bias) + " EV" : EVFormat.label(bias)
+            let value = EVFormat.label(bias) + " EV"
             return Readout(title: name(kind, model: model), value: value, isAuto: abs(bias) < 0.05,
                            offersAuto: true, isStacked: false)
         case .whiteBalance:
@@ -638,8 +636,7 @@ private enum DialValues {
             let readings = model.readings
             var value = LensMath.zoomLabel(readings.displayZoom, selected: true)
             let focal = caps.lens.equivalentFocalLength * max(readings.zoomFactor, 1)
-            // Millimeters are for people who think in lenses; the simple interface counts in times.
-            if model.isAdvanced, focal.isFinite, focal > 0 {
+            if focal.isFinite, focal > 0 {
                 value += " \u{00B7} " + LensMath.focalLengthLabel(focal)
             }
             return Readout(title: kind.title, value: value, isAuto: false, offersAuto: false, isStacked: false)

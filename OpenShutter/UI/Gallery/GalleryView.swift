@@ -32,7 +32,7 @@ struct GalleryView: View {
             GalleryHome(model: model, library: library, zoomSpace: zoomSpace, scrollID: $gridScrollID,
                         onOpen: open, onChangeShared: { showsLimitedPicker = true })
                 .navigationDestination(for: String.self) { id in
-                    GalleryViewer(model: model, library: library, startID: id, zoomSpace: zoomSpace) { shown in
+                    GalleryViewer(library: library, startID: id, zoomSpace: zoomSpace) { shown in
                         gridScrollID = shown
                     }
                 }
@@ -96,8 +96,8 @@ private struct GalleryHome: View {
         let access = library.access
         Group {
             if access.canRead {
-                GalleryGrid(model: model, library: library, zoomSpace: zoomSpace, scrollID: $scrollID,
-                            onOpen: onOpen, onChangeShared: onChangeShared)
+                GalleryGrid(library: library, zoomSpace: zoomSpace, scrollID: $scrollID, onOpen: onOpen,
+                            onChangeShared: onChangeShared)
             } else {
                 GalleryAccessView(model: model, library: library)
             }

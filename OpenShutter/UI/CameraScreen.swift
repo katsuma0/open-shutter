@@ -217,7 +217,7 @@ private struct CameraLayout: View {
             TimerControls(model: model)
         }
         .onChange(of: mode) { oldMode, newMode in
-            if let dial = model.activeDial, !Self.dialAllowed(dial, in: newMode, advanced: model.isAdvanced) {
+            if let dial = model.activeDial, !Self.dialAllowed(dial, in: newMode) {
                 model.activeDial = nil
             }
             // Video needs a session reconfiguration, which takes longer than a photo mode change. A change of scene
@@ -321,10 +321,8 @@ private struct CameraLayout: View {
     }
 
     /// Dials that make sense in each mode. A shutter or ISO dial left open from MANUAL would switch PHOTO back to
-    /// MANUAL with the first tick, so it closes instead. The simple interface has no strip in any mode: its dials
-    /// are the two its lens row opens, brightness and zoom.
-    static func dialAllowed(_ dial: DialKind, in mode: CaptureMode, advanced: Bool) -> Bool {
-        guard advanced else { return dial == .bias || dial == .zoom }
+    /// MANUAL with the first tick, so it closes instead.
+    static func dialAllowed(_ dial: DialKind, in mode: CaptureMode) -> Bool {
         switch mode {
         // The lens row carries the shutter and exposure chips in every mode. PHOTO's shutter dial leads into
         // MANUAL at the first value picked; NIGHT's sets how long the shot runs.

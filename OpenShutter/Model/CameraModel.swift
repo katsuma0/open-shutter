@@ -81,12 +81,6 @@ final class CameraModel {
     var activeDial: DialKind? {
         didSet {
             guard oldValue != activeDial else { return }
-            // The simple interface dials brightness and zoom. Any other dial would edit a value it keeps on auto.
-            if let dial = activeDial, !isAdvanced, dial != .bias, dial != .zoom {
-                // Runs this observer again for the closed dial, which does the rest.
-                activeDial = nil
-                return
-            }
             // The magnifier belongs to the focus dial: Done, a swipe down, another dial, or the quick settings that
             // close it bring the whole frame back. The next focus dial offers it afresh.
             magnifierDeclined = false
@@ -310,9 +304,8 @@ final class CameraModel {
         if abs(next - current) > 0.001 {
             setBias(next)
         }
-        // The simple interface counts in steps of brightness, as its chip does.
         let label = EVFormat.label(abs(next - current) > 0.001 ? next : current)
-        showToast(isAdvanced ? label + " EV" : "Brightness " + label, symbol: "plusminus.circle")
+        showToast(label + " EV", symbol: "plusminus.circle")
     }
 
     /// The next back lens button, wrapping around after the longest (a hardware button's Next lens). While filming,
@@ -498,7 +491,7 @@ final class CameraModel {
             return longSteadyNeed(plan: longPlan, leaning: shownSteadyNeed)
         case .manual:
             // Past the longest shutter MANUAL builds a Real stack, which adds light over the whole time.
-            return isAdvanced && shutterIsStacked ? .tripod : nil
+            return shutterIsStacked ? .tripod : nil
         case .photo, .video:
             return nil
         }
@@ -926,11 +919,7 @@ final class CameraModel {
         applyCameraControls()
     }
 
-    // MARK: - Simple and advanced
-
-    /// The camera shows MANUAL mode and every control. Always true since the simple interface went: init sets it
-    /// for every saved state. Kept because the places that once asked still read better with the question in them.
-    var isAdvanced: Bool { settings.interface.advanced }
+    // MARK: - Advanced settings and the carousel
 
     /// Settings lists every option, in groups. Off keeps the page to the ones most people change. Nothing about
     /// the camera follows it.
@@ -1000,8 +989,6 @@ final class CameraModel {
     /// says nothing about exposure, so keepingAutoExposure leaves MANUAL's saved shutter, ISO and aperture behind
     /// instead of bringing them back into the shot.
     private func switchToManual(keepingAutoExposure: Bool = false, _ change: (inout CameraSettings) -> Void) {
-        // The simple interface has no MANUAL to land in.
-        guard isAdvanced else { return }
         guard canChangeMode else {
             noteModeChangeRefused()
             return
@@ -1420,20 +1407,9 @@ final class CameraModel {
         if aeLocked {
             showLockToast(focus: false, exposure: true)
         } else {
-            showToast(isAdvanced ? "AE lock off" : "Brightness lock off", symbol: "lock.open")
+            showToast("AE lock off", symbol: "lock.open")
         }
         scheduleApply(.exposure)
-    }
-
-    func resetExposureToAuto() {
-        releaseLock()
-        updateSettings {
-            $0.manual.shutter = nil
-            $0.manual.iso = nil
-            $0.manual.aperture = nil
-            $0.manual.bias = 0
-        }
-        Haptics.tap()
     }
 
     // MARK: - Focus
@@ -1508,14 +1484,8 @@ final class CameraModel {
     /// nothing auto to hold, alone.
     var focusLocked: Bool { focusHeld }
 
-    /// The simple interface says it without the abbreviations.
     private func showLockToast(focus: Bool, exposure: Bool) {
-        let message: String
-        if isAdvanced {
-            message = focus && exposure ? "AE/AF LOCK" : (exposure ? "AE LOCK" : "AF LOCK")
-        } else {
-            message = focus && exposure ? "Focus and brightness locked" : (exposure ? "Brightness locked" : "Focus locked")
-        }
+        let message = focus && exposure ? "AE/AF LOCK" : (exposure ? "AE LOCK" : "AF LOCK")
         showToast(message, symbol: "lock.fill")
     }
 
@@ -1599,8 +1569,7 @@ final class CameraModel {
 
     /// Locks white balance to whatever is in the middle of the frame being neutral gray.
     func setWhiteBalanceFromGrayCard() {
-        // The simple interface has no white balance control to show the result or take it back with.
-        guard isAdvanced, capabilities.supportsCustomWhiteBalance else { return }
+        guard capabilities.supportsCustomWhiteBalance else { return }
         adoptNextWhiteBalanceReading = true
         backend.apply(whiteBalance: .grayWorld)
         Haptics.tap()
@@ -1630,8 +1599,7 @@ final class CameraModel {
         updateSettings { $0.night.seconds = seconds.map { min(max($0, range.lowerBound), range.upperBound) } }
     }
 
-    /// The time stays the scene's own to change: every scene offers several. The simple interface keeps to those,
-    /// so there another value lands on the closest one.
+    /// The time stays the scene's own to change: every scene offers several.
     func setLongExposureSeconds(_ seconds: Double) {
         updateSettings { $0.longExposure.seconds = min(max(seconds, shortestLongSeconds), 1800) }
     }
@@ -1639,8 +1607,8 @@ final class CameraModel {
     /// Picks what LONG mode is pointed at and loads that scene's blend, time, bulb, frame and alignment. Custom keeps
     /// the values.
     func setLongExposureScene(_ scene: LongExposureScene) {
-        // The scene already on has nothing to load, and Custom is not a scene of the simple interface.
-        guard !activity.isBusy, scene != settings.longExposure.scene, isAdvanced || scene.recipe != nil else { return }
+        // The scene already on has nothing to load.
+        guard !activity.isBusy, scene != settings.longExposure.scene else { return }
         // A lock holds the exposure and the focus of the scene being left.
         releaseLock()
         // Stars and Northern lights start at a time that keeps the stars as points at this zoom. The time stays the
@@ -2404,7 +2372,8 @@ final class CameraModel {
         let zoom = readings.displayZoom.isFinite && readings.displayZoom > 0 ? readings.displayZoom : requestedDisplayZoom
         return ShotContext(
             mode: mode,
-            advanced: isAdvanced,
+            // The files' interface field: every shot is taken with the full set of controls now.
+            advanced: true,
             scene: mode == .long ? settings.longExposure.scene : nil,
             exposureControl: ExposureControl.from(shutterAuto: isShutterAuto, isoAuto: isISOAuto,
                                                   apertureAuto: isApertureAuto,
@@ -2523,7 +2492,7 @@ final class CameraModel {
             updateStackISOLimit()
         }
         if old.mode != new.mode {
-            // applyAll sends everything, which also covers a scene or an interface level that changed with the mode.
+            // applyAll sends everything, which also covers a scene that changed with the mode.
             modeDidChange(from: old.mode, to: new.mode)
             return
         }
@@ -2539,7 +2508,6 @@ final class CameraModel {
         let sceneFocusChanged = capabilities.supportsManualFocus
             && (oldRecipe?.focusAtInfinity ?? false) != (newRecipe?.focusAtInfinity ?? false)
         let sceneKelvinChanged = capabilities.supportsCustomWhiteBalance && oldRecipe?.kelvin != newRecipe?.kelvin
-        let levelChanged = old.interface.advanced != new.interface.advanced
         if old.manual != new.manual || old.longExposure != new.longExposure || old.night.biasEV != new.night.biasEV
             || old.exposure.aeMaxShutter != new.exposure.aeMaxShutter || old.video.frameRate != new.video.frameRate {
             scheduleApply(.exposure)
@@ -2550,7 +2518,7 @@ final class CameraModel {
         if old.focus != new.focus || sceneFocusChanged {
             scheduleApply(.focus)
         }
-        if old.display != new.display || old.focus != new.focus || sceneChanged || levelChanged {
+        if old.display != new.display || old.focus != new.focus || sceneChanged {
             applyAnalysis()
         }
         // The Camera Control overlay shows these too, and which of its controls work follows some of them. An open
@@ -2559,8 +2527,7 @@ final class CameraModel {
             || old.focus != new.focus || old.longExposure != new.longExposure || old.video.frameRate != new.video.frameRate
             || old.night.seconds != new.night.seconds || old.capture.schedule != new.capture.schedule
             || old.capture.flash != new.capture.flash || old.display.histogram != new.display.histogram
-        // The simple interface carries its own short list of controls.
-        if old.controls.cameraControlItems != new.controls.cameraControlItems || levelChanged
+        if old.controls.cameraControlItems != new.controls.cameraControlItems
             || (controlValuesChanged && activeDial == nil && !applyingControlChange) {
             applyCameraControls()
         }
@@ -2690,8 +2657,7 @@ final class CameraModel {
     /// this mode, or while a shot runs, it shows dimmed (disabledItems), so a mode change only changes values and
     /// the overlay never rebuilds under the finger. The backend skips a state equal to the one it has.
     private func applyCameraControls() {
-        // The simple interface has no MANUAL to land in, so its Camera Control carries nothing that leads there.
-        let items = (isAdvanced ? settings.controls.cameraControlItems : CameraSettings.simpleCameraControlItems)
+        let items = settings.controls.cameraControlItems
             // Without manual shutter speeds the shutter picker would have nothing to set: NIGHT's time is Night
             // duration's, on every phone.
             .filter { allowsManualShutter || $0 != .shutter }
@@ -3561,20 +3527,6 @@ final class CameraModel {
         }
     }
 
-    /// The exposure on one line: "1/250 · ISO 100 · ƒ/1.8 · +0.3".
-    var exposureSummary: String {
-        var parts = [
-            ShutterSpeed(seconds: displayShutter).label,
-            ISOScale.label(displayISO),
-            ApertureScale.label(displayAperture),
-        ]
-        let bias = settings.mode == .night ? settings.night.biasEV : settings.manual.bias
-        if abs(bias) >= 0.05 {
-            parts.append(EVFormat.label(bias))
-        }
-        return parts.joined(separator: " \u{00B7} ")
-    }
-
     // MARK: - Histogram
 
     /// The histogram is on and this mode draws one. NIGHT has none: its shots are built from many frames.
@@ -3874,9 +3826,7 @@ extension CameraModel: CameraBackendDelegate {
         refreshSteadyStatus()
         if adoptNextWhiteBalanceReading, !readings.isAdjustingWhiteBalance {
             adoptNextWhiteBalanceReading = false
-            // Written directly, so the request isn't sent again and the measured gains stay. Only the advanced
-            // interface measures (setWhiteBalanceFromGrayCard), and switching to simple drops a pending one.
-            guard isAdvanced else { return }
+            // Written directly, so the request isn't sent again and the measured gains stay.
             settings.whiteBalance = .kelvin(readings.kelvin, tint: readings.tint)
             scheduleSave()
             if activeDial == nil { applyCameraControls() }
@@ -3919,14 +3869,6 @@ extension CameraModel: CameraBackendDelegate {
     func cameraBackend(_ backend: CameraBackend, didReceiveControl change: CameraControlChange) {
         applyingControlChange = true
         defer { applyingControlChange = false }
-        // The simple interface puts none of these on the Camera Control, so such a pick was on its way when the
-        // interface switched. Everything it could set is hidden there, or leads to MANUAL.
-        if !isAdvanced {
-            switch change {
-            case .shutter, .iso, .aperture, .kelvin, .focus, .tint: return
-            case .mode, .lens, .duration, .scene, .timer, .flash, .histogram: break
-            }
-        }
         // A pick still on its way as its control went dim (a shot started, the mode changed) does nothing. The state
         // sent here puts the control back where the camera is.
         guard cameraControlWorks(Self.controlItem(of: change), in: cameraControlContext) else {

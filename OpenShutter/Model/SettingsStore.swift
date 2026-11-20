@@ -22,11 +22,6 @@ final class SettingsStore {
         defaults.set(data, forKey: key)
     }
 
-    func reset() {
-        defaults.removeObject(forKey: key)
-        defaults.removeObject(forKey: snapshotKey)
-    }
-
     // MARK: - Advanced snapshot
 
     /// What the earlier simple interface put aside when it was turned on. The camera always shows every control
