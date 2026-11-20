@@ -2,21 +2,20 @@ import SwiftUI
 import CameraCore
 
 /// Glass panel under the top bar with the settings people change between shots that the bar itself has no room for.
-/// The dots button beside the shutter opens it. Tap an item to step through its values; touch and hold the ones with
-/// many values to pick directly. The photo's shape, the grid and the level are in Settings: they are set once, not
-/// between shots.
+/// The dots button beside the shutter opens it. A tap on an item with choices lists them, as a tap on the bar's
+/// buttons does, so none is stepped through to reach the one wanted. An item that is on or off switches on a tap, and
+/// Resolution's tap takes the other of its two sizes. The photo's shape, the grid and the level are in Settings: they
+/// are set once, not between shots.
 struct QuickSettingsDrawer: View {
     @Bindable var model: CameraModel
     /// Set to show the timer sheet, which the camera screen presents.
     @Binding var timerSheetRequested: Bool
-    /// The timer cycle ends with "custom": after that sheet closes, the next tap wraps around to Off.
-    @State private var timerCycleReachedCustom = false
 
     var body: some View {
         VStack(spacing: 10) {
             Grid(horizontalSpacing: 2, verticalSpacing: 12) {
                 GridRow {
-                    timerItem(advanced: true)
+                    TimerItem(model: model, timerSheetRequested: $timerSheetRequested)
                     formatItem
                     rawItem
                     resolutionItem
@@ -56,9 +55,6 @@ struct QuickSettingsDrawer: View {
                     }
                 }
         )
-        .onChange(of: model.settings.capture.schedule) { _, _ in
-            timerCycleReachedCustom = false
-        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Quick settings")
         .accessibilityAction(.escape) { close() }
@@ -69,52 +65,6 @@ struct QuickSettingsDrawer: View {
     }
 
     // MARK: - Capture
-
-    /// The advanced interface ends the tap cycle and the menu with the timer sheet.
-    private func timerItem(advanced: Bool) -> some View {
-        let schedule = model.settings.capture.schedule
-        let delays = QuickActions.delays(advanced: advanced)
-        let selection = Binding<Double>(
-            // A burst or intervalometer matches none of the plain delays, so no row gets the checkmark.
-            get: { schedule.shots == 1 ? schedule.delay : -1 },
-            set: { delay in QuickActions.setSchedule(CaptureSchedule(delay: delay), model) }
-        )
-        return DrawerMenuItem(model: model, title: "Timer", value: Self.timerValue(schedule),
-                              isActive: !schedule.isOff,
-                              isEnabled: QuickActions.timerApplies(model),
-                              primaryAction: { cycleTimer(through: delays, endsInSheet: advanced) }) {
-            Picker("Timer", selection: selection) {
-                ForEach(delays, id: \.self) { delay in
-                    Text(QuickActions.delayTitle(delay)).tag(delay)
-                }
-            }
-            .pickerStyle(.inline)
-            if advanced {
-                Button {
-                    timerSheetRequested = true
-                } label: {
-                    Label("Custom", systemImage: "slider.horizontal.3")
-                }
-            }
-        } glyph: {
-            Image(systemName: "timer")
-        }
-    }
-
-    /// Off, 3s, 5s, 10s, 30s, then the timer sheet for anything else; a custom schedule steps back to Off. Without
-    /// the sheet the last delay goes straight back to Off.
-    private func cycleTimer(through delays: [Double], endsInSheet: Bool) {
-        switch QuickActions.timerStep(after: model.settings.capture.schedule, delays: delays,
-                                      endsInSheet: endsInSheet, sheetOffered: timerCycleReachedCustom) {
-        case .schedule(let schedule):
-            timerCycleReachedCustom = false
-            QuickActions.setSchedule(schedule, model)
-        case .sheet:
-            timerCycleReachedCustom = true
-            Haptics.tap()
-            timerSheetRequested = true
-        }
-    }
 
     private var formatItem: some View {
         // The format set, or HEIF in place of RAW only in a stack, which saves a HEIF there.
@@ -201,12 +151,10 @@ struct QuickSettingsDrawer: View {
         // Manual exposure always captures with Minimal so the camera keeps the chosen shutter and ISO.
         let forcedMinimal = model.isManualExposure
         let shown = forcedMinimal ? ProcessingLevel.minimal : setting
-        return DrawerButtonItem(model: model, title: "Processing", value: shown.title,
-                                isActive: shown != .balanced,
-                                isEnabled: (mode == .photo || mode == .manual) && !forcedMinimal && choices.count > 1,
-                                hint: forcedMinimal ? "Manual exposure always uses Minimal." : nil) {
-            QuickActions.stepProcessing(model)
-        } glyph: {
+        return DrawerMenuItem(model: model, control: .processing, title: "Processing", value: shown.title,
+                              isActive: shown != .balanced,
+                              isEnabled: (mode == .photo || mode == .manual) && !forcedMinimal && choices.count > 1,
+                              hint: forcedMinimal ? "Manual exposure always uses Minimal." : nil) {
             Image(systemName: "wand.and.stars")
         }
     }
@@ -276,10 +224,8 @@ struct QuickSettingsDrawer: View {
 
     private var peakingItem: some View {
         let peaking = model.settings.display.peaking
-        return DrawerButtonItem(model: model, title: "Peaking", value: QuickActions.peakingValue(peaking),
-                                isActive: peaking != .off) {
-            QuickActions.stepPeaking(model)
-        } glyph: {
+        return DrawerMenuItem(model: model, control: .peaking, title: "Peaking",
+                              value: QuickActions.peakingValue(peaking), isActive: peaking != .off) {
             Image(systemName: "scope")
         }
     }
@@ -291,17 +237,6 @@ struct QuickSettingsDrawer: View {
         } glyph: {
             Image(systemName: "paintpalette")
         }
-    }
-
-    // MARK: - Helpers
-
-    private static func timerValue(_ schedule: CaptureSchedule) -> String {
-        if schedule.isOff { return "Off" }
-        if schedule.shots == 1 { return Formatting.compactDuration(schedule.delay) }
-        if schedule.delay > 0 {
-            return Formatting.compactDuration(schedule.delay) + " \u{00D7}\(schedule.shots)"
-        }
-        return "\(schedule.shots) shots"
     }
 }
 
@@ -335,33 +270,230 @@ private struct DrawerButtonItem<Glyph: View>: View {
     }
 }
 
-/// A drawer item that steps on tap and lists every value on touch and hold.
-private struct DrawerMenuItem<Glyph: View, Options: View>: View {
+/// A drawer item whose tap lists its choices, as the top bar's buttons do: the face every item has, with its menu
+/// laid over it. A tap has nothing else to do, so the face is no button.
+private struct DrawerMenuItem<Glyph: View>: View {
     let model: CameraModel
+    let control: DrawerMenuLayer.Control
     let title: String
     let value: String
     var isActive = false
     var isEnabled = true
-    let primaryAction: () -> Void
-    @ViewBuilder let options: () -> Options
+    /// Said in place of the hint that the item lists its choices: why it is dimmed, or what it can't do here.
+    var hint: String? = nil
     @ViewBuilder let glyph: () -> Glyph
     @State private var press = PressTracker()
 
     var body: some View {
-        // The same button as the items without a menu, with the menu laid over it. Every step changes the label,
-        // and a label inside the system's menu button would be redrawn through that button each time.
-        Button(action: primaryAction) {
-            DrawerItemLabel(model: model, title: title, value: value, isActive: isActive, glyph: glyph())
+        DrawerItemLabel(model: model, title: title, value: value, isActive: isActive, glyph: glyph())
+            // The touch lands on the menu layer, so the press look is set by hand, as DrawerPressStyle sets it.
+            .scaleEffect(press.isPressed ? 0.92 : 1)
+            .animation(Theme.snappy, value: press.isPressed)
+            // The menu over the item is what VoiceOver reads and opens.
+            .accessibilityHidden(true)
+            .overlay {
+                DrawerMenuLayer(model: model, control: control, press: press, label: title, value: value,
+                                hint: hint ?? HoldMenuText.choicesHint)
+            }
+            .disabled(!isEnabled)
+            .opacity(isEnabled ? 1 : 0.35)
+    }
+}
+
+/// An item's menu, laid over the item. Its own view with inputs that compare equal between redraws, so the panel's
+/// redraws with every settings change leave the system's menu button alone. Where the top bar lists the same choice,
+/// these are its rows, so the two never differ.
+private struct DrawerMenuLayer: View {
+    enum Control {
+        case format, raw, processing, histogram, peaking
+    }
+
+    let model: CameraModel
+    let control: Control
+    let press: PressTracker
+    let label: String
+    let value: String
+    let hint: String
+
+    var body: some View {
+        MenuOnTapLayer(press: press, label: label, value: value, hint: hint) {
+            switch control {
+            case .format: PhotoFormatRows(model: model)
+            case .raw: RawFormatRows(model: model)
+            case .processing: ProcessingRows(model: model)
+            case .histogram: HistogramOptions(model: model)
+            case .peaking: PeakingRows(model: model)
+            }
         }
-        .buttonStyle(DrawerPressStyle(isPressed: press.isPressed))
-        .accessibilityLabel(title)
-        .accessibilityValue(value)
-        .accessibilityHint(HoldMenuText.hint)
-        .overlay {
-            MenuOnHoldLayer(press: press, action: primaryAction, options: options)
+    }
+}
+
+/// The self timer. A tap lists the top bar's Timer menu: the delays, what the timer sheet set, and the way into the
+/// sheet. That menu takes the sheet's binding, which no other item's menu needs, so the timer is an item of its own.
+private struct TimerItem: View {
+    let model: CameraModel
+    @Binding var timerSheetRequested: Bool
+    @State private var press = PressTracker()
+
+    var body: some View {
+        let schedule = model.settings.capture.schedule
+        let value = Self.value(schedule)
+        let isEnabled = QuickActions.timerApplies(model)
+        DrawerItemLabel(model: model, title: "Timer", value: value, isActive: !schedule.isOff,
+                        glyph: Image(systemName: "timer"))
+            // As DrawerMenuItem's face: the touch lands on the menu layer, which VoiceOver reads and opens.
+            .scaleEffect(press.isPressed ? 0.92 : 1)
+            .animation(Theme.snappy, value: press.isPressed)
+            .accessibilityHidden(true)
+            .overlay {
+                TimerMenuLayer(model: model, mode: model.settings.mode, press: press, value: value,
+                               timerSheetRequested: $timerSheetRequested)
+            }
+            .disabled(!isEnabled)
+            .opacity(isEnabled ? 1 : 0.35)
+    }
+
+    /// "Off", "3s", "10s ×5", or "5 shots" for an intervalometer with no delay.
+    private static func value(_ schedule: CaptureSchedule) -> String {
+        if schedule.isOff { return "Off" }
+        if schedule.shots == 1 { return Formatting.compactDuration(schedule.delay) }
+        if schedule.delay > 0 {
+            return Formatting.compactDuration(schedule.delay) + " \u{00D7}\(schedule.shots)"
         }
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.35)
+        return "\(schedule.shots) shots"
+    }
+}
+
+/// The file type, with HIGH under it for HEIF High and JPEG High.
+private struct FormatGlyph: View {
+    let choice: PhotoFormatChoice
+
+    var body: some View {
+        let scale = Theme.labelScale
+        VStack(spacing: 0) {
+            Text(QuickActions.formatCode(choice))
+                .font(.system(size: 10 * scale, weight: .heavy))
+            if choice.isHigh {
+                Text("HIGH")
+                    .font(.system(size: 7 * scale, weight: .heavy))
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        .padding(.horizontal, 3)
+    }
+}
+
+/// The levels up to the most this camera does. A saved level past it stays listed, dimmed, so the menu shows what is
+/// set; photos take the camera's most instead.
+private struct ProcessingRows: View {
+    let model: CameraModel
+
+    var body: some View {
+        let setting = model.settings.capture.processing
+        let choices = QuickActions.processingChoices(maximum: model.capabilities.maxProcessing)
+        ForEach(ProcessingLevel.allCases.filter { choices.contains($0) || $0 == setting }) { level in
+            let offered = choices.contains(level)
+            // The row ticks.
+            HoldMenuChoice(level.title, detail: offered ? nil : "Not on this camera", isOn: level == setting) {
+                model.updateSettings { $0.capture.processing = level }
+            }
+            .disabled(!offered)
+        }
+    }
+}
+
+/// Off, Manual focus and Always, as Settings lists them.
+private struct PeakingRows: View {
+    let model: CameraModel
+
+    var body: some View {
+        let peaking = model.settings.display.peaking
+        Picker("Focus peaking", selection: Binding(get: { peaking },
+                                                   set: { QuickActions.set(\.display.peaking, to: $0, model) })) {
+            ForEach(PeakingMode.allCases) { choice in
+                Text(choice.title).tag(choice)
+            }
+        }
+        .pickerStyle(.inline)
+    }
+}
+
+/// The custom setups C1 to C3: a tap lists the slots, to use one or to save the current setup in one.
+private struct SetupsItem: View {
+    let model: CameraModel
+    @State private var press = PressTracker()
+
+    var body: some View {
+        let saved = model.settings.setups.slots.filter { $0 != nil }.count
+        let value = saved == 0 ? "None" : "\(saved) saved"
+        DrawerItemLabel(model: model, title: "Setups", value: value, isActive: false,
+                        glyph: Image(systemName: "slider.horizontal.3"))
+            // The touch lands on the menu layer, so the press look is set by hand, as DrawerPressStyle sets it.
+            .scaleEffect(press.isPressed ? 0.92 : 1)
+            .animation(Theme.snappy, value: press.isPressed)
+            // The menu over the item is what VoiceOver reads and opens.
+            .accessibilityHidden(true)
+            .overlay {
+                SetupsMenuLayer(model: model, press: press, value: value)
+            }
+    }
+}
+
+/// The Setups item's menu, laid over the item. Its own view with inputs that compare equal between redraws, so the
+/// panel's redraws with every settings change leave the system's menu button alone.
+private struct SetupsMenuLayer: View {
+    let model: CameraModel
+    let press: PressTracker
+    let value: String
+
+    var body: some View {
+        MenuOnTapLayer(press: press, label: "Custom setups", value: value) {
+            SetupsMenu(model: model)
+        }
+    }
+}
+
+/// The saved setups to use, then the three slots to save the current setup in. A slot with a name keeps it when the
+/// current setup goes into it, as in Settings, which also renames and clears them.
+private struct SetupsMenu: View {
+    let model: CameraModel
+
+    var body: some View {
+        let setups = model.settings.setups
+        Section("Use a setup") {
+            ForEach(0..<CameraSetups.count, id: \.self) { slot in
+                let setup = setups[slot]
+                // The model closes the panel and names the setup in a toast, or says why it has to wait.
+                Button {
+                    model.recallSetup(slot: slot)
+                } label: {
+                    Text(Self.title(slot: slot, setup: setup))
+                    Text(setup?.summary ?? "Empty")
+                }
+                .disabled(setup == nil)
+            }
+        }
+        Section("Save the current setup to") {
+            ForEach(0..<CameraSetups.count, id: \.self) { slot in
+                let setup = setups[slot]
+                Button {
+                    // Without a name the slot keeps its own, and the model's toast says where it went.
+                    model.saveSetup(slot: slot)
+                    Haptics.tap()
+                } label: {
+                    Text(Self.title(slot: slot, setup: setup))
+                    Text(setup == nil ? "Empty" : "Replaces this setup")
+                }
+            }
+        }
+    }
+
+    /// "C1 · Milky Way", or "C1" while it has no name, as Settings writes it.
+    private static func title(slot: Int, setup: CameraSetup?) -> String {
+        let code = "C\(slot + 1)"
+        guard let name = setup?.name, !name.isEmpty else { return code }
+        return "\(code) \u{00B7} \(name)"
     }
 }
 
@@ -403,14 +535,10 @@ private struct DrawerItemLabel<Glyph: View>: View {
 }
 
 private struct DrawerPressStyle: ButtonStyle {
-    /// A press that lands on the item's touch and hold layer.
-    var isPressed = false
-
     func makeBody(configuration: Configuration) -> some View {
-        let pressed = configuration.isPressed || isPressed
         configuration.label
-            .scaleEffect(pressed ? 0.92 : 1)
-            .animation(Theme.snappy, value: pressed)
+            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            .animation(Theme.snappy, value: configuration.isPressed)
     }
 }
 

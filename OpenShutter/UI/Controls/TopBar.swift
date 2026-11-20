@@ -1,10 +1,12 @@
 import SwiftUI
 import CameraCore
 
-/// The row over the top of the picture: flash, shape, timer, format, histogram, Live Photo and the gear, always
-/// those seven and always in the same seven slots, as plain glyphs with nothing behind them, like Apple's Camera. One
-/// that has nothing to do in a mode dims in its place and never steps aside, so each stays where the thumb expects
-/// it. A tap does a button's main thing; touch and hold lists its choices.
+/// The row over the top of the picture: flash, shape, timer, format, histogram, AE lock, Live Photo and the gear,
+/// always in the same eight slots, as plain glyphs with nothing behind them, like Apple's Camera. NIGHT has no
+/// histogram, so its slot holds what the night shot plans for: a tripod, a hand or Auto. One that has nothing to do in
+/// a mode dims in its place and never steps aside, so each stays where the thumb expects it. A tap on a button with
+/// choices lists them, the current one checked. Live Photo and AE lock switch on a tap, and the gear opens Settings.
+/// VIDEO's flashlight switches on a tap too, and lists its brightness on touch and hold.
 struct TopBar: View {
     @Bindable var model: CameraModel
     /// Set to show the timer sheet, which the camera screen presents.
@@ -17,8 +19,9 @@ struct TopBar: View {
         let mode = model.settings.mode
         let activity = model.activity
         let isRecording = activity == .recording
-        // A focus or white balance bracket is one long capture that reads the settings again for every frame.
-        let isHeld = Self.holdsControls(activity) || model.bracketInProgress
+        // A focus or white balance bracket is one long capture that reads the settings again for every frame, and an
+        // intervalometer is idle between its shots, when a new aspect or format would split the sequence in two.
+        let isHeld = Self.holdsControls(activity) || model.bracketInProgress || model.intervalometer != nil
 
         BarSlots {
             ForEach(Array(Self.items.enumerated()), id: \.element) { index, item in
@@ -113,13 +116,16 @@ private struct SlotPlacement: ViewModifier {
     let slots: ClosedRange<Int>
     /// Hidden while filming: only the light and the recording capsule stay.
     let isHidden: Bool
-    /// Countdown, stacks and saving keep the bar visible but inert.
+    /// Countdown, stacks, saving, brackets and intervalometers keep the bar visible but inert.
     let isHeld: Bool
 
     func body(content: Content) -> some View {
         content
             .opacity(isHidden ? 0 : (isHeld ? 0.35 : 1))
             .allowsHitTesting(!isHidden && !isHeld)
+            // Hit testing only stops touches: VoiceOver opens a menu without one. Disabled as well, so a held bar
+            // opens nothing; the look stays the one set above.
+            .disabled(isHeld)
             .accessibilityHidden(isHidden)
             .accessibilitySortPriority(Double(BarSlots.count - slots.lowerBound))
             .transition(.opacity.combined(with: .scale(scale: 0.8)))
@@ -127,11 +133,11 @@ private struct SlotPlacement: ViewModifier {
     }
 }
 
-// MARK: - Touch and hold
+// MARK: - Menus
 
-/// A control's tap and its touch and hold menu, laid over the control. Its own view with inputs that never change,
-/// so the control's redraws with every settings change leave the system's menu button alone.
-private struct BarTouchLayer: View {
+/// One half of VIDEO's chip as a menu, laid over its text. Its own view with inputs that compare equal between
+/// redraws, so the chip's redraws with every settings change leave the system's menu button alone.
+private struct ChipMenuLayer: View {
     enum Control {
         case resolution, frameRate
     }
@@ -139,80 +145,70 @@ private struct BarTouchLayer: View {
     let model: CameraModel
     let control: Control
     let press: PressTracker
+    let label: String
+    let value: String
 
     var body: some View {
-        MenuOnHoldLayer(press: press) {
+        MenuOnTapLayer(press: press, label: label, value: value) {
             switch control {
-            case .resolution: VideoFormatChip.stepResolution(model)
-            case .frameRate: VideoFormatChip.stepFrameRate(model)
+            case .resolution: VideoResolutionOptions(model: model)
+            case .frameRate: VideoFrameRateOptions(model: model)
             }
-        } options: {
-            VideoFormatOptions(model: model)
         }
     }
 }
 
 // MARK: - Furniture
 
-/// "4K · 30" like the Camera app: tap the resolution or the frame rate to step through what this lens can record.
-/// Touch and hold either one lists every size and rate together.
+/// "4K · 30" like the Camera app: a tap on the resolution lists the sizes this lens records, a tap on the frame rate
+/// the rates of the size in use.
 private struct VideoFormatChip: View {
     let model: CameraModel
     @State private var resolutionPress = PressTracker()
     @State private var frameRatePress = PressTracker()
 
     var body: some View {
-        // What this lens records: a lens without the saved 4K 120 shows 4K 60 here, and a tap steps from that.
+        // What this lens records: a lens without the saved 4K 120 shows 4K 60 here, and its menu marks that.
         let video = model.recordedVideo
         let formats = model.capabilities.formats
         let resolutions = FormatSelector.availableResolutions(colorMode: video.colorMode, among: formats)
         let rates = FormatSelector.availableFrameRates(resolution: video.resolution, colorMode: video.colorMode,
                                                        among: formats)
         // Stays level when the phone turns, like the strip's text chips: turned upright, the chip would hang out of
-        // the bar and its two buttons would sit over the picture.
+        // the bar and its two menus would sit over the picture.
         HStack(spacing: 0) {
-            Button {
-                Self.stepResolution(model)
-            } label: {
-                Text(video.resolution.title)
-                    .padding(.leading, 12)
-                    .padding(.trailing, 5)
-                    .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Video resolution")
-            .accessibilityValue(video.resolution.title)
-            .accessibilityHint(HoldMenuText.hint)
-            // The touch lands on the menu layer, so the plain style's dimming is done by hand.
-            .opacity(resolutionPress.isPressed ? 0.5 : 1)
-            .overlay {
-                BarTouchLayer(model: model, control: .resolution, press: resolutionPress)
-            }
-            .disabled(!Self.canStep(resolutions, from: video.resolution, matches: ==))
+            Text(video.resolution.title)
+                .padding(.leading, 12)
+                .padding(.trailing, 5)
+                .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                .contentShape(Rectangle())
+                // The touch lands on the menu layer, so the press dimming is done by hand.
+                .opacity(resolutionPress.isPressed ? 0.5 : 1)
+                // The menu over the text is what VoiceOver reads and opens.
+                .accessibilityHidden(true)
+                .overlay {
+                    ChipMenuLayer(model: model, control: .resolution, press: resolutionPress,
+                                  label: "Video resolution", value: video.resolution.title)
+                }
+                .disabled(!Self.canChoose(resolutions, from: video.resolution, matches: ==))
 
             Text("\u{00B7}")
                 .foregroundStyle(Theme.secondaryText)
                 .accessibilityHidden(true)
 
-            Button {
-                Self.stepFrameRate(model)
-            } label: {
-                Text(Self.rateLabel(video.frameRate))
-                    .padding(.leading, 5)
-                    .padding(.trailing, 12)
-                    .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Frame rate")
-            .accessibilityValue(Formatting.frameRate(video.frameRate))
-            .accessibilityHint(HoldMenuText.hint)
-            .opacity(frameRatePress.isPressed ? 0.5 : 1)
-            .overlay {
-                BarTouchLayer(model: model, control: .frameRate, press: frameRatePress)
-            }
-            .disabled(!Self.canStep(rates, from: video.frameRate, matches: Self.sameRate))
+            Text(Self.rateLabel(video.frameRate))
+                .padding(.leading, 5)
+                .padding(.trailing, 12)
+                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+                .opacity(frameRatePress.isPressed ? 0.5 : 1)
+                .accessibilityHidden(true)
+                .overlay {
+                    ChipMenuLayer(model: model, control: .frameRate, press: frameRatePress,
+                                  label: "Frame rate", value: Formatting.frameRate(video.frameRate))
+                }
+                .disabled(!Self.canChoose(rates, from: video.frameRate, matches: Self.sameRate))
         }
-        .buttonStyle(.plain)
         // Medium, like the other text in the bar: the bare glyphs beside it are drawn in thin lines.
         .font(Theme.chipFont.weight(.medium))
         // Its two slots hold "1080p · 29.97" on the narrowest phone; with Larger labels the text shrinks to fit them
@@ -226,44 +222,33 @@ private struct VideoFormatChip: View {
             SolidBacking(shape: Capsule(), height: 28)
         }
         .contentTransition(.numericText())
-        // One unit for the bar's reading order, so both its buttons come before the gear.
+        // One unit for the bar's reading order, so both its menus come before the gear.
         .accessibilityElement(children: .contain)
     }
 
-    fileprivate static func stepResolution(_ model: CameraModel) {
+    /// A menu's pick, which ticks by itself. Not every size records at every rate, so the rate moves to the closest
+    /// one the new size supports. Closest to the saved rate rather than the one shown, so a size that has the saved
+    /// rate gets it back.
+    fileprivate static func choose(resolution: VideoResolution, _ model: CameraModel) {
         let video = model.recordedVideo
-        let formats = model.capabilities.formats
-        let resolutions = FormatSelector.availableResolutions(colorMode: video.colorMode, among: formats)
-        guard !resolutions.isEmpty else { return }
-        let index = resolutions.firstIndex(of: video.resolution)
-        // A size this lens can't record steps to the first one it can.
-        let next = index.map { resolutions[($0 + 1) % resolutions.count] } ?? resolutions[0]
-        guard next != video.resolution else { return }
-        // Not every size records at every rate, so the rate moves to the closest one the new size supports. Closest to
-        // the saved rate rather than the one shown, so a size that has the saved rate gets it back.
-        let rates = FormatSelector.availableFrameRates(resolution: next, colorMode: video.colorMode, among: formats)
+        guard resolution != video.resolution else { return }
+        let rates = FormatSelector.availableFrameRates(resolution: resolution, colorMode: video.colorMode,
+                                                       among: model.capabilities.formats)
         let saved = model.settings.video.frameRate
         let rate = nearest(to: saved, in: rates) ?? saved
-        Haptics.tick()
         withAnimation(Theme.snappy) {
             model.updateSettings {
-                $0.video.resolution = next
+                $0.video.resolution = resolution
                 $0.video.frameRate = rate
             }
         }
     }
 
-    fileprivate static func stepFrameRate(_ model: CameraModel) {
-        let video = model.recordedVideo
-        let rates = FormatSelector.availableFrameRates(resolution: video.resolution, colorMode: video.colorMode,
-                                                       among: model.capabilities.formats)
-        guard !rates.isEmpty else { return }
-        let index = rates.firstIndex(where: { sameRate($0, video.frameRate) })
-        let next = index.map { rates[($0 + 1) % rates.count] } ?? rates[0]
-        guard !sameRate(next, video.frameRate) else { return }
-        Haptics.tick()
+    /// A menu's pick, which ticks by itself.
+    fileprivate static func choose(frameRate: Double, _ model: CameraModel) {
+        guard !sameRate(frameRate, model.recordedVideo.frameRate) else { return }
         withAnimation(Theme.snappy) {
-            model.updateSettings { $0.video.frameRate = next }
+            model.updateSettings { $0.video.frameRate = frameRate }
         }
     }
 
@@ -271,9 +256,10 @@ private struct VideoFormatChip: View {
         rates.min(by: { abs($0 - rate) < abs($1 - rate) })
     }
 
-    /// A tap changes something: there are two or more choices, or the value shown isn't one of them, which the first
+    /// A menu has something to offer: two or more choices, or a value shown that isn't one of them, which the
     /// choice replaces.
-    private static func canStep<Value>(_ choices: [Value], from current: Value, matches: (Value, Value) -> Bool) -> Bool {
+    private static func canChoose<Value>(_ choices: [Value], from current: Value,
+                                         matches: (Value, Value) -> Bool) -> Bool {
         guard let first = choices.first else { return false }
         return choices.count > 1 || !matches(first, current)
     }
@@ -292,35 +278,35 @@ private struct VideoFormatChip: View {
     }
 }
 
-/// Every size this lens records, largest first, with each of its frame rates, such as "4K at 30".
-private struct VideoFormatOptions: View {
+/// Every size this lens records in the color in use, largest first. Two short menus instead of one list of every
+/// size at every rate, which ran to about fifteen rows on a Pro.
+private struct VideoResolutionOptions: View {
     let model: CameraModel
 
     var body: some View {
         // What the lens records, as on the chip, so the marked row is the one in use.
         let video = model.recordedVideo
-        let formats = model.capabilities.formats
-        let resolutions = FormatSelector.availableResolutions(colorMode: video.colorMode, among: formats)
+        let resolutions = FormatSelector.availableResolutions(colorMode: video.colorMode,
+                                                              among: model.capabilities.formats)
         ForEach(Array(resolutions.reversed())) { resolution in
-            let rates = FormatSelector.availableFrameRates(resolution: resolution, colorMode: video.colorMode,
-                                                           among: formats)
-            Section {
-                ForEach(rates, id: \.self) { rate in
-                    let isCurrent = resolution == video.resolution && VideoFormatChip.sameRate(rate, video.frameRate)
-                    Toggle(isOn: Binding(get: { isCurrent }, set: { _ in choose(resolution, rate) })) {
-                        Text("\(resolution.title) at \(VideoFormatChip.rateLabel(rate))")
-                    }
-                }
+            HoldMenuChoice(resolution.title, isOn: resolution == video.resolution) {
+                VideoFormatChip.choose(resolution: resolution, model)
             }
         }
     }
+}
 
-    private func choose(_ resolution: VideoResolution, _ rate: Double) {
-        Haptics.tick()
-        withAnimation(Theme.snappy) {
-            model.updateSettings {
-                $0.video.resolution = resolution
-                $0.video.frameRate = rate
+/// The frame rates of the size in use, such as "30 fps".
+private struct VideoFrameRateOptions: View {
+    let model: CameraModel
+
+    var body: some View {
+        let video = model.recordedVideo
+        let rates = FormatSelector.availableFrameRates(resolution: video.resolution, colorMode: video.colorMode,
+                                                       among: model.capabilities.formats)
+        ForEach(rates, id: \.self) { rate in
+            HoldMenuChoice(Formatting.frameRate(rate), isOn: VideoFormatChip.sameRate(rate, video.frameRate)) {
+                VideoFormatChip.choose(frameRate: rate, model)
             }
         }
     }
@@ -388,18 +374,31 @@ private struct RecordingCapsule: View {
 
 // MARK: - Styles and helpers
 
-/// A bar button's look: the glyph alone in a 44 pt touch area, white, or the accent while its setting is on. No
-/// circle behind it, as in Apple's Camera, so it carries a shadow to read over a bright picture. Regular weight:
-/// without a circle around them, heavier lines made the row look bold. With Solid buttons the dark circle is back.
-/// The name is from when each sat in a glass circle.
+/// The style of a bar button a tap switches: Live Photo, AE lock, the gear and VIDEO's flashlight. It draws
+/// BarGlyphLook, which the buttons whose tap lists their choices wear on a plain face. The name is from when each
+/// sat in a glass circle.
 struct BarCircleStyle: ButtonStyle {
     var isActive = false
     /// A press on the button's touch and hold layer.
     var isPressed = false
 
     func makeBody(configuration: Configuration) -> some View {
-        let pressed = configuration.isPressed || isPressed
         configuration.label
+            .modifier(BarGlyphLook(isActive: isActive, isPressed: configuration.isPressed || isPressed))
+    }
+}
+
+/// A bar button's look: the glyph alone in a 44 pt touch area, white, or the accent while its setting is on. No
+/// circle behind it, as in Apple's Camera, so it carries a shadow to read over a bright picture. Regular weight:
+/// without a circle around them, heavier lines made the row look bold. With Solid buttons the dark circle is back.
+/// A button whose tap lists its choices is no Button, as its tap has nothing else to do: it wears this on a plain
+/// face, under the MenuOnTapLayer that takes its touches and tells it when it is pressed.
+struct BarGlyphLook: ViewModifier {
+    var isActive = false
+    var isPressed = false
+
+    func body(content: Content) -> some View {
+        content
             .font(.system(size: 18 * Theme.labelScale, weight: .regular))
             .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
             .shadow(color: .black.opacity(0.5), radius: 3)
@@ -407,9 +406,9 @@ struct BarCircleStyle: ButtonStyle {
             .background {
                 SolidBacking(shape: Circle(), width: Theme.controlSize, height: Theme.controlSize)
             }
-            .scaleEffect(pressed ? 0.86 : 1)
-            .opacity(pressed ? 0.7 : 1)
-            .animation(Theme.snappy, value: pressed)
+            .scaleEffect(isPressed ? 0.86 : 1)
+            .opacity(isPressed ? 0.7 : 1)
+            .animation(Theme.snappy, value: isPressed)
             .contentShape(Rectangle())
     }
 }
