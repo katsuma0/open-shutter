@@ -1368,10 +1368,14 @@ private enum SimulatedAnalysis {
 
     static func analyze(_ frame: SceneFrame, _ job: SimulatedAnalysisJob) -> AnalysisFrame {
         frame.withPlane { plane in
-            // Always measured: the clipping warning needs the stats even with the histogram hidden.
-            let samplesStep = Int((Double(plane.width) * Double(plane.height) / histogramSamples).squareRoot().rounded())
-            let (histogram, stats) = HistogramComputer.compute(bgra: plane, step: max(1, samplesStep))
             let options = job.options
+            // Counted only while the histogram shows, as on the real camera: nothing else reads it.
+            var histogram = Histogram()
+            var stats = ExposureStats.empty
+            if options.histogram {
+                let samplesStep = Int((Double(plane.width) * Double(plane.height) / histogramSamples).squareRoot().rounded())
+                (histogram, stats) = HistogramComputer.compute(bgra: plane, step: max(1, samplesStep))
+            }
             let overlayOptions = OverlayOptions(
                 zebraThreshold: options.zebraThreshold,
                 stripePeriod: stripePeriod,

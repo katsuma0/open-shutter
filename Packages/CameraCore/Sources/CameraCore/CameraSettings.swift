@@ -16,6 +16,9 @@ public enum CaptureMode: String, Codable, Sendable, CaseIterable, Identifiable {
     public var id: String { rawValue }
     public var title: String { rawValue.uppercased() }
     public var usesStacking: Bool { self == .night || self == .long }
+    /// NIGHT's shots are built from many frames, so a histogram of the framing frame says little about the picture.
+    /// It shows none, and its top bar holds the night shot's stability in the histogram's place.
+    public var hasHistogram: Bool { !usesStacking }
     /// Left to right in the mode carousel. NIGHT stands for both stacking modes: the night shot and the long
     /// exposure scenes are one mode on screen, picked between inside it, so LONG has no entry of its own.
     public static let carouselOrder: [CaptureMode] = [.night, .photo, .manual, .video]
@@ -597,7 +600,7 @@ public struct DisplaySettings: Codable, Hashable, Sendable {
 public struct NightSettings: Codable, Hashable, Sendable {
     /// nil = automatic duration from the light level.
     public var seconds: Double? = nil
-    /// A tripod unless Settings says otherwise: the camera screen has no control for it.
+    /// A tripod unless the person says otherwise, on NIGHT's top bar or in Settings > Night.
     public var stability: NightStabilityChoice = .tripod
     public var alignFrames: Bool = true
     public var maxISO: Double = 3200

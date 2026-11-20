@@ -206,9 +206,12 @@ struct QuickSettingsDrawer: View {
 
     private var histogramItem: some View {
         let style = model.settings.display.histogram
-        return DrawerButtonItem(model: model, title: "Histogram", value: style.title, isActive: style != .off) {
-            QuickActions.stepHistogram(model)
-        } glyph: {
+        // NIGHT's photos are merged from many frames, so it shows none. The setting waits for the other modes.
+        let available = model.settings.mode.hasHistogram
+        return DrawerMenuItem(model: model, control: .histogram, title: "Histogram",
+                              value: available ? style.title : "Not in Night",
+                              isActive: available && style != .off, isEnabled: available,
+                              hint: available ? nil : "Night mode shows no histogram.") {
             Image(systemName: "chart.bar.fill")
         }
     }

@@ -30,7 +30,8 @@ final class InterfacePreferencesTests: XCTestCase {
         XCTAssertEqual(TopBarItem.allCases.map(\.rawValue),
                        ["flash", "livePhoto", "timer", "aspect", "grid", "level", "location", "quietShutter",
                         "batterySaver", "nightDuration", "raw", "exposureLock", "format", "resolution", "processing",
-                        "histogram", "zebras", "peaking", "falseColor", "whiteBalance", "stabilization", "sound"])
+                        "histogram", "zebras", "peaking", "falseColor", "whiteBalance", "stabilization", "sound",
+                        "nightStability"])
         XCTAssertEqual(AppearanceScheme.allCases.map(\.id), AppearanceScheme.allCases.map(\.rawValue))
         XCTAssertEqual(AccentChoice.allCases.map(\.id), AccentChoice.allCases.map(\.rawValue))
         XCTAssertEqual(HapticStrength.allCases.map(\.id), HapticStrength.allCases.map(\.rawValue))
@@ -308,8 +309,10 @@ final class InterfacePreferencesTests: XCTestCase {
             .flash: [.photo, .manual, .video], .livePhoto: [.photo], .timer: stills, .aspect: stills, .grid: every,
             .level: every, .location: every, .quietShutter: single, .batterySaver: [.night, .long],
             .nightDuration: [.night], .raw: single, .exposureLock: every, .format: stills, .resolution: single,
-            .processing: single, .histogram: every, .zebras: every, .peaking: every, .falseColor: every,
-            .whiteBalance: every, .stabilization: [.video], .sound: [.video],
+            // NIGHT has no histogram; its slot holds the night shot's stability, which the scenes don't read.
+            .processing: single, .histogram: [.photo, .manual, .video], .zebras: every, .peaking: every,
+            .falseColor: every, .whiteBalance: every, .stabilization: [.video], .sound: [.video],
+            .nightStability: [.night],
         ]
         XCTAssertEqual(Set(modes.keys), Set(TopBarItem.allCases))
         for item in TopBarItem.allCases {
@@ -324,12 +327,30 @@ final class InterfacePreferencesTests: XCTestCase {
         }
     }
 
+    func testNightTakesStabilityInTheHistogramsPlace() {
+        // The fifth slot never holds two live buttons: the histogram where a mode has one, the night shot's
+        // stability in the night shot, and in the scenes the stability dimmed in place.
+        for mode in CaptureMode.allCases {
+            XCTAssertEqual(TopBarItem.histogram.applies(in: mode), mode.hasHistogram, mode.rawValue)
+            XCTAssertFalse(TopBarItem.histogram.applies(in: mode) && TopBarItem.nightStability.applies(in: mode),
+                           mode.rawValue)
+        }
+        XCTAssertTrue(TopBarItem.nightStability.applies(in: .night))
+        XCTAssertFalse(TopBarItem.nightStability.applies(in: .long))
+        XCTAssertFalse(TopBarItem.nightStability.isAdvancedOnly)
+        // Added at the end, so the names saves hold keep their places.
+        XCTAssertEqual(TopBarItem.allCases.last, .nightStability)
+        XCTAssertEqual(TopBarItem.nightStability.title(advanced: true), "Stability")
+        XCTAssertEqual(TopBarItem.nightStability.title(advanced: false), "Stability")
+        XCTAssertEqual(TopBarItem.nightStability.symbolNames, ["hand.raised"])
+    }
+
     func testTopBarTitlesAndSymbols() {
         XCTAssertEqual(TopBarItem.allCases.map { $0.title(advanced: true) },
                        ["Flash", "Live Photo", "Timer", "Aspect ratio", "Grid", "Level", "Location tags",
                         "Silent shutter", "Battery saver", "Night duration", "RAW", "AE lock", "Format", "Resolution",
                         "Processing", "Histogram", "Zebras", "Focus peaking", "False color", "White balance",
-                        "Stabilization", "Sound"])
+                        "Stabilization", "Sound", "Stability"])
         // The simple interface's own words where they differ, the same names elsewhere.
         for item in TopBarItem.allCases {
             let simple = item.title(advanced: false)

@@ -12,8 +12,11 @@ struct TopBar: View {
     /// Set to show the timer sheet, which the camera screen presents.
     @Binding var timerSheetRequested: Bool
 
-    /// Left to right. The gear takes the eighth slot.
-    private static let items: [TopBarItem] = [.flash, .aspect, .timer, .format, .histogram, .exposureLock, .livePhoto]
+    /// Left to right. The gear takes the eighth slot. NIGHT has no histogram: what the night shot plans for takes its
+    /// place, so the two cross-fade when the mode changes.
+    private static func items(in mode: CaptureMode) -> [TopBarItem] {
+        [.flash, .aspect, .timer, .format, mode.hasHistogram ? .histogram : .nightStability, .exposureLock, .livePhoto]
+    }
 
     var body: some View {
         let mode = model.settings.mode
@@ -24,7 +27,7 @@ struct TopBar: View {
         let isHeld = Self.holdsControls(activity) || model.bracketInProgress || model.intervalometer != nil
 
         BarSlots {
-            ForEach(Array(Self.items.enumerated()), id: \.element) { index, item in
+            ForEach(Array(Self.items(in: mode).enumerated()), id: \.element) { index, item in
                 if mode == .video, item == .format {
                     // VIDEO's format is the size and the frame rate, which need the timer's slot as well.
                     VideoFormatChip(model: model)

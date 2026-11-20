@@ -443,6 +443,14 @@ final class CameraSettingsTests: XCTestCase {
         XCTAssertFalse(CaptureMode.manual.usesStacking)
     }
 
+    func testNightHasNoHistogram() {
+        // The night shot and the scenes are stacks; every other mode shows one.
+        for mode in CaptureMode.allCases {
+            XCTAssertEqual(mode.hasHistogram, mode != .night && mode != .long, mode.rawValue)
+        }
+        XCTAssertEqual(CaptureMode.allCases.filter(\.hasHistogram), [.photo, .manual, .video])
+    }
+
     func testCarouselOrderForEachInterface() {
         XCTAssertEqual(CaptureMode.carouselOrder(advanced: true), CaptureMode.carouselOrder)
         // The simple carousel is the same row without MANUAL, so the other modes keep their neighbours.

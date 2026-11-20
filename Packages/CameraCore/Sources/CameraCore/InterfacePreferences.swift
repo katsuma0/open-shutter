@@ -169,13 +169,17 @@ public enum HardwareButtonAction: String, Codable, Sendable, CaseIterable, Ident
 
 // MARK: - Top bar
 
-/// A button the top bar can carry. The app's bar is fixed now: flash, shape, timer, format, histogram and Live Photo,
-/// with the gear. It still names its buttons by these cases and asks each where it applies; the rest are the ones
-/// the bar could carry while people arranged it themselves.
+/// A button the top bar can carry. The app's bar is fixed now: flash, shape, timer, format, histogram (in NIGHT the
+/// night shot's stability), AE lock and Live Photo, with the gear. It still names its buttons by these cases and asks
+/// each where it applies; the rest are the ones the bar could carry while people arranged it themselves. Saves hold
+/// these names, so a new case goes at the end.
 public enum TopBarItem: String, Codable, Sendable, CaseIterable, Identifiable {
     case flash, livePhoto, timer, aspect, grid, level, location, quietShutter, batterySaver, nightDuration
     case raw, exposureLock, format, resolution, processing, histogram, zebras, peaking, falseColor
     case whiteBalance, stabilization, sound
+    /// NIGHT's button in the histogram's slot: whether the night shot plans for a hand, a tripod, or follows the
+    /// motion sensor.
+    case nightStability
 
     public var id: String { rawValue }
 
@@ -183,7 +187,7 @@ public enum TopBarItem: String, Codable, Sendable, CaseIterable, Identifiable {
     public var isAdvancedOnly: Bool {
         switch self {
         case .flash, .livePhoto, .timer, .aspect, .grid, .level, .location, .quietShutter, .batterySaver,
-             .nightDuration:
+             .nightDuration, .nightStability:
             return false
         case .raw, .exposureLock, .format, .resolution, .processing, .histogram, .zebras, .peaking, .falseColor,
              .whiteBalance, .stabilization, .sound:
@@ -208,9 +212,14 @@ public enum TopBarItem: String, Codable, Sendable, CaseIterable, Identifiable {
             return mode == .night || mode == .long
         case .nightDuration:
             return mode == .night
+        case .nightStability:
+            // Only the night shot plans for a hand or a tripod; the long exposure scenes have their own recipes.
+            return mode == .night
+        case .histogram:
+            return mode.hasHistogram
         case .stabilization, .sound:
             return mode == .video
-        case .grid, .level, .location, .exposureLock, .histogram, .zebras, .peaking, .falseColor, .whiteBalance:
+        case .grid, .level, .location, .exposureLock, .zebras, .peaking, .falseColor, .whiteBalance:
             return true
         }
     }
@@ -241,6 +250,8 @@ public enum TopBarItem: String, Codable, Sendable, CaseIterable, Identifiable {
         case .whiteBalance: return "White balance"
         case .stabilization: return "Stabilization"
         case .sound: return "Sound"
+        // Settings > Night names it so too.
+        case .nightStability: return "Stability"
         }
     }
 
@@ -271,6 +282,9 @@ public enum TopBarItem: String, Codable, Sendable, CaseIterable, Identifiable {
         case .whiteBalance: return ["thermometer.sun", "sun.max"]
         case .stabilization: return ["figure.walk"]
         case .sound: return ["mic"]
+        // SF Symbols has no tripod, so the bar draws one for Tripod; the hand stands for the button where a symbol
+        // has to.
+        case .nightStability: return ["hand.raised"]
         }
     }
 }

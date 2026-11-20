@@ -633,9 +633,9 @@ final class CameraModel {
             store.save(stored)
             store.clearAdvancedSnapshot()
         }
-        // The night shot plans for a tripod unless Settings says otherwise, and the camera screen no longer has
-        // the picker. A save from before that is moved to tripod once, whatever it held: with no control on screen,
-        // an old Handheld would only show as shots that come out differently.
+        // The night shot plans for a tripod unless the person says otherwise. A save from the build that had no
+        // control for it on the camera screen is moved to tripod once, whatever it held: an old Handheld would have
+        // shown only as shots that came out differently. NIGHT's top bar has the choice again since.
         if !store.nightMovedToTripod {
             if stored.night.stability != .tripod {
                 stored.night.stability = .tripod
@@ -2550,9 +2550,12 @@ final class CameraModel {
         // Nobody sees the overlays or the histogram under the battery saver's black screen, so the analyzer stops
         // drawing them until a touch lights it again.
         let shown = !dimmer.isDimmed
+        // NIGHT draws no histogram, and the magnifier hides it while only the middle of the frame shows. With
+        // nothing else on, the analyzer and its frames stop altogether.
+        let histogram = shown && showsHistogram && !isMagnified
         return AnalysisOptions(
-            histogram: shown && display.histogram != .off,
-            rgbHistogram: shown && display.histogram == .rgb,
+            histogram: histogram,
+            rgbHistogram: histogram && display.histogram == .rgb,
             zebraThreshold: shown && display.zebras ? display.zebraThreshold : nil,
             peakingThreshold: shown && peaking
                 ? OverlayOptions.peakingThreshold(sensitivity: display.peakingSensitivity) : nil,

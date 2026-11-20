@@ -234,26 +234,6 @@ private struct SteadyIconView: View {
     }
 }
 
-/// SF Symbols has no tripod, so one is drawn here: a camera head on three legs, in the foreground style.
-private struct TripodGlyph: View {
-    var body: some View {
-        Canvas { context, size in
-            let width = size.width
-            let height = size.height
-            let head = CGRect(x: width * 0.2, y: 0, width: width * 0.6, height: height * 0.3)
-            context.fill(Path(roundedRect: head, cornerRadius: height * 0.07), with: .foreground)
-            let top = CGPoint(x: width * 0.5, y: height * 0.34)
-            var legs = Path()
-            for foot in [CGPoint(x: width * 0.1, y: height), CGPoint(x: width * 0.5, y: height), CGPoint(x: width * 0.9, y: height)] {
-                legs.move(to: top)
-                legs.addLine(to: foot)
-            }
-            context.stroke(legs, with: .foreground, style: StrokeStyle(lineWidth: max(1, width * 0.13), lineCap: .round))
-        }
-        .accessibilityHidden(true)
-    }
-}
-
 // MARK: - VoiceOver
 
 /// VoiceOver hears the pill change between moving and steady before the shot, a bump or a drift during it, and "Keep

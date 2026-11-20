@@ -35,10 +35,12 @@ struct TopBarItemButton: View {
             BarFormat(model: model)
         case .histogram:
             BarHistogram(model: model)
+        case .nightStability:
+            BarNightStability(model: model, mode: mode)
         case .exposureLock:
             BarExposureLock(model: model)
         default:
-            // The bar draws the six above and nothing else. CameraCore keeps the other cases for its stored layout.
+            // The bar draws the eight above and nothing else. CameraCore keeps the other cases for its stored layout.
             EmptyView()
         }
     }

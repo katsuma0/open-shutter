@@ -78,6 +78,8 @@ private struct NightShotSection: View {
     private static func notes(night: NightSettings, caps: CameraCapabilities) -> [String?] {
         var notes: [String?] = [
             "Stability starts at Tripod, which uses the longest frames the camera allows. Handheld keeps the frames short and lines them up. Auto follows the motion sensor.",
+            // Night has no histogram, and its top bar button sits in that slot.
+            "In Night, the top bar has Stability too, in the histogram's place.",
             night.stability == .tripod
                 ? "On Tripod the frames are not lined up, so Align frames has nothing to do. A night shot keeps each frame at or below the maximum ISO."
                 : "Align frames lines up the frames to undo small hand movements. A night shot keeps each frame at or below the maximum ISO.",
