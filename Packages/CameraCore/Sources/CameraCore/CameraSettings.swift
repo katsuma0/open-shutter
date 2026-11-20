@@ -492,6 +492,8 @@ public struct DisplaySettings: Codable, Hashable, Sendable {
     public var peakingSensitivity: Double = 0.5
     public var falseColor: Bool = false
     public var showReadout: Bool = true
+    /// The clipping warning's switch. The camera shows no clipping warning any more; the key stays so saves that
+    /// hold it still decode, and nothing reads it.
     public var clippingWarnings: Bool = true
     /// Battery saver: darkens the screen during night and long exposure shots of 10 seconds or more once the phone
     /// is steady. Off by default, since a screen that goes black by itself surprises someone watching the shot.

@@ -245,10 +245,8 @@ struct AnalysisOptions: Equatable, Sendable {
     var peakingThreshold: Double?
     var peakingColor: PeakingColor
     var falseColor: Bool
-    /// Only the clipped-highlight share is wanted, for the clipping warning.
-    var clipping: Bool = false
 
-    var isOff: Bool { !histogram && zebraThreshold == nil && peakingThreshold == nil && !falseColor && !clipping }
+    var isOff: Bool { !histogram && zebraThreshold == nil && peakingThreshold == nil && !falseColor }
 
     static let off = AnalysisOptions(histogram: false, rgbHistogram: false, zebraThreshold: nil, peakingThreshold: nil, peakingColor: .red, falseColor: false)
 }

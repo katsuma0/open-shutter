@@ -489,7 +489,6 @@ private struct StatusBadges: View {
                         .padding(.bottom, 6)
                         .transition(.opacity)
                 }
-                ClippingBadge(model: model, quarterTurns: turns)
                 SensorBadges(model: model, quarterTurns: turns)
             }
             .allowsHitTesting(false)
@@ -561,49 +560,17 @@ private struct StatusBadge: View {
     }
 }
 
-/// Only this view reads the analysis, so the twelve updates a second stay inside it.
-private struct ClippingBadge: View {
+/// The focus magnifier's power, "5×". On its own, because the power follows the zoom readings ten times a second.
+private struct MagnifierBadge: View {
     let model: CameraModel
     let quarterTurns: Int
-    @State private var isShown = false
 
     var body: some View {
-        let clipping = analysisIsRunning && model.showsClippingWarning
-        // The hold below is for clipping that comes and goes. A warning that is switched off goes at once, which
-        // is also what leaving the advanced interface does to it.
-        let isOn = model.settings.display.clippingWarnings
-        ZStack(alignment: .topTrailing) {
-            // Keeps the view alive while the badge is hidden, so the task below keeps watching.
-            Color.clear.frame(width: 0, height: 0)
-            if isShown && isOn {
-                StatusBadge(symbol: "exclamationmark.triangle.fill", text: "CLIPPING", tint: Theme.accent,
-                            quarterTurns: quarterTurns)
-                    .padding(.bottom, 6)
-                    .transition(.opacity)
-            }
-        }
-        .task(id: clipping) {
-            if clipping {
-                withAnimation(Theme.snappy) { isShown = true }
-                return
-            }
-            // Clipping hovers around the threshold from frame to frame; holding the badge stops it flickering.
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            guard !Task.isCancelled else { return }
-            withAnimation(Theme.snappy) { isShown = false }
-        }
-    }
-
-    /// The analyzer stops sending frames once every analysis is off, and the last frame's statistics would
-    /// keep the badge up forever; this mirrors the options the model hands the backend.
-    private var analysisIsRunning: Bool {
-        guard model.sessionState == .running else { return false }
-        let display = model.settings.display
-        // Focus as the camera runs it, like the model's options: a scene that holds the lens at infinity counts
-        // as manual focus.
-        let manualFocus = model.effectiveFocus.lensPosition != nil || model.activeDial == .focus
-        let peaking = display.peaking == .always || (display.peaking == .manualFocus && manualFocus)
-        return display.histogram != .off || display.zebras || display.falseColor || peaking || display.clippingWarnings
+        let power = model.magnifierShownPower
+        StatusBadge(symbol: "plus.magnifyingglass", text: LensMath.zoomLabel(power, selected: true),
+                    tint: Theme.accent, quarterTurns: quarterTurns)
+            .accessibilityLabel("Magnified \(LensMath.zoomLabel(power, selected: false)) times")
+            .accessibilityHint("Tap the picture to see the whole frame.")
     }
 }
 

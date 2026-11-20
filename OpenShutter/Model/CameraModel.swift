@@ -2544,8 +2544,7 @@ final class CameraModel {
             peakingThreshold: shown && peaking
                 ? OverlayOptions.peakingThreshold(sensitivity: display.peakingSensitivity) : nil,
             peakingColor: display.peakingColor,
-            falseColor: shown && display.falseColor,
-            clipping: display.clippingWarnings
+            falseColor: shown && display.falseColor
         )
     }
 
@@ -3132,11 +3131,6 @@ final class CameraModel {
         let target = meteredProduct
         guard target > 0 else { return 0 }
         return log2(ExposureMath.lightProduct(planned) / target)
-    }
-
-    var showsClippingWarning: Bool {
-        guard settings.display.clippingWarnings, let stats = analysis?.stats else { return false }
-        return stats.clippedHighlights > 0.02
     }
 
     var canCapture: Bool {
