@@ -12,6 +12,9 @@ enum Theme {
     /// Text and glyphs on an accent fill: black on the camera, white in light sheets.
     @MainActor static var onAccent: Color { AppearanceStore.shared.onAccent }
     static let recording = Color(red: 1.0, green: 0.231, blue: 0.188)
+    /// Orange for a warning that is not an error: the steady sign while the phone moves, star trails past the
+    /// sharp limit.
+    static let warning = Color(red: 1.0, green: 0.62, blue: 0.2)
     static let background = Color.black
     static let primaryText = Color.white
     @MainActor static var secondaryText: Color {
