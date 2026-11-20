@@ -14,9 +14,10 @@ enum ZoomWheelTouch {
     case hold, surface
 }
 
-/// The wheel's state, owned by the controls zone (CameraScreen), which fades the rows above the lens row while the
-/// wheel is open. A reference, so a drag reaches only the views that draw it: the zone, the row and the buttons read
-/// `isOpen`, the ruler reads `rawZoom`, the readout reads `shownZoom`.
+/// The wheel's state, held by the camera screen (CameraScreen): the controls zone fades the rows above the lens row
+/// while the wheel is open, and the level steps aside. A reference, so a drag reaches only the views that draw it:
+/// the zone, the level, the row and the buttons read `isOpen`, the ruler reads `rawZoom`, the readout reads
+/// `shownZoom`.
 @MainActor
 @Observable
 final class ZoomWheelModel {

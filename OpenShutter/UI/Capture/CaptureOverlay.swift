@@ -139,23 +139,44 @@ private struct CountdownNumber: View {
 }
 
 /// Sits just under the numerals rather than at the frame's edge, where the controls can cover it, and turns with
-/// them. Kept apart from the numerals so it doesn't replay their per-second transition.
+/// them. Kept apart from the numerals so it doesn't replay their per-second transition. Where the open part of the
+/// frame is short, as with a tall dial open on a small phone, it drops less and stays inside, and its words stop
+/// growing at the largest standard size, as the steady status's do, so two sentences can't cover the numerals.
 private struct CountdownHint: View {
     let model: CameraModel
+    /// The hint as laid out, before it turns. Two lines stand in until it is measured.
+    @State private var textHeight: CGFloat = 32
+
+    /// How far under the numerals' middle the hint sits when there is room.
+    private static let drop: CGFloat = 96
+    private static let margin: CGFloat = 8
 
     var body: some View {
-        // A tripod scene's wait counts down like a self timer nobody set, so it says what it is for, and its last
-        // second holds while the phone still moves, which needs saying too. The break falls between the sentences
-        // rather than wherever the width runs out.
-        Text(Self.text(waiting: model.isWaitingForSteady, settling: model.isSettling))
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(Theme.secondaryText)
-            .multilineTextAlignment(.center)
-            .shadow(color: .black.opacity(0.6), radius: 4)
-            .padding(.horizontal, 24)
-            .offset(y: 96)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .uprightRotation(model.motion.iconRotationDegrees)
+        let motion = model.motion
+        // The hint drops along the person's down, which runs across the open part when the phone is on its side.
+        let sideways = motion.quarterTurns % 2 != 0
+        GeometryReader { proxy in
+            let span = (sideways ? proxy.size.width : proxy.size.height) / 2
+            let drop = min(Self.drop, max(0, span - textHeight / 2 - Self.margin))
+            // A tripod scene's wait counts down like a self timer nobody set, so it says what it is for, and its last
+            // second holds while the phone still moves, which needs saying too. The break falls between the
+            // sentences rather than wherever the width runs out.
+            Text(Self.text(waiting: model.isWaitingForSteady, settling: model.isSettling))
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.secondaryText)
+                .multilineTextAlignment(.center)
+                .shadow(color: .black.opacity(0.6), radius: 4)
+                .padding(.horizontal, 24)
+                .onGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.size.height
+                } action: { height in
+                    if textHeight != height { textHeight = height }
+                }
+                .offset(y: drop)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .uprightRotation(motion.iconRotationDegrees)
     }
 
     private static func text(waiting: Bool, settling: Bool) -> String {

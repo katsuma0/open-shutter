@@ -6,8 +6,12 @@ import CameraCore
 struct ViewfinderOverlays: View {
     let model: CameraModel
     let geometry: ViewfinderGeometry
-    /// How far the corner badges move down to clear the steady status at the top of the frame.
-    let topShift: CGFloat
+    /// The exposure sun's drag and the zoom wheel, which the level steps aside for.
+    let interaction: ViewfinderInteraction
+    let wheel: ZoomWheelModel
+    /// The steady status and the histogram the corner badges move under, and where the badges report their height
+    /// for the toasts that go under them.
+    let furniture: TopFurniture
 
     /// A zoom, lens or picture change since the last focus tap moved the picture under the focus point.
     @State private var focusPointIsStale = false
@@ -27,13 +31,15 @@ struct ViewfinderOverlays: View {
             GridLines(style: model.settings.display.grid, rect: frame)
                 .frameMotion(value: frame)
                 .allowsHitTesting(false)
-            LevelIndicator(model: model, center: CGPoint(x: frame.midX, y: frame.midY))
+            LevelIndicator(model: model, interaction: interaction, wheel: wheel,
+                           center: CGPoint(x: frame.midX, y: frame.midY), open: geometry.open)
                 .allowsHitTesting(false)
+            // The lock label keeps to the open part of the frame, so it never goes under the controls or the top bar.
             FocusReticleLayer(model: model, size: geometry.screen.size, origin: geometry.picture.origin,
-                              bounds: geometry.visibleFrame, square: square)
+                              bounds: geometry.open, square: square)
                 .allowsHitTesting(false)
-            StatusBadges(model: model, rect: geometry.open, topShift: topShift,
-                         reticleShowsLock: square?.isLocked == true)
+            StatusBadges(model: model, rect: geometry.open, furniture: furniture, square: square,
+                         squareOrigin: geometry.picture.origin)
         }
         .frame(width: geometry.screen.width, height: geometry.screen.height, alignment: .topLeading)
         .onChange(of: model.focusPoint, initial: true) { _, point in
@@ -201,30 +207,46 @@ private struct GridLines: View, Animatable {
 // MARK: - Level
 
 /// The Camera app's level: two fixed wings and a middle line that follows the horizon, merging into one
-/// yellow line when the phone is level.
+/// yellow line when the phone is level. It sits in the middle of the frame, which an open dial, the quick settings
+/// and a running shot reach on most phones, so it steps aside while they are up (stepsAside). Where the controls
+/// come close under the middle, it rises just far enough to keep clear of them.
 private struct LevelIndicator: View {
     let model: CameraModel
+    /// The exposure sun: with no focus square up, a drag puts it on the level's right wing.
+    let interaction: ViewfinderInteraction
+    /// The zoom wheel a hold on a lens button opens.
+    let wheel: ZoomWheelModel
     let center: CGPoint
+    /// The part of the frame the top bar and the controls leave open.
+    let open: CGRect
 
     @State private var hapticArmed = true
 
     var body: some View {
         let isEnabled = model.settings.display.showLevel
         // A level that is turned off doesn't read the attitude at all, so its many small updates skip this view.
+        // One that steps aside still reads it, so it comes back at the phone's angle instead of turning into it, and
+        // its tick is armed by what the phone did meanwhile.
         let motion = isEnabled ? model.motion : MotionState()
         // Pointing at the floor or the sky there is no horizon to show. During a stack the drift crosses take the
         // frame's middle, and a level line through them would hide the very cross the status asks to line up.
         let isVisible = isEnabled && abs(motion.pitch) <= 70 && !model.drift.isTracking
+            && !Self.stepsAside(model, interaction: interaction, wheel: wheel)
         // A line looks the same turned half way round, so landscape left and right share one base angle. The
         // deviation is measured from the nearest quarter turn of the roll, so the base angle must come from the
         // roll too: the icons' quarter turn is held a little past the diagonal.
         let sideways = LevelMath.quarterTurns(motion.roll) % 2 != 0
+        // How far the drawing reaches above and below its middle: to the wings' ends turned sideways, the middle
+        // line's steepest tilt upright. On the iPhone SE at 16:9, NIGHT's and VIDEO's controls start so near under
+        // the frame's middle that a turned level's lower wing would run through their top row.
+        let reach: CGFloat = sideways ? 70 : 27
+        let place = CGPoint(x: center.x, y: min(center.y, open.maxY - reach - 4))
         LevelGraphic(deviation: motion.levelDeviation, isLevel: motion.isLevel)
             .rotationEffect(.degrees(sideways ? 90 : 0))
             .animation(Theme.spring, value: sideways)
-            .position(center)
-            // A new shape moves the frame's middle; the level glides there with the grid.
-            .frameMotion(value: center)
+            .position(place)
+            // A new shape moves the frame's middle; the level glides there with the grid, and rises with a turn.
+            .frameMotion(value: place)
             .opacity(isVisible ? 1 : 0)
             .animation(.easeInOut(duration: 0.2), value: isVisible)
             .accessibilityHidden(true)
@@ -240,6 +262,26 @@ private struct LevelIndicator: View {
                     hapticArmed = true
                 }
             }
+    }
+
+    /// Something is being set or a shot runs, and the level would cross it: a dial's header and ruler (they reach the
+    /// frame's middle in NIGHT and at 16:9), the quick settings panel, the zoom wheel, the exposure sun's drag, the
+    /// Camera Control's overlay and the focus magnifier; a countdown, or a stack, an intervalometer or a bracket with
+    /// its status and Stop. A camera that isn't running has nothing to level, and its card sits there instead.
+    static func stepsAside(_ model: CameraModel, interaction: ViewfinderInteraction, wheel: ZoomWheelModel) -> Bool {
+        if model.activeDial != nil || model.isDrawerOpen || wheel.isOpen || interaction.sliderAnchor != nil
+            || model.controlsFullscreen || model.isMagnified {
+            return true
+        }
+        switch model.activity {
+        case .countdown, .stacking:
+            return true
+        case .idle, .capturing, .recording, .saving:
+            // Filming keeps the level: it is clear of VIDEO's controls, and a level horizon matters in a movie.
+            if model.intervalometer != nil || model.bracketInProgress { return true }
+        }
+        // Under the battery saver's black screen it would only tick for nobody.
+        return model.sessionState != .running || model.dimmer.isDimmed
     }
 }
 
@@ -317,7 +359,7 @@ private struct FocusReticleLayer: View {
     let size: CGSize
     /// The preview layer's origin on screen: the model keeps the point in the layer's own coordinates.
     let origin: CGPoint
-    /// The part of the frame that shows, which the lock label stays inside.
+    /// The open part of the frame, between the top bar and the controls, which the lock label stays inside.
     let bounds: CGRect
     let square: FocusSquare?
 
@@ -332,7 +374,9 @@ private struct FocusReticleLayer: View {
                     lock: LockWording(focus: model.focusLocked, exposure: model.aeLocked, advanced: model.isAdvanced),
                     bias: Self.bias(model),
                     quarterTurns: turns,
-                    labelBelow: labelBelow(point, turns: turns)
+                    labelBelow: Self.labelBelow(point, turns: turns, in: bounds),
+                    labelRoom: Self.sideRoom(point, in: bounds, turns: turns),
+                    labelInSight: Self.labelShows(at: point, turns: turns, in: bounds)
                 )
                 .position(point)
                 // Every tap gets a new square, which replays the arrival and restarts the fade in the very frame
@@ -343,6 +387,10 @@ private struct FocusReticleLayer: View {
         }
         .frame(width: size.width, height: size.height)
         .animation(.easeOut(duration: 0.25), value: square == nil)
+        // A square left under a dial that opened over it, or tapped between the controls, stops at their edge
+        // instead of showing through the ruler; the corner badge then says what is locked (labelShows).
+        .clipShape(OpenAreaClip(rect: bounds))
+        .frameMotion(value: bounds)
     }
 
     /// Night mode keeps its own compensation; every other mode uses the manual one.
@@ -351,12 +399,73 @@ private struct FocusReticleLayer: View {
     }
 
     /// The lock label goes above the square in the user's frame, or below it near the edge of what shows.
-    private func labelBelow(_ point: CGPoint, turns: Int) -> Bool {
+    private static func labelBelow(_ point: CGPoint, turns: Int, in bounds: CGRect) -> Bool {
         let offset = Upright.screenVector(CGPoint(x: 0, y: -(FocusReticle.side / 2 + 26)), quarterTurns: turns)
         let label = CGPoint(x: point.x + offset.x, y: point.y + offset.y)
         let margin: CGFloat = 8
         return label.x < bounds.minX + margin || label.x > bounds.maxX - margin
             || label.y < bounds.minY + margin || label.y > bounds.maxY - margin
+    }
+
+    /// The lock label of a square at `point` (on screen) is in sight: above or below the square, its middle lies
+    /// inside what shows along the person's up and down. Along the other axis it slides to fit (SideClamp).
+    static func labelShows(at point: CGPoint, turns: Int, in bounds: CGRect) -> Bool {
+        let below = labelBelow(point, turns: turns, in: bounds)
+        let offset = Upright.screenVector(CGPoint(x: 0, y: (below ? 1 : -1) * FocusReticle.labelDistance),
+                                          quarterTurns: turns)
+        let label = CGPoint(x: point.x + offset.x, y: point.y + offset.y)
+        // About half the label's height.
+        let half: CGFloat = 9
+        switch ((turns % 4) + 4) % 4 {
+        case 1, 3: return label.x >= bounds.minX + half && label.x <= bounds.maxX - half
+        default: return label.y >= bounds.minY + half && label.y <= bounds.maxY - half
+        }
+    }
+
+    /// The room from the point to the edges of what shows, to the person's left and right (Upright.screenVector: one
+    /// quarter turn puts the person's right at the screen's bottom).
+    private static func sideRoom(_ point: CGPoint, in bounds: CGRect, turns: Int) -> SideRoom {
+        let left = point.x - bounds.minX
+        let right = bounds.maxX - point.x
+        let top = point.y - bounds.minY
+        let bottom = bounds.maxY - point.y
+        switch ((turns % 4) + 4) % 4 {
+        case 1: return SideRoom(lead: top, trail: bottom)
+        case 2: return SideRoom(lead: right, trail: left)
+        case 3: return SideRoom(lead: bottom, trail: top)
+        default: return SideRoom(lead: left, trail: right)
+        }
+    }
+}
+
+/// The room beside a point, to the person's left (`lead`) and right (`trail`).
+private struct SideRoom: Equatable {
+    var lead: CGFloat
+    var trail: CGFloat
+}
+
+/// Lays the lock label out centred on the square, then slides it along until it clears the nearer side of what shows
+/// by a margin, so a square tapped near an edge still has its whole label. One wider than the whole span stays
+/// centred. A layout rather than a measured offset, so the label lands in place in its first frame.
+private struct SideClamp: Layout {
+    let room: SideRoom
+
+    private static let margin: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        subviews.first?.sizeThatFits(.unspecified) ?? .zero
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let label = subviews.first else { return }
+        let size = label.sizeThatFits(.unspecified)
+        let half = size.width / 2 + Self.margin
+        var shift: CGFloat = 0
+        if room.lead.isFinite, room.trail.isFinite, room.lead + room.trail >= 2 * half {
+            shift = max(0, half - room.lead) - max(0, half - room.trail)
+        }
+        label.place(at: CGPoint(x: bounds.midX + shift, y: bounds.midY), anchor: .center,
+                    proposal: ProposedViewSize(size))
     }
 }
 
@@ -369,9 +478,15 @@ private struct FocusReticle: View {
     let bias: Double
     let quarterTurns: Int
     let labelBelow: Bool
+    /// The room to the sides of what shows, which the lock label slides along to stay inside.
+    let labelRoom: SideRoom
+    /// The label is inside what shows. Out of sight under the controls, the corner badge says what is locked.
+    let labelInSight: Bool
 
     /// The exposure slider in CameraPreviewView sits beside a square of this size.
     static let side: CGFloat = 72
+    /// From the square's middle to the lock label's.
+    static let labelDistance: CGFloat = side / 2 + 16
 
     @State private var settled = false
     @State private var faded = false
@@ -386,17 +501,20 @@ private struct FocusReticle: View {
                 .opacity(faded ? (isLocked ? 0.6 : 0) : 1)
                 .accessibilityHidden(true)
             if isLocked {
-                Text(lock.squareLabel)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.onAccent)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Theme.accent, in: Capsule())
-                    .fixedSize()
-                    .offset(y: (labelBelow ? 1 : -1) * (Self.side / 2 + 16))
-                    .transition(.opacity)
-                    // The corner lock badge steps aside while this label shows, so VoiceOver needs this one.
-                    .accessibilityLabel(lock.spokenLabel)
+                SideClamp(room: labelRoom) {
+                    Text(lock.squareLabel)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.onAccent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Theme.accent, in: Capsule())
+                        .fixedSize()
+                        // The corner lock badge steps aside while this label shows, so VoiceOver needs this one.
+                        .accessibilityLabel(lock.spokenLabel)
+                        .accessibilityHidden(!labelInSight)
+                }
+                .offset(y: (labelBelow ? 1 : -1) * Self.labelDistance)
+                .transition(.opacity)
             }
         }
         .shadow(color: .black.opacity(0.3), radius: 1)
@@ -443,28 +561,42 @@ private struct ReticleShape: Shape {
 
 // MARK: - Badges
 
-/// Status badges in the top right corner of the open part of the frame. Each one turns upright with the phone where
-/// it stands, like the other chips, so nothing moves into the histogram's corner or under the controls.
+/// Status badges in the top right corner of the open part of the frame. The column starts under the steady status,
+/// and under the histogram while it shows: centred and about 260 pt wide, it reaches this corner on every phone
+/// narrower than 440 pt. Each badge turns upright with the phone where it stands, like the other chips, so the column
+/// keeps its corner and never moves under the controls. It reports its height, so a toast can go under it.
 private struct StatusBadges: View {
     let model: CameraModel
     /// The open part of the frame, between the top bar and the controls.
     let rect: CGRect
-    /// The steady status sits at the top of the frame; the column starts under it while it shows.
-    let topShift: CGFloat
-    /// The focus square is on screen with its own lock label.
-    let reticleShowsLock: Bool
+    /// The steady status and the histogram the column starts under while they show. The column's height goes back
+    /// into it.
+    let furniture: TopFurniture
+    /// The focus square, which carries its own lock label while that is in sight.
+    let square: FocusSquare?
+    /// The preview layer's origin on screen, where the square's point is measured from.
+    let squareOrigin: CGPoint
     @State private var showsStackInfo = false
 
     var body: some View {
+        let topShift = furniture.badgeShift(histogramShown: model.histogramOnScreen)
         let advanced = model.isAdvanced
         // How a long shutter is built is the advanced interface's business. In the simple one LONG would wear this
         // badge nearly all the time, for a word it never explains.
         let stacked = advanced && model.shutterIsStacked
         let lock = LockWording(focus: model.focusLocked, exposure: model.aeLocked, advanced: advanced)
-        // Stands in for the square's label when the square is gone: a zoom moved the picture under it, or the AE-L
-        // chip locked without one.
-        let showsLock = (lock.focus || lock.exposure) && !reticleShowsLock
         let turns = model.motion.quarterTurns
+        // Stands in for the square's label when the square is gone (a zoom moved the picture under it, or the AE-L
+        // chip locked without one) or its label is out of sight under the controls.
+        let reticleShowsLock = square.map { square in
+            square.isLocked && FocusReticleLayer.labelShows(
+                at: CGPoint(x: square.point.x + squareOrigin.x, y: square.point.y + squareOrigin.y),
+                turns: turns, in: rect)
+        } ?? false
+        let showsLock = (lock.focus || lock.exposure) && !reticleShowsLock
+        let magnified = model.isMagnified
+        // The quick settings panel covers the top of the frame. Badges under its glass would only smear behind it.
+        let underPanel = model.isDrawerOpen
         VStack(alignment: .trailing, spacing: 0) {
             if stacked {
                 // The one badge that takes a touch: the word needs explaining, and a tap on it does.
@@ -493,6 +625,12 @@ private struct StatusBadges: View {
             }
             .allowsHitTesting(false)
         }
+        // The layout's height, not the animated one, so a toast heads for where the column ends up.
+        .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.size.height
+        } action: { height in
+            if furniture.badgeColumnHeight != height { furniture.badgeColumnHeight = height }
+        }
         .padding(.top, 10 + topShift)
         .padding(.trailing, 10)
         .frame(width: max(rect.width, 0), height: max(rect.height, 0), alignment: .topTrailing)
@@ -502,13 +640,17 @@ private struct StatusBadges: View {
         .animation(Theme.snappy, value: showsLock)
         .animation(Theme.spring, value: topShift)
         // The Camera Control overlay takes over the screen; the badges step aside while it shows.
-        .opacity(model.controlsFullscreen ? 0 : 1)
+        .opacity(model.controlsFullscreen || underPanel ? 0 : 1)
         .animation(Theme.snappy, value: model.controlsFullscreen)
+        .animation(Theme.snappy, value: underPanel)
+        .allowsHitTesting(!underPanel)
+        .accessibilityHidden(underPanel)
         // The bubble is a system presentation above the whole camera, so it has to be closed with its badge. It
         // would stay lit on the battery saver's black screen, where the first touch would close it instead of
-        // lighting the screen, and over the Camera Control's overlay. A badge that leaves takes its bubble down
-        // but not always the flag, and the next badge would then open one by itself.
-        .onChange(of: stacked && !model.dimmer.isDimmed && !model.controlsFullscreen) { _, inSight in
+        // lighting the screen, over the Camera Control's overlay, and over the quick settings that hide the badge.
+        // A badge that leaves takes its bubble down but not always the flag, and the next badge would then open
+        // one by itself.
+        .onChange(of: stacked && !model.dimmer.isDimmed && !model.controlsFullscreen && !underPanel) { _, inSight in
             if !inSight && showsStackInfo { showsStackInfo = false }
         }
     }

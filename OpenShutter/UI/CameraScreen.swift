@@ -79,6 +79,12 @@ private struct CameraLayout: View {
     @State private var timerSheetShown = false
     /// Gesture state shared by the picture, the sun above the bands and VoiceOver's viewfinder element.
     @State private var interaction = ViewfinderInteraction()
+    /// The zoom wheel a hold on a lens button opens. Its readout reaches over the rows above the lens row, so they
+    /// fade while it is open, and the level steps aside.
+    @State private var wheel = ZoomWheelModel()
+    /// The steady status, the badge column and the quick settings panel as measured, for the histogram, the badges
+    /// and the toasts that move out of their way.
+    @State private var furniture = TopFurniture()
     /// Width over height of the camera image as the portrait preview shows it: measured from the preview layer while
     /// the camera runs, expected from the format until then.
     @State private var imageAspect = 3.0 / 4.0
@@ -139,16 +145,21 @@ private struct CameraLayout: View {
                 screenHeight: size.height, safeBottom: insets.bottom)
 
             ZStack(alignment: .topLeading) {
-                ViewfinderStack(model: model, interaction: interaction, geometry: geometry, veilVisible: isVeiled, lensFrozen: lensFrozen,
+                ViewfinderStack(model: model, interaction: interaction, wheel: wheel, furniture: furniture,
+                                geometry: geometry, veilVisible: isVeiled, lensFrozen: lensFrozen,
                                 bandsSolid: bandsSolid)
 
-                DrawerLayer(model: model, catcherHeight: max(0, (controlsTop ?? size.height) - topBarBottom),
+                // The Camera Control's overlay hides these four layers: VoiceOver leaves them too.
+                DrawerLayer(model: model, furniture: furniture,
+                            catcherHeight: max(0, (controlsTop ?? size.height) - topBarBottom),
                             timerSheetRequested: $timerSheetShown)
                     .padding(.top, topBarBottom)
                     .opacity(fullscreen ? 0 : 1)
                     .allowsHitTesting(!fullscreen)
+                    .accessibilityHidden(fullscreen)
 
-                ControlsZone(model: model, modeRowInBand: placement.modeRowY != nil, lensGap: placement.lensGap)
+                ControlsZone(model: model, wheel: wheel, modeRowInBand: placement.modeRowY != nil,
+                             lensGap: placement.lensGap)
                     .onGeometryChange(for: CGFloat.self) { geometry in
                         geometry.frame(in: .named(cameraSpace)).minY
                     } action: { top in
@@ -157,6 +168,7 @@ private struct CameraLayout: View {
                     .frame(width: size.width, height: max(0, placement.zoneBottom), alignment: .bottom)
                     .opacity(fullscreen ? 0 : 1)
                     .allowsHitTesting(!fullscreen)
+                    .accessibilityHidden(fullscreen)
 
                 if let modeRowY = placement.modeRowY {
                     ModeRow(model: model)
@@ -164,6 +176,7 @@ private struct CameraLayout: View {
                         .position(x: size.width / 2, y: modeRowY)
                         .opacity(fullscreen ? 0 : 1)
                         .allowsHitTesting(!fullscreen)
+                        .accessibilityHidden(fullscreen)
                 }
 
                 // Drawn after the drawer so the drawer slides out from underneath it.
@@ -172,6 +185,13 @@ private struct CameraLayout: View {
                     .padding(.top, insets.top)
                     .opacity(fullscreen ? 0 : 1)
                     .allowsHitTesting(!fullscreen)
+                    .accessibilityHidden(fullscreen)
+
+                // Over the quick settings and the controls a message can share the screen with, so where the open
+                // part of the frame is short it is still read whole. It goes under the panel while that is open, and
+                // shows in the Camera Control's overlay too.
+                ToastLayer(model: model, open: geometry.open, furniture: furniture,
+                           panelTop: topBarBottom + DrawerLayer.panelGap)
 
                 // The battery saver's black layer covers everything, the bands and the controls too.
                 DimOverlay(model: model)
@@ -254,6 +274,12 @@ private struct CameraLayout: View {
             guard running, model.isDrawerOpen else { return }
             withAnimation(Theme.spring) { model.isDrawerOpen = false }
         }
+        .onChange(of: model.intervalometer != nil) { _, running in
+            // The model is idle between an intervalometer's shots, but the sequence's status and its Stop are up:
+            // the panel would cover them, and its catcher would take the tap meant for Stop.
+            guard running, model.isDrawerOpen else { return }
+            withAnimation(Theme.spring) { model.isDrawerOpen = false }
+        }
         .onChange(of: model.settings.controls.haptics, initial: true) { _, enabled in
             Haptics.isEnabled = enabled
         }
@@ -281,10 +307,10 @@ private struct CameraLayout: View {
     }
 
     /// What closes the drawer keeps it closed: the dots button beside the shutter rests until the shot ends, as the
-    /// top bar's buttons do. A single photo doesn't hold it, which would blink the button with every shot, and a
-    /// drawer that is open can always be closed.
+    /// top bar's buttons do, and through the waits between an intervalometer's shots. A single photo doesn't hold
+    /// it, which would blink the button with every shot, and a drawer that is open can always be closed.
     static func keepsDrawerClosed(_ model: CameraModel) -> Bool {
-        (closesDrawer(model.activity) || model.bracketInProgress) && !model.isDrawerOpen
+        (closesDrawer(model.activity) || model.bracketInProgress || model.intervalometer != nil) && !model.isDrawerOpen
     }
 
     private func showVeil(holdNanoseconds: UInt64) {
@@ -404,18 +430,20 @@ private struct ControlsPlacement {
 // MARK: - Viewfinder
 
 /// The whole-screen viewfinder, bottom to top: the picture (preview, analysis overlay, a running stack), the veil,
-/// the capture blink, the bands, then the furniture (grid, level, focus square and sun, badges, status, toasts).
-/// Everything above the picture leaves touches to the picture's gesture recognizers, except Stop and Cancel.
+/// the capture blink, the bands, the histogram, the marks on the picture (grid, level, focus square and sun, badges),
+/// then a running shot's countdown, status and Stop with the drift crosses over all of those, the steady status,
+/// and the card that explains a camera that isn't running. Toasts go over the controls (CameraLayout). Everything
+/// above the picture leaves touches to the picture's gesture recognizers, except Stop, Cancel and the STACKED badge.
 private struct ViewfinderStack: View {
     let model: CameraModel
     let interaction: ViewfinderInteraction
+    let wheel: ZoomWheelModel
+    /// Passed on, not read: each layer that moves for the steady status or the badges reads it itself.
+    let furniture: TopFurniture
     let geometry: ViewfinderGeometry
     let veilVisible: Bool
     let lensFrozen: Bool
     let bandsSolid: Bool
-
-    /// How far the furniture at the top of the frame moves down to clear the steady status while it shows there.
-    @State private var bannerShift: CGFloat = 0
 
     var body: some View {
         let frame = geometry.frame
@@ -428,7 +456,14 @@ private struct ViewfinderStack: View {
             ModeSwitchVeil(isVisible: veilVisible)
             ShutterBlink(model: model)
             FrameBands(frame: frame, solid: bandsSolid)
-            // Countdown, status and Stop sit in the part of the frame the top bar and the controls leave open.
+            // Read off the picture like the bands, so every mark made on the picture is drawn over it: at the top's
+            // middle it often meets a focus square's lock label, and the badges move under it.
+            HistogramSlot(model: model, open: open, furniture: furniture)
+            ViewfinderOverlays(model: model, geometry: geometry, interaction: interaction, wheel: wheel,
+                               furniture: furniture)
+            ExposureSliderLayer(model: model, interaction: interaction, geometry: geometry)
+            // Countdown, status and Stop sit in the part of the frame the top bar and the controls leave open, over
+            // the grid, the level, the square and the sun, which would otherwise cross the numerals and the buttons.
             CaptureOverlay(model: model, crossCenter: CGPoint(x: frame.midX - open.minX, y: frame.midY - open.minY))
                 .frame(width: max(open.width, 1), height: max(open.height, 1))
                 .position(x: open.midX, y: open.midY)
@@ -439,11 +474,7 @@ private struct ViewfinderStack: View {
             DriftCrosshair(model: model, imageDiagonal: geometry.pictureDiagonal)
                 .position(x: frame.midX, y: frame.midY)
                 .allowsHitTesting(false)
-            ViewfinderOverlays(model: model, geometry: geometry, topShift: bannerShift)
-            ExposureSliderLayer(model: model, interaction: interaction, geometry: geometry)
-            HistogramSlot(model: model, open: open, topShift: bannerShift)
-            SteadyStatusPlacement(model: model, open: open, shift: $bannerShift)
-            ToastLayer(model: model, open: open, topShift: bannerShift)
+            SteadyStatusPlacement(model: model, open: open, furniture: furniture)
             SessionStatusLayer(model: model, open: open)
             ViewfinderAccessibilityTarget(model: model, interaction: interaction, rect: open)
         }
@@ -493,59 +524,155 @@ private struct HistogramSlot: View {
     }
 }
 
+/// The furniture at the top of the open part of the frame as the views that draw it measure it: the steady status,
+/// the badge column, and the quick settings panel that opens over them. The histogram, the badges and the toasts read
+/// it to keep out of each other's way. A reference, so a measurement redraws only the views that read it.
+@MainActor
+@Observable
+final class TopFurniture {
+    var steady = SteadyRoom()
+    /// The badge column's height, 0 with no badge up.
+    var badgeColumnHeight: CGFloat = 0
+    /// The quick settings panel's height, as it was when last open.
+    var panelHeight: CGFloat = 0
+
+    /// Where a toast starts under the histogram's place: the histogram's 12 pt margin, its height and a gap.
+    static let belowHistogram: CGFloat = 12 + HistogramView.height + 8
+
+    /// How far the badge column at the top right moves down: under the steady status, and under the histogram while
+    /// it shows, which centred and about 260 pt wide reaches that corner on every phone narrower than 440 pt.
+    func badgeShift(histogramShown: Bool) -> CGFloat {
+        max(steady.trailing, steady.top + (histogramShown ? HistogramView.height + 8 : 0))
+    }
+
+}
+
+/// Where the steady status sits, for the furniture that moves out of its way. Upright it runs across the top of the
+/// open part of the frame. With the phone on its side it runs down the edge that is then the person's top, for as
+/// long as the banner is tall, and the top's middle stays free.
+struct SteadyRoom: Equatable {
+    /// How far the histogram and a toast in the top's middle move down.
+    var top: CGFloat = 0
+    /// How far the badge column at the top right moves down.
+    var trailing: CGFloat = 0
+    /// The status runs down a side edge.
+    var onSide = false
+
+    /// How far in from a side edge a turned status reaches: its 12 pt margin, the pill's thickness with two lines and
+    /// a gap.
+    static let sideReach: CGFloat = 74
+
+    init() {}
+
+    /// - Parameters:
+    ///   - height: The banner's height: the pill's height upright, its length on its side, 0 while hidden.
+    ///   - quarterTurns: The phone's turn, by which the banner places the pill (SteadyBanner).
+    init(height: CGFloat, quarterTurns: Int) {
+        guard height.isFinite, height > 1 else { return }
+        let room = height + 8
+        switch ((quarterTurns % 4) + 4) % 4 {
+        case 1:
+            // The person's top is the screen's right edge, the badges' side.
+            trailing = room
+            onSide = true
+        case 3:
+            onSide = true
+        default:
+            top = room
+            trailing = room
+        }
+    }
+}
+
 /// Puts the tripod and hold-still status 12 pt down from the top of the open part of the frame, as wide as the frame
 /// shows. The banner turns itself to the person's top when the phone is on its side, and has no height while hidden.
-/// Its height tells the furniture at the top of the frame how far to move down to clear it.
+/// It is offered the open part's height less a margin at each end: on its side the status runs along that height, and
+/// a longer one scales its words down and then shortens them rather than reaching under the controls. Its height and
+/// the phone's turn tell the furniture at the top of the frame where to move to clear it.
 private struct SteadyStatusPlacement: View {
     let model: CameraModel
     let open: CGRect
-    @Binding var shift: CGFloat
+    let furniture: TopFurniture
+    /// The banner as laid out: the pill's height upright, its length on its side.
+    @State private var height: CGFloat = 0
 
     private static let margin: CGFloat = 12
 
     var body: some View {
         SteadyBanner(model: model)
             .frame(width: max(open.width, 0))
-            .fixedSize(horizontal: false, vertical: true)
             .onGeometryChange(for: CGFloat.self) { geometry in
                 geometry.size.height
-            } action: { height in
-                let value = height > 1 ? height + 8 : 0
-                if shift != value { shift = value }
+            } action: { value in
+                if height != value { height = value }
             }
-            .padding(.top, Self.margin)
+            .background {
+                SteadyRoomReport(model: model, height: height, furniture: furniture)
+            }
+            .padding(.vertical, Self.margin)
             .frame(width: max(open.width, 0), height: max(open.height, 0), alignment: .top)
             .position(x: open.midX, y: open.midY)
             .frameMotion(value: open)
+            // Under the quick settings panel's glass the words would only smear behind its first row. Faded, not
+            // removed, so the furniture it moved down keeps its place. It stays faded under the Camera Control's
+            // overlay, which hides the panel without closing it: the model drops the sign there, and fading back in
+            // would only show the sign leaving, through the panel as that fades out.
+            .opacity(model.isDrawerOpen ? 0 : 1)
+            .animation(Theme.snappy, value: model.isDrawerOpen)
+            .accessibilityHidden(model.isDrawerOpen)
             .allowsHitTesting(false)
+    }
+}
+
+/// Hands the furniture the room the steady status takes, worked out from the banner's height and the phone's turn,
+/// only when it changes. It reads the turn on its own and only while the status shows, so the attitude's frequent
+/// updates redraw nothing else.
+private struct SteadyRoomReport: View {
+    let model: CameraModel
+    let height: CGFloat
+    let furniture: TopFurniture
+
+    var body: some View {
+        let turns = height > 1 ? model.motion.quarterTurns : 0
+        Color.clear
+            .onChange(of: SteadyRoom(height: height, quarterTurns: turns), initial: true) { _, room in
+                if furniture.steady != room { furniture.steady = room }
+            }
+            .accessibilityHidden(true)
     }
 }
 
 private struct ToastLayer: View {
     let model: CameraModel
-    /// The open part of the frame. A toast sits under the corner furniture in it, or in its middle when turned.
+    /// The open part of the frame. A toast sits under the furniture at its top, or in its middle when turned.
     let open: CGRect
-    /// How far the corner furniture moved down for the steady status.
-    let topShift: CGFloat
+    /// The steady status, the histogram, the badge column and the quick settings panel the toast goes under.
+    let furniture: TopFurniture
+    /// Where the quick settings panel starts on screen, just under the top bar.
+    let panelTop: CGFloat
     /// A toast that repeated the status card when it arrived. Remembered, so it doesn't pop up late when the
     /// camera resumes before the toast would have expired.
     @State private var repeatedToastID: UUID?
+
+    /// A two-line message and a margin: what a toast keeps above the controls when the open part is short.
+    private static let lowestRoom: CGFloat = 56
 
     var body: some View {
         let toast = model.toast.flatMap { toast in
             toast.id == repeatedToastID || Self.repeatsStatus(toast, sessionState: model.sessionState) ? nil : toast
         }
-        // Below the corner furniture: the histogram on the left and the status badges on the right end around
-        // 70 pt down, and a long message spans the width between them.
-        let topInset: CGFloat = 84 + topShift
         // Read even with no toast up, so a message never changes place or angle while it fades out.
         let motion = model.motion
         // Turned sideways, a message runs along the frame's long side, so it moves to the middle like the stack
-        // status; the slot under the corner furniture is too short for it.
+        // status; the slot under the furniture at the top is too short for it. The histogram stays at the top's
+        // middle, so the message keeps to the part below it. Whether the histogram shows is read only where it
+        // moves the message: it reads the settings, which a turning dial writes 120 times a second.
         let sideways = motion.quarterTurns % 2 != 0
+        let sidewaysTop = sideways && model.histogramOnScreen ? TopFurniture.belowHistogram : 0
+        let topInset = sideways ? 0 : portraitInset()
         // The capsule is laid out before it turns, so its width ends up along the open part's height, less a margin
         // at each end, with a third line for what no longer fits on two.
-        let sidewaysWidth = max(open.height - 32, 160)
+        let sidewaysWidth = max(open.height - sidewaysTop - 32, 160)
         ZStack {
             if let toast {
                 ToastCapsule(toast: toast, lineLimit: sideways ? 3 : 2)
@@ -555,14 +682,15 @@ private struct ToastLayer: View {
                     .transition(sideways ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
         }
-        .padding(.top, sideways ? 0 : topInset)
+        .padding(.top, sideways ? sidewaysTop : topInset)
         .padding(.horizontal, 16)
         .frame(width: max(open.width, 0), height: max(open.height, 0), alignment: sideways ? .center : .top)
         .position(x: open.midX, y: open.midY)
         .frameMotion(value: open)
         .animation(Theme.spring, value: toast?.id)
         .animation(Theme.spring, value: sideways)
-        .animation(Theme.spring, value: topShift)
+        .animation(Theme.spring, value: topInset)
+        .animation(Theme.spring, value: sidewaysTop)
         .allowsHitTesting(false)
         .onChange(of: model.toast?.id) { _, _ in
             guard let current = model.toast else { return }
@@ -573,6 +701,23 @@ private struct ToastLayer: View {
             // message is read out when it arrives.
             AccessibilityNotification.Announcement(current.message).post()
         }
+    }
+
+    /// How far down the open part of the frame a toast starts, upright: under the histogram's place and the steady
+    /// status above it, under the badge column where that reaches lower, and under the quick settings panel while it
+    /// is open. Never so low that a two-line message would reach under the controls: where the open part is short,
+    /// as with a tall dial open on a small phone, it rises over the furniture instead, which it is drawn above.
+    private func portraitInset() -> CGFloat {
+        var top = TopFurniture.belowHistogram + furniture.steady.top
+        let column = furniture.badgeColumnHeight
+        if column > 0 {
+            let shift = furniture.badgeShift(histogramShown: model.histogramOnScreen)
+            top = max(top, 10 + shift + column + 8)
+        }
+        if model.isDrawerOpen, !model.controlsFullscreen {
+            top = max(top, panelTop + furniture.panelHeight + 8 - open.minY)
+        }
+        return max(0, min(top, open.height - Self.lowestRoom))
     }
 
     /// The status card already says why the camera paused or failed; the same words as a toast would say it twice.
@@ -667,10 +812,15 @@ private struct StatusCard: View {
 
 private struct DrawerLayer: View {
     let model: CameraModel
+    /// Where the panel's height goes, for the toasts that go under it.
+    let furniture: TopFurniture
     /// From the top bar's bottom edge to the controls' top: a tap there closes the drawer.
     let catcherHeight: CGFloat
     @Binding var timerSheetRequested: Bool
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+
+    /// The panel starts this far under the top bar.
+    static let panelGap: CGFloat = 6
 
     var body: some View {
         let isOpen = model.isDrawerOpen
@@ -688,7 +838,14 @@ private struct DrawerLayer: View {
                     }
                     .accessibilityHidden(true)
                 QuickSettingsDrawer(model: model, timerSheetRequested: $timerSheetRequested)
-                    .padding(.top, 6)
+                    // Its size, not its frame, which the slide moves: a message that arrives while the panel is open
+                    // goes under it.
+                    .onGeometryChange(for: CGFloat.self) { geometry in
+                        geometry.size.height
+                    } action: { height in
+                        if furniture.panelHeight != height { furniture.panelHeight = height }
+                    }
+                    .padding(.top, Self.panelGap)
                     // With Reduce Motion the drawer fades in place instead of sliding down.
                     .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
@@ -704,15 +861,14 @@ private struct DrawerLayer: View {
 
 private struct ControlsZone: View {
     let model: CameraModel
+    /// The zoom wheel a hold on a lens button opens. Its readout reaches over the rows above the lens row, so they
+    /// fade while it is open.
+    let wheel: ZoomWheelModel
     /// The thumbnail, the modes and the flip button have a row of their own in the band under the frame (ModeRow).
     /// Without a band (iPhone SE) the thumbnail and the flip button flank the shutter and the modes sit above it.
     let modeRowInBand: Bool
     /// Space between the lens buttons and the shutter row when nothing sits between them.
     let lensGap: CGFloat
-
-    /// The zoom wheel a hold on a lens button opens. Its readout reaches over the rows above the lens row, so they
-    /// fade while it is open.
-    @State private var wheel = ZoomWheelModel()
 
     var body: some View {
         let mode = model.settings.mode
