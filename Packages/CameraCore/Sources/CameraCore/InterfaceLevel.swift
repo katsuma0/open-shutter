@@ -1,21 +1,21 @@
 import Foundation
 
-// The simple interface shows a handful of settings and runs the rest on their defaults. Turning the advanced
-// interface off resets everything it alone shows, so nothing invisible keeps changing the pictures; turning it back
-// on restores those settings from a snapshot taken at that moment, along with what the simple interface had fewer
-// choices for.
+// The earlier simple interface showed a handful of settings and ran the rest on their defaults. Turning the advanced
+// interface off reset everything it alone showed, so nothing invisible kept changing the pictures; turning it back on
+// restored those settings from a snapshot taken at that moment, along with what the simple interface had fewer
+// choices for. The camera has one interface now: the app brings back a save from the simple one once, with
+// `restoringAdvanced(from:)`, which measures what changed since against `simplified()`.
 
 extension CameraSettings {
-    /// Aspect ratios the simple drawer offers.
+    /// Aspect ratios the simple interface offered.
     public static let simpleAspects: [AspectRatio] = [.fourThree, .square, .sixteenNine]
-    /// Self timer choices of the simple drawer, in seconds.
+    /// Self timer delays the simple interface offered, in seconds.
     public static let simpleDelays: [Double] = [0, 3, 5, 10]
+    /// Grids the simple interface offered.
     public static let simpleGrids: [GridStyle] = [.off, .thirds]
-    /// What the Camera Control carries in the simple interface: nothing that leads to MANUAL.
-    public static let simpleCameraControlItems: [CameraControlItem] = [.zoom, .lens, .exposureBias]
 
-    /// The advanced-only settings as the simple interface runs them: the defaults, with the viewfinder's
-    /// measuring tools off.
+    /// The advanced-only settings as the simple interface ran them: the defaults, with the viewfinder's measuring
+    /// tools off.
     private static let simpleBaseline: CameraSettings = {
         var settings = CameraSettings()
         settings.display.histogram = .off
@@ -78,8 +78,8 @@ extension CameraSettings {
         controls.autoLensSwitching = source.controls.autoLensSwitching
     }
 
-    /// These settings as the simple interface runs them. Everything only the advanced interface shows goes back to
-    /// automatic or its default, and the settings both share are narrowed to the choices the simple one offers.
+    /// These settings as the simple interface ran them. Everything only the advanced interface shows goes back to
+    /// automatic or its default, and the settings both shared are narrowed to the choices the simple one offered.
     /// Applying it twice changes nothing more. `restoringAdvanced(from:)` gives back each setting narrowed here.
     public func simplified() -> CameraSettings {
         var settings = self
@@ -96,7 +96,7 @@ extension CameraSettings {
         if !Self.simpleAspects.contains(where: { $0.matches(settings.capture.aspect) }) {
             settings.capture.aspect = .fourThree
         }
-        // The self timer stays, at the longest delay the simple drawer offers; the intervalometer goes.
+        // The self timer stays, at the longest delay the simple interface offered; the intervalometer goes.
         let delay = Self.simpleDelays.last(where: { $0 <= settings.capture.schedule.delay }) ?? 0
         settings.capture.schedule = CaptureSchedule(delay: delay)
         if !Self.simpleGrids.contains(settings.display.grid) {

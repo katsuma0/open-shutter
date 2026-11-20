@@ -6,7 +6,6 @@ import CameraCore
 /// The app's photos and videos, newest first, three to a row as in Photos. It follows the appearance setting; the
 /// viewer it opens stays black.
 struct GalleryGrid: View {
-    let model: CameraModel
     let library: CaptureLibrary
     let zoomSpace: Namespace.ID
     /// The asset to keep in view, so the zoom back from the viewer lands on its cell.
@@ -35,8 +34,8 @@ struct GalleryGrid: View {
                 if let assets {
                     LazyVGrid(columns: columns, spacing: Self.spacing) {
                         ForEach(assets.identifiers, id: \.self) { id in
-                            GridCell(model: model, library: library, asset: assets.asset(id: id), id: id,
-                                     pixelSide: pixelSide, zoomSpace: zoomSpace) {
+                            GridCell(library: library, asset: assets.asset(id: id), id: id, pixelSide: pixelSide,
+                                     zoomSpace: zoomSpace) {
                                 onOpen(id)
                             }
                         }
@@ -77,7 +76,6 @@ struct GalleryGrid: View {
 
 /// One square of the grid: the picture, filled and cropped, with what Photos marks on it.
 private struct GridCell: View {
-    let model: CameraModel
     let library: CaptureLibrary
     let asset: PHAsset?
     let id: String
@@ -89,8 +87,6 @@ private struct GridCell: View {
     @State private var image: UIImage?
 
     var body: some View {
-        // The kind of capture is a camera term, so only the advanced interface names it.
-        let detailed = model.isAdvanced
         let entry = library.entry(for: id)
         Button(action: onOpen) {
             Color(uiColor: .secondarySystemFill)
@@ -123,7 +119,7 @@ private struct GridCell: View {
                     }
                 }
                 .overlay(alignment: .topTrailing) {
-                    if detailed, let symbol = Self.symbol(for: entry?.kind) {
+                    if let symbol = Self.symbol(for: entry?.kind) {
                         Image(systemName: symbol)
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(Color.white)
@@ -137,7 +133,7 @@ private struct GridCell: View {
         .buttonStyle(GridCellButtonStyle())
         .matchedTransitionSource(id: id, in: zoomSpace)
         .accessibilityLabel(asset.map {
-            GalleryText.spokenDescription(of: $0, detail: detailed ? GalleryText.detailTitle(entry?.kind) : nil)
+            GalleryText.spokenDescription(of: $0, detail: GalleryText.detailTitle(entry?.kind))
         } ?? "Photo")
         .task(id: CellRequest(asset: asset, pixelSide: pixelSide)) {
             await load()

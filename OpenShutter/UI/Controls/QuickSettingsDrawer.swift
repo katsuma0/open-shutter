@@ -16,7 +16,7 @@ struct QuickSettingsDrawer: View {
         VStack(spacing: 10) {
             Grid(horizontalSpacing: 2, verticalSpacing: 12) {
                 GridRow {
-                    timerItem(advanced: true)
+                    timerItem
                     formatItem
                     rawItem
                     resolutionItem
@@ -70,10 +70,9 @@ struct QuickSettingsDrawer: View {
 
     // MARK: - Capture
 
-    /// The advanced interface ends the tap cycle and the menu with the timer sheet.
-    private func timerItem(advanced: Bool) -> some View {
+    /// The tap cycle and the menu both end with the timer sheet.
+    private var timerItem: some View {
         let schedule = model.settings.capture.schedule
-        let delays = QuickActions.delays(advanced: advanced)
         let selection = Binding<Double>(
             // A burst or intervalometer matches none of the plain delays, so no row gets the checkmark.
             get: { schedule.shots == 1 ? schedule.delay : -1 },
@@ -82,30 +81,26 @@ struct QuickSettingsDrawer: View {
         return DrawerMenuItem(model: model, title: "Timer", value: Self.timerValue(schedule),
                               isActive: !schedule.isOff,
                               isEnabled: QuickActions.timerApplies(model),
-                              primaryAction: { cycleTimer(through: delays, endsInSheet: advanced) }) {
+                              primaryAction: { cycleTimer() }) {
             Picker("Timer", selection: selection) {
-                ForEach(delays, id: \.self) { delay in
+                ForEach(CaptureSchedule.delayPresets, id: \.self) { delay in
                     Text(QuickActions.delayTitle(delay)).tag(delay)
                 }
             }
             .pickerStyle(.inline)
-            if advanced {
-                Button {
-                    timerSheetRequested = true
-                } label: {
-                    Label("Custom", systemImage: "slider.horizontal.3")
-                }
+            Button {
+                timerSheetRequested = true
+            } label: {
+                Label("Custom", systemImage: "slider.horizontal.3")
             }
         } glyph: {
             Image(systemName: "timer")
         }
     }
 
-    /// Off, 3s, 5s, 10s, 30s, then the timer sheet for anything else; a custom schedule steps back to Off. Without
-    /// the sheet the last delay goes straight back to Off.
-    private func cycleTimer(through delays: [Double], endsInSheet: Bool) {
-        switch QuickActions.timerStep(after: model.settings.capture.schedule, delays: delays,
-                                      endsInSheet: endsInSheet, sheetOffered: timerCycleReachedCustom) {
+    /// Off, 3s, 5s, 10s, 30s, then the timer sheet for anything else; a custom schedule steps back to Off.
+    private func cycleTimer() {
+        switch QuickActions.timerStep(after: model.settings.capture.schedule, sheetOffered: timerCycleReachedCustom) {
         case .schedule(let schedule):
             timerCycleReachedCustom = false
             QuickActions.setSchedule(schedule, model)

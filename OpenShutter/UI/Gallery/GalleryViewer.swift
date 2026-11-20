@@ -6,7 +6,6 @@ import CameraCore
 /// The full-screen viewer: one asset a page, swiped sideways, always on black, as photos are judged in Photos. A tap
 /// shows or hides the bars. The back button and a swipe down lead to the grid.
 struct GalleryViewer: View {
-    let model: CameraModel
     let library: CaptureLibrary
     let startID: String
     let zoomSpace: Namespace.ID
@@ -30,9 +29,7 @@ struct GalleryViewer: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
-    init(model: CameraModel, library: CaptureLibrary, startID: String, zoomSpace: Namespace.ID,
-         onShow: @escaping (String) -> Void) {
-        self.model = model
+    init(library: CaptureLibrary, startID: String, zoomSpace: Namespace.ID, onShow: @escaping (String) -> Void) {
         self.library = library
         self.startID = startID
         self.zoomSpace = zoomSpace
@@ -63,8 +60,7 @@ struct GalleryViewer: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                ViewerTitle(model: model, library: library, asset: current,
-                            stackLine: currentID.flatMap { stackLines[$0] })
+                ViewerTitle(library: library, asset: current, stackLine: currentID.flatMap { stackLines[$0] })
             }
             ToolbarItemGroup(placement: .bottomBar) {
                 bottomButtons(for: current)
@@ -273,9 +269,9 @@ struct GalleryViewer: View {
     }
 
     /// A stack's EXIF exposure time is one frame's for Blur, Trails and NIGHT, so its duration comes from the app's
-    /// XMP fields in the file. Only the advanced interface shows it.
+    /// XMP fields in the file.
     private func loadStackLine() async {
-        guard model.isAdvanced, let id = currentID, stackLines[id] == nil,
+        guard let id = currentID, stackLines[id] == nil,
               library.entry(for: id)?.kind == .stack, let asset = library.assets?.asset(id: id) else { return }
         let values = await AssetRequests.appValues(of: asset)
         if let line = ShotXMP.stackSummary(values) {
@@ -284,18 +280,15 @@ struct GalleryViewer: View {
     }
 }
 
-/// The date over the picture and, in the advanced interface, how it was shot. A view of its own, so a settings
-/// change redraws only this line and not the pager.
+/// The date over the picture and how it was shot.
 private struct ViewerTitle: View {
-    let model: CameraModel
     let library: CaptureLibrary
     let asset: PHAsset?
     let stackLine: String?
 
     var body: some View {
         let entry = asset.flatMap { library.entry(for: $0.localIdentifier) }
-        // The summary is shutter speed, ISO and aperture, which the simple interface never shows.
-        let detail = model.isAdvanced ? (stackLine ?? entry?.summary) : nil
+        let detail = stackLine ?? entry?.summary
         VStack(spacing: 1) {
             Text(GalleryText.dateLine(asset?.creationDate))
                 .font(.subheadline.weight(.semibold))

@@ -22,11 +22,6 @@ public enum CaptureMode: String, Codable, Sendable, CaseIterable, Identifiable {
 
     /// The carousel entry this mode shows under: LONG lives inside NIGHT.
     public var carouselMode: CaptureMode { self == .long ? .night : self }
-
-    /// The carousel for the simple interface leaves MANUAL out: every mode it keeps runs on auto.
-    public static func carouselOrder(advanced: Bool) -> [CaptureMode] {
-        advanced ? carouselOrder : carouselOrder.filter { $0 != .manual }
-    }
 }
 
 public enum ProcessedFormat: String, Codable, Sendable, CaseIterable, Identifiable {

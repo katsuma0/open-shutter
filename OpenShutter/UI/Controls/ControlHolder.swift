@@ -50,7 +50,7 @@ extension ControlHolder {
     /// what it says.
     static func autoRefusal(for kind: DialKind, model: CameraModel) -> String? {
         guard of(kind, model: model) == .scene, let scene = sceneName(for: kind, model: model) else { return nil }
-        // ISO keeps its capitals. Only the advanced interface has the dials a scene can hold.
+        // ISO keeps its capitals.
         let control = kind == .iso ? "ISO" : kind.title.lowercased()
         return "\(scene) sets the \(control). Pick Custom in the scene menu for auto."
     }
