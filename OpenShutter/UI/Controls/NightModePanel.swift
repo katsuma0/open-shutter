@@ -8,7 +8,8 @@ import CameraCore
 ///
 /// The scene is chosen from the button left of the shutter (NightSceneMenuItems). How long a shot runs is the moon
 /// chip's, beside the lens buttons (LensRowShutterChip). Whether the shot needs a tripod, and whether the phone is
-/// steady, is the status pill's over the picture (SteadyBanner).
+/// steady, is the status pill's over the picture (SteadyBanner). The night shot's stability, Auto, Handheld or
+/// Tripod, is on the top bar, in the histogram's place.
 struct NightModePanel: View {
     let model: CameraModel
 
@@ -161,9 +162,10 @@ private struct FrameMenuRows: View {
 
 // MARK: - Plan
 
-/// What the shot will take: "12 frames × 1/4s · ISO 640". In a Blur or Trails scene the pill is also the menu for the
-/// shutter of each frame, the middle value on it, and wears a chevron to say so. The night shot and Real set their
-/// frames themselves.
+/// What the shot will take: "12 frames × 1/4s" beside a stack, the frames the camera merges into one picture. The ISO
+/// is left to the readout line or the ISO chip, which show the one the frames use; with the readout switched off the
+/// pill still names it. In a Blur or Trails scene the pill is also the menu for the shutter of each frame, the middle
+/// value on it, and wears a chevron to say so. The night shot and Real set their frames themselves.
 private struct NightPlanPill: View {
     let model: CameraModel
     let isLong: Bool
@@ -173,20 +175,23 @@ private struct NightPlanPill: View {
         let plan = isLong ? model.longPlan : model.nightPlan
         // Bulb has no length to plan, so the line gives the limit from Settings, where the exposure stops by itself.
         let bulbLimit = isLong && long.bulb ? long.maxBulbSeconds : nil
-        let text = NightText.plan(plan, bulbLimit: bulbLimit)
-        let spoken = NightText.plan(plan, bulbLimit: bulbLimit, spoken: true)
+        let showsISO = !NightText.isoShownElsewhere(model)
+        let text = NightText.plan(plan, bulbLimit: bulbLimit, showsISO: showsISO)
+        let spoken = NightText.plan(plan, bulbLimit: bulbLimit, showsISO: showsISO, spoken: true)
+        // One frame is a plain exposure: nothing is stacked.
+        let stacked = plan.frameCount > 1 || bulbLimit != nil
         // The frame shutter is a shutter speed, which only the phones with manual shutter speeds offer.
         if isLong, long.blend != .additive, model.allowsManualShutter {
             // The frame the shot will use, which for a scene that closes the iris is longer than its own.
             let frame = model.longFrameSeconds
             FrameMenu(model: model, frameSeconds: frame, range: model.capabilities.exposure.seconds) {
-                PlanPillFace(text: text, opensMenu: true)
+                PlanPillFace(text: text, stacked: stacked, opensMenu: true)
             }
             .accessibilityLabel(Text("Plan"))
             .accessibilityValue(Text(spoken + (frame == nil ? ", frame shutter auto" : ", frame shutter set")))
             .accessibilityHint(Text("Shows the shutter choices for each frame. Auto lets the camera pick it."))
         } else {
-            PlanPillFace(text: text, opensMenu: false)
+            PlanPillFace(text: text, stacked: stacked, opensMenu: false)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Plan"))
                 .accessibilityValue(Text(spoken))
@@ -198,6 +203,9 @@ private struct NightPlanPill: View {
 /// line of numbers to read over a lit street as well as a black sky.
 private struct PlanPillFace: View {
     let text: String
+    /// The shot merges several frames: the STACKED badge's glyph leads the line. Drawn only, since in Blur and Trails
+    /// the pill is the frame shutter's menu and has no second tap to give; the spoken plan says "stacked".
+    let stacked: Bool
     let opensMenu: Bool
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -206,6 +214,12 @@ private struct PlanPillFace: View {
         // The steady pill's backing: white on 60 percent black over a white sky is about 5.7:1.
         let backing = contrast == .increased || reduceTransparency || AppearanceStore.shared.solidControls ? 0.85 : 0.6
         HStack(spacing: 6) {
+            if stacked {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 12 * Theme.labelScale, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+                    .transition(.opacity)
+            }
             Text(text)
                 // Rolls only inside an explicit animation: the plan follows the 10 Hz light readings.
                 .contentTransition(.numericText())
@@ -228,6 +242,8 @@ private struct PlanPillFace: View {
         }
         .frame(minHeight: 44)
         .contentShape(Rectangle())
+        // Only a change between one frame and several fades the glyph; the text follows the light readings.
+        .animation(Theme.snappy, value: stacked)
     }
 }
 
@@ -269,18 +285,57 @@ enum NightText {
     /// What the night shot does, for VoiceOver.
     static let nightDetail = "Averages frames for a clean, bright picture."
 
-    /// "12 frames × 1/4s · ISO 640", or with a bulb limit "Bulb: 1s frames · ISO 100 · max 30m". `spoken` writes the
-    /// limit out for VoiceOver, which would read "30m" as thirty meters.
-    static func plan(_ plan: StackPlan, bulbLimit: Double?, spoken: Bool = false) -> String {
+    /// The ISO the frames use is on screen already: the ISO chip of Manual night, or the readout line the night shot
+    /// and the other scenes show above the lens buttons, which Settings can switch off.
+    @MainActor
+    static func isoShownElsewhere(_ model: CameraModel) -> Bool {
+        let settings = model.settings
+        if settings.mode == .long, settings.longExposure.scene == .custom {
+            return model.capabilities.supportsCustomExposure
+        }
+        return settings.display.showReadout
+    }
+
+    /// "12 frames × 1/4s", or with a bulb limit "Bulb · 1s frames · max 30m". `showsISO` adds the frames' ISO
+    /// ("12 frames × 1/4s · ISO 640") for when nothing else on screen shows it. `spoken` writes the plan out for
+    /// VoiceOver, which would read "30m" as thirty meters and "1/4s" as a fraction: "12 frames of 1/4 of a second,
+    /// stacked", "Bulb, frames of 1 second, up to 30 minutes".
+    static func plan(_ plan: StackPlan, bulbLimit: Double?, showsISO: Bool, spoken: Bool = false) -> String {
         let speed = ShutterSpeed(seconds: plan.frameSeconds)
+        let iso = showsISO ? ISOScale.label(plan.iso) : nil
+        if spoken {
+            let each = spokenDuration(speed.seconds)
+            var parts: [String]
+            if let bulbLimit {
+                parts = ["Bulb", "frames of \(each)", "up to \(HoldMenuText.spokenTime(bulbLimit))"]
+            } else if plan.frameCount == 1 {
+                parts = ["1 frame of \(each)"]
+            } else {
+                parts = ["\(plan.frameCount) frames of \(each), stacked"]
+            }
+            // After the frames, as the line has it.
+            if let iso { parts.insert(iso, at: bulbLimit == nil ? 1 : 2) }
+            return parts.joined(separator: ", ")
+        }
         let shutter = speed.isFraction ? speed.label + "s" : speed.label
-        let iso = ISOScale.label(plan.iso)
         if let bulbLimit {
-            let limit = spoken ? HoldMenuText.spokenTime(bulbLimit) : Formatting.compactDuration(bulbLimit)
-            return "Bulb: \(shutter) frames \u{00B7} \(iso) \u{00B7} max \(limit)"
+            let limit = Formatting.compactDuration(bulbLimit)
+            return (["Bulb", "\(shutter) frames"] + (iso.map { [$0] } ?? []) + ["max \(limit)"])
+                .joined(separator: " \u{00B7} ")
         }
         let frames = plan.frameCount == 1 ? "1 frame" : "\(plan.frameCount) frames"
-        return "\(frames) \u{00D7} \(shutter) \u{00B7} \(iso)"
+        let line = "\(frames) \u{00D7} \(shutter)"
+        return iso.map { line + " \u{00B7} " + $0 } ?? line
+    }
+
+    /// "1/4 of a second", "0.5 seconds", "15 seconds", "5 minutes", rounded as the dials' labels are: VoiceOver
+    /// reads "1/4s" as a fraction and "5m" as five meters.
+    static func spokenDuration(_ seconds: Double) -> String {
+        let speed = ShutterSpeed(seconds: seconds)
+        if speed.isFraction { return speed.label + " of a second" }
+        let shown = speed.seconds < 10 ? (speed.seconds * 10).rounded() / 10 : speed.seconds.rounded()
+        if shown >= 1, shown == shown.rounded() { return HoldMenuText.spokenTime(shown) }
+        return "\(shown.formatted()) seconds"
     }
 }
 

@@ -582,8 +582,9 @@ private struct StatusBadges: View {
         let topShift = furniture.badgeShift(histogramShown: model.histogramOnScreen)
         let advanced = model.isAdvanced
         // How a long shutter is built is the advanced interface's business. In the simple one LONG would wear this
-        // badge nearly all the time, for a word it never explains.
-        let stacked = advanced && model.shutterIsStacked
+        // badge nearly all the time, for a word it never explains. NIGHT's plan pill carries the stack symbol beside
+        // its frames, so the corner badge is MANUAL's alone.
+        let stacked = advanced && model.settings.mode == .manual && model.shutterIsStacked
         let lock = LockWording(focus: model.focusLocked, exposure: model.aeLocked, advanced: advanced)
         let turns = model.motion.quarterTurns
         // Stands in for the square's label when the square is gone (a zoom moved the picture under it, or the AE-L

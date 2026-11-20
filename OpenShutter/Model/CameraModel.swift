@@ -3295,7 +3295,11 @@ final class CameraModel {
             return shutterIsStacked ? manualStackPlan.iso : readings.iso
         case .video:
             return settings.manual.iso ?? readings.iso
-        case .photo, .night:
+        case .night:
+            // What the night shot's frames use, as the scenes show theirs: the preview runs a shorter shutter at a
+            // higher ISO. NIGHT's plan pill leaves the ISO to the readout line.
+            return nightPlan.iso
+        case .photo:
             return readings.iso
         }
     }
