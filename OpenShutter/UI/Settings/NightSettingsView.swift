@@ -115,6 +115,7 @@ private struct LongExposureSection: View {
             SettingsFooter([
                 "\(long.blend.title): \(long.blend.detail)",
                 "Align frames corrects small camera movement between frames. A bulb exposure stops on its own at the bulb limit.",
+                "In Stars and Northern lights, the duration dial shows how long stars stay points at the current zoom, and turns orange past it. Each scene starts at a time inside it.",
             ])
         }
     }

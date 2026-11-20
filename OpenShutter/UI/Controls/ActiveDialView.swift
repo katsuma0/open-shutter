@@ -35,6 +35,9 @@ private struct DialPanel: View {
     @State private var resyncToken = 0
     /// Zooms the current edit sent, so a resync can tell a zoom the model dropped from one another control made.
     @State private var sentZooms: [Double] = []
+    /// How long stars stay points at this zoom, on the duration dial of Stars and Northern lights; nil elsewhere.
+    /// Kept by StarLimitFollower, which reads the zoom so this body doesn't.
+    @State private var starLimit: StarLimit?
 
     /// After a change from the dial, zoom and auto values come back on the next reading. Following them sooner
     /// would pull the ruler back to the old value for a moment.
@@ -48,10 +51,13 @@ private struct DialPanel: View {
         let fallback = selection ?? scale.nearestIndex(to: DialValues.current(kind, model: model)) ?? 0
         let locked = DialValues.isLocked(model.activity)
         let dimmed = DialValues.isDimmed(model.activity)
+        let shown = scale.clamped(selection ?? fallback)
+        // Past the last tick that keeps stars as points, VoiceOver hears it as the orange ticks show it.
+        let starNote = starLimit.flatMap { shown > $0.lastSharpIndex ? $0.trailNote : nil }
         VStack(spacing: 6) {
             // A shot in progress locks what would change the picture and never the way out: Done stays live, like
             // the swipe and the escape gesture below.
-            DialHeader(model: model, kind: kind, isLocked: locked, isDimmed: dimmed)
+            DialHeader(model: model, kind: kind, isLocked: locked, isDimmed: dimmed, starLimit: starLimit)
             if kind == .whiteBalance {
                 WhiteBalancePresetRow(model: model)
                     .disabled(locked)
@@ -82,11 +88,12 @@ private struct DialPanel: View {
                     majorTick: { scale.isMajor($0) },
                     label: { scale.label($0) },
                     spacing: scale.spacing,
+                    warnsAfter: starLimit?.lastSharpIndex,
                     onEditingChanged: editingChanged
                 )
                 // RulerDial calls itself "Dial" and speaks a long tick's short label ("250" for 1/250 s).
                 .accessibilityLabel(Text(DialValues.name(kind, model: model)))
-                .accessibilityValue(Text(scale.spokenLabel(scale.clamped(selection ?? fallback))))
+                .accessibilityValue(Text([scale.spokenLabel(shown), starNote].compactMap { $0 }.joined(separator: ". ")))
                 .overlay {
                     if kind == .focus {
                         FocusEndGlyphs(model: model)
@@ -98,6 +105,13 @@ private struct DialPanel: View {
                 }
                 .disabled(locked)
                 .opacity(dimmed ? 0.45 : 1)
+            }
+        }
+        .background {
+            // The shutter dial only: LONG's duration is the one stars can trail on.
+            if kind == .shutter {
+                StarLimitFollower(model: model, values: scale.values) { starLimit = $0 }
+                    .allowsHitTesting(false)
             }
         }
         .task(id: resyncToken) {
@@ -176,6 +190,55 @@ private struct DialPanel: View {
     }
 }
 
+/// How long stars stay points at this zoom, on the duration dial of Stars and Northern lights (StarTrails).
+private struct StarLimit: Equatable {
+    /// The last tick inside the limit; -1 when even the first is past it.
+    var lastSharpIndex: Int
+    /// The time the title names: that tick's, or the limit itself when no tick is inside it.
+    var seconds: Double
+
+    /// nil without a limit to show: outside those scenes, or on a dial with no values.
+    init?(limit: Double?, values: [Double]) {
+        guard let limit, limit.isFinite, limit > 0, !values.isEmpty else { return nil }
+        if let index = StarTrails.lastSharpIndex(in: values, limit: limit) {
+            lastSharpIndex = index
+            seconds = values[index]
+        } else {
+            lastSharpIndex = -1
+            seconds = limit
+        }
+    }
+
+    /// A duration on one of the ticks the dial draws in orange. The margin only absorbs a float's rounding: the
+    /// next tick is a third of a stop on.
+    func isPast(_ duration: Double) -> Bool {
+        duration > seconds * 1.001
+    }
+
+    /// What VoiceOver adds to a value past the limit.
+    var trailNote: String {
+        "Stars trail past \(NightText.spokenDuration(seconds)) at this zoom."
+    }
+}
+
+/// Reads the zoom behind the sharp-star limit in its own body: the zoom arrives with the 10 Hz readings, and the
+/// panel hears only when the last sharp tick moves.
+private struct StarLimitFollower: View {
+    let model: CameraModel
+    let values: [Double]
+    let onChange: (StarLimit?) -> Void
+
+    var body: some View {
+        // Only LONG's scenes have the limit, so elsewhere the readings stay unread.
+        let limit = model.settings.mode == .long ? model.starSharpSeconds : nil
+        let mark = StarLimit(limit: limit, values: values)
+        Color.clear
+            .onChange(of: mark, initial: true) { _, newValue in
+                onChange(newValue)
+            }
+    }
+}
+
 /// Reads the live value in its own body, so 10 Hz readings re-run this tiny view and not the ruler.
 private struct DialFollower: View {
     let model: CameraModel
@@ -197,15 +260,18 @@ private struct DialHeader: View {
     let kind: DialKind
     let isLocked: Bool
     let isDimmed: Bool
+    /// The sharp-star limit the duration dial shows in Stars and Northern lights.
+    let starLimit: StarLimit?
 
     var body: some View {
-        let readout = DialValues.readout(kind, model: model)
+        let readout = DialValues.readout(kind, model: model, starLimit: starLimit)
         DialValueHeader(
             title: readout.title,
             value: readout.value,
             isAuto: readout.isAuto,
             isSetByPerson: readout.isSetByPerson,
             isStacked: readout.isStacked,
+            isWarning: readout.isWarning,
             onAuto: readout.offersAuto ? {
                 Haptics.tap()
                 // Asked before the setter: once a value of the person's is given back the scene holds the control,
@@ -411,6 +477,8 @@ private enum DialValues {
         var isSetByPerson = true
         /// What VoiceOver says AUTO does, where that isn't a return to automatic.
         var autoHint: String? = nil
+        /// The value is past the limit the title names, and shows in orange.
+        var isWarning = false
     }
 
     /// What the dial is called, on screen and to VoiceOver. The simple interface knows exposure compensation as
@@ -503,7 +571,8 @@ private enum DialValues {
         }
     }
 
-    static func readout(_ kind: DialKind, model: CameraModel) -> Readout {
+    /// `starLimit` is the panel's, for LONG's duration in the scenes that keep stars as points.
+    static func readout(_ kind: DialKind, model: CameraModel, starLimit: StarLimit? = nil) -> Readout {
         let settings = model.settings
         let caps = model.capabilities
         switch kind {
@@ -519,7 +588,14 @@ private enum DialValues {
                 let value = long.bulb ? "Bulb" : ShutterSpeed(seconds: long.seconds).label
                 // Blur and Trails always merge frames; Real only once the duration passes the longest shutter.
                 let stacked = !long.bulb && model.shutterIsStacked
-                return Readout(title: "Duration", value: value, isAuto: false, offersAuto: false, isStacked: stacked)
+                var readout = Readout(title: "Duration", value: value, isAuto: false, offersAuto: false, isStacked: stacked)
+                // Stars and Northern lights: the longest time that keeps stars as points at this zoom, and the
+                // time in orange past it. The time stays the person's to pick.
+                if let starLimit, !long.bulb {
+                    readout.title = "Duration \u{00B7} sharp stars to " + DialScales.durationLabel(starLimit.seconds)
+                    readout.isWarning = starLimit.isPast(long.seconds)
+                }
+                return readout
             }
             let seconds = shownShutter(model)
             var value = ShutterSpeed(seconds: seconds).label

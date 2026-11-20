@@ -1643,7 +1643,34 @@ final class CameraModel {
         guard !activity.isBusy, scene != settings.longExposure.scene, isAdvanced || scene.recipe != nil else { return }
         // A lock holds the exposure and the focus of the scene being left.
         releaseLock()
-        updateSettings { $0.longExposure.apply(scene) }
+        // Stars and Northern lights start at a time that keeps the stars as points at this zoom. The time stays the
+        // scene's own to change, so the scene stays a scene.
+        let start = scene.limitsStarTrails ? sceneStartSeconds(scene) : nil
+        updateSettings {
+            $0.longExposure.apply(scene)
+            if let start { $0.longExposure.seconds = start }
+        }
+    }
+
+    /// The time a scene starts at: its recipe's, or in Stars and Northern lights the longest of its times that keeps
+    /// stars as points at this zoom (the limit only ever shortens it). nil for Custom, which has no time of its own.
+    private func sceneStartSeconds(_ scene: LongExposureScene) -> Double? {
+        guard let recipe = scene.recipe else { return nil }
+        let limit = scene.limitsStarTrails ? sharpStarSecondsAtThisZoom : nil
+        return StarTrails.startingSeconds(recipe: recipe, limit: limit, shortest: shortestLongSeconds)
+    }
+
+    /// The longest time that keeps stars as points at this zoom, in Stars and Northern lights; nil elsewhere. The
+    /// duration dial marks the times past it.
+    var starSharpSeconds: Double? {
+        guard settings.mode == .long, settings.longExposure.scene.limitsStarTrails else { return nil }
+        return sharpStarSecondsAtThisZoom
+    }
+
+    /// 400 over the equivalent focal length of the lens in use at its zoom, the one the night plan and the crosses
+    /// use. The magnifier leaves the zoom the readings report alone, so the limit holds still while focusing.
+    private var sharpStarSecondsAtThisZoom: Double? {
+        StarTrails.sharpSeconds(equivalentFocalLength: capabilities.lens.equivalentFocalLength * max(readings.zoomFactor, 1))
     }
 
     /// A pick from NIGHT's scene menu: the night shot (nil), or a long exposure scene. The two are different ways of
@@ -1651,6 +1678,7 @@ final class CameraModel {
     func selectNightScene(_ scene: LongExposureScene?) {
         guard !activity.isBusy else { return }
         let mode: CaptureMode = scene == nil ? .night : .long
+        let enteringLong = mode == .long && settings.mode != .long
         if settings.mode != mode { setMode(mode) }
         // setMode refuses while photos are still being saved or an intervalometer runs.
         guard settings.mode == mode else {
@@ -1663,6 +1691,13 @@ final class CameraModel {
         }
         let fromScene = settings.longExposure.scene != .custom
         setLongExposureScene(scene)
+        // The scene kept from the last visit loads nothing, and its time may be one that trails the stars at this
+        // zoom: picked from the night shot, it starts inside the limit as a fresh pick does. A time still inside it
+        // stays, and the scene stays a scene.
+        if enteringLong, scene.limitsStarTrails, let limit = sharpStarSecondsAtThisZoom,
+           settings.longExposure.seconds > limit * 1.02, let start = sceneStartSeconds(scene) {
+            setLongExposureSeconds(start)
+        }
         // Every choice but Manual night is automatic: the scene, or the camera, sets ISO, aperture, white balance
         // and focus, and there are no chips to show values set by hand.
         if scene != .custom { clearHandSetValues() }
