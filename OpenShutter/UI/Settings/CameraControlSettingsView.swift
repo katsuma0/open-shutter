@@ -62,6 +62,7 @@ struct CameraControlItemsView: View {
                 }
             } header: {
                 Text("Included")
+                    .settingsHeader()
             } footer: {
                 SettingsFooter([Self.includedNote(count: chosen.count, limit: limit)])
             }
@@ -74,10 +75,9 @@ struct CameraControlItemsView: View {
                             add(item, limit: limit)
                         } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: "plus.circle.fill")
-                                    .symbolRenderingMode(.palette)
-                                    .foregroundStyle(.white, .green)
-                                    .font(.title3)
+                                Image(systemName: "plus.circle")
+                                    .font(.title3.weight(.light))
+                                    .foregroundStyle(Theme.accent)
                                     .accessibilityHidden(true)
                                 ControlItemLabel(item: item, note: note)
                             }
@@ -94,6 +94,7 @@ struct CameraControlItemsView: View {
                     }
                 } header: {
                     Text("More controls")
+                        .settingsHeader()
                 } footer: {
                     if chosen.count >= limit {
                         Text("Remove a control above to add another.")
@@ -189,6 +190,7 @@ private struct ControlItemLabel: View {
             }
         } icon: {
             Image(systemName: item.symbolName)
+                .fontWeight(.light)
                 .foregroundStyle(Theme.accent)
         }
     }

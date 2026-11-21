@@ -14,6 +14,7 @@ private enum GalleryZoom {
 struct ThumbnailButton: View {
     @Bindable var model: CameraModel
     @State private var press = PressTracker()
+    @State private var landing = false
     @Namespace private var galleryZoom
     @Environment(\.displayScale) private var displayScale
 
@@ -42,6 +43,8 @@ struct ThumbnailButton: View {
             ThumbnailTouchLayer(model: model, press: press)
         }
         .matchedTransitionSource(id: GalleryZoom.thumbnail, in: galleryZoom)
+        // A short swell as a new picture lands, so the eye catches where the shot went. Not with Reduce motion.
+        .scaleEffect(landing ? 1.06 : 1)
         .opacity(isHidden ? 0 : 1)
         .allowsHitTesting(!isHidden)
         .animation(Theme.spring, value: picture.key)
@@ -49,6 +52,15 @@ struct ThumbnailButton: View {
         .fullScreenCover(isPresented: $model.isReviewPresented) {
             GalleryView(model: model)
                 .galleryZoomTransition(sourceID: GalleryZoom.thumbnail, in: galleryZoom)
+        }
+        .onChange(of: picture.key) { old, new in
+            // Only a picture that replaces one: the first fetch after launch is no new shot.
+            guard old != nil, new != nil, !AppearanceStore.shared.reduceMotion else { return }
+            withAnimation(Theme.snappy) {
+                landing = true
+            } completion: {
+                withAnimation(Theme.spring) { landing = false }
+            }
         }
         .onAppear {
             // The newest photo comes back after a relaunch, but only where access was already given: this never asks.
@@ -175,7 +187,8 @@ private struct ThumbnailImage: View {
                     .frame(width: side, height: side)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .id(picture.key)
-                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    .transition(AppearanceStore.shared.reduceMotion
+                        ? AnyTransition.opacity : .scale(scale: 0.6).combined(with: .opacity))
             }
             if picture.isVideo {
                 Image(systemName: "video.fill")
@@ -186,7 +199,10 @@ private struct ThumbnailImage: View {
                     .padding(4)
             }
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.white.opacity(picture.image == nil ? 0.25 : 0.9), lineWidth: 1.5)
+                // A fine rim like the chips': a hairline round an empty well, a brighter thin line round a picture,
+                // which needs more to stand apart from a dark photo.
+                .strokeBorder(picture.image == nil ? Theme.hairline : Color.white.opacity(0.85),
+                              lineWidth: picture.image == nil ? Theme.hairlineWidth : 1)
         }
         .frame(width: side, height: side)
     }

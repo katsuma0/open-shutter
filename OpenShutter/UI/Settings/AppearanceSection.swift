@@ -34,6 +34,7 @@ struct LookAndControlsSection: View {
             }
         } header: {
             Text("Look and controls")
+                .settingsHeader()
         } footer: {
             Text("Appearance changes Settings, not the camera.")
         }

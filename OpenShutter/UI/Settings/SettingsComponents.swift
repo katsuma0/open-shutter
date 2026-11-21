@@ -141,6 +141,16 @@ struct SettingsSlider: View {
     }
 }
 
+extension View {
+    /// A section header in the instrument's spaced small capitals, as the info panel and the camera's dial headers
+    /// write their labels.
+    func settingsHeader() -> some View {
+        font(.caption.weight(.semibold))
+            .tracking(1.2)
+            .textCase(.uppercase)
+    }
+}
+
 /// A footer made of optional sentences, so each section can assemble its explanation from conditions.
 struct SettingsFooter: View {
     private let text: String

@@ -27,6 +27,7 @@ struct CameraSection: View {
             Toggle("Level", isOn: model.settingBinding(\.display.showLevel))
         } header: {
             Text("Camera")
+                .settingsHeader()
         }
     }
 

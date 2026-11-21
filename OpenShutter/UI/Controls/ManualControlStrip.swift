@@ -364,10 +364,7 @@ private struct ChipFace: View {
         .frame(maxWidth: compact ? nil : .infinity)
         .frame(height: 30)
         .cameraGlass(in: Capsule())
-        .overlay {
-            Capsule()
-                .strokeBorder(Theme.accent.opacity(isSelected ? 0.8 : 0), lineWidth: 1)
-        }
+        .instrumentEdge(isActive: isSelected)
         .scaleEffect(isPressed ? 0.94 : 1)
         .animation(Theme.snappy, value: isPressed)
         // Keyed to auto and manual, not the value: dial drags and live auto readings change the value many times a

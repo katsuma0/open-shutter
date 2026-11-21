@@ -42,7 +42,7 @@ struct FocusSettingsView: View {
         var unavailable = UnavailableFeatures()
         unavailable.note("focus magnifier", supported: caps.supportsManualFocus)
         return [
-            "Enlarges the middle of the picture while you turn the focus dial.",
+            "Enlarges the frame while you focus by hand.",
             // Depth delivery rebuilds the capture pipeline at every zoom change, so the model doesn't offer it then.
             depth && caps.depthSupported ? "The magnifier is off while Depth is on." : nil,
             unavailable.text,

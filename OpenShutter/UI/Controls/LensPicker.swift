@@ -151,6 +151,11 @@ struct LensPicker: View {
             .uprightRotation(rotation)
             .frame(width: diameter, height: diameter)
             .cameraGlass(in: Circle())
+            // A thin accent ring names the lens in use, as the yellow figure does, without a fill over the glass.
+            .overlay {
+                Circle()
+                    .strokeBorder(Theme.accent.opacity(isActive ? 0.85 : 0), lineWidth: 0.75)
+            }
             .frame(width: Self.hitSize, height: Self.hitSize)
             .contentShape(Rectangle())
             // A plain tap gesture with the hold beside it: a tap tied to the hold's failure (exclusively) never fired

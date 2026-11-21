@@ -164,11 +164,8 @@ private struct ExposureChip: View {
         .padding(.horizontal, 9)
         .frame(height: 30)
         .cameraGlass(in: Capsule())
-        .overlay {
-            if isOpen {
-                Capsule().strokeBorder(Theme.accent.opacity(0.8), lineWidth: 1)
-            }
-        }
+        .instrumentEdge(isActive: isOpen)
+        .animation(Theme.spring, value: isOpen)
         .scaleEffect(press.isPressed ? 0.94 : 1)
         .animation(Theme.snappy, value: press.isPressed)
         .frame(minWidth: 44, minHeight: 44)

@@ -43,6 +43,7 @@ struct VideoSettingsView: View {
                     .disabled(!video.audio)
             } header: {
                 Text("Sound")
+                    .settingsHeader()
             } footer: {
                 Text(audioPlaybackNote)
             }
@@ -106,6 +107,7 @@ struct BasicVideoSection: View {
                 .disabled(!model.settings.video.audio)
         } header: {
             Text("Video")
+                .settingsHeader()
         } footer: {
             Text(audioPlaybackNote)
         }
@@ -113,4 +115,4 @@ struct BasicVideoSection: View {
 }
 
 /// What allowing audio playback means for the recording, in the short list and on the Video page.
-private let audioPlaybackNote = "Allow audio playback keeps music playing while you film, and the microphone may record it."
+private let audioPlaybackNote = "Audio playback keeps music on while you film; the mic may record it."

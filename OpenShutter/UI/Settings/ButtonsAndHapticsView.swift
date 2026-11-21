@@ -17,10 +17,8 @@ struct ButtonsAndHapticsView: View {
         Form {
             Section {
                 // One system interaction carries the volume buttons and the Camera Control click, with one switch
-                // for all of them, so a single switch here covers both.
+                // for all of them, so a single switch here covers both. The rows under it say what each press does.
                 Toggle("Use hardware buttons", isOn: model.settingBinding(\.controls.volumeShutter))
-            } footer: {
-                Text(hasCameraControl ? Self.switchNote : Self.volumeOnlySwitchNote)
             }
 
             Section {
@@ -30,6 +28,7 @@ struct ButtonsAndHapticsView: View {
                                options: HardwareButtonAction.allCases, label: \.title)
             } header: {
                 Text("Volume buttons")
+                    .settingsHeader()
             } footer: {
                 SettingsFooter([hasCameraControl ? Self.cameraControlNote : nil])
             }
@@ -44,14 +43,12 @@ struct ButtonsAndHapticsView: View {
                     .disabled(!controls.haptics)
             } header: {
                 Text("Haptics")
+                    .settingsHeader()
             }
         }
         .navigationTitle("Buttons and haptics")
         .navigationBarTitleDisplayMode(.inline)
     }
-
-    private static let switchNote = "The volume buttons and the Camera Control click do what you pick below."
-    private static let volumeOnlySwitchNote = "The volume buttons do what you pick below."
 
     /// Off is the old haptics switch and the strength is kept beside it, so a save from before means the same, and
     /// turning haptics back on brings the strength back.

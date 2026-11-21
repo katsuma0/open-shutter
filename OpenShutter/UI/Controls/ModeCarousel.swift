@@ -93,13 +93,19 @@ struct ModeCarousel: View {
     private func title(_ item: CaptureMode, isHighlighted: Bool) -> some View {
         Text(item.title)
             .font(Theme.labelFont)
-            .tracking(1)
-            .foregroundStyle(isHighlighted ? Theme.accent : Theme.primaryText)
-            .animation(Theme.snappy, value: isHighlighted)
+            .tracking(Theme.smallCapsTracking)
+            .foregroundStyle(isHighlighted ? Theme.accent : Theme.secondaryText)
             .fixedSize()
             .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
                 measuredWidths[item] = width
             }
+            // An overlay, so the dot never changes a title's size and the strip never shifts when it moves on.
+            .overlay(alignment: .bottom) {
+                AccentDot()
+                    .offset(y: 7)
+                    .opacity(isHighlighted ? 1 : 0)
+            }
+            .animation(Theme.snappy, value: isHighlighted)
             .padding(.horizontal, Self.itemPadding)
             .frame(height: Self.height)
             .contentShape(Rectangle())
@@ -155,7 +161,7 @@ struct ModeCarousel: View {
         let weight: UIFont.Weight = legibilityWeight == .bold ? .bold : .semibold
         // Theme.labelFont is 13 pt, a fifth bigger with Larger labels.
         let font = UIFont.systemFont(ofSize: 13 * Theme.labelScale, weight: weight)
-        let size = (item.title as NSString).size(withAttributes: [.font: font, .kern: 1])
+        let size = (item.title as NSString).size(withAttributes: [.font: font, .kern: Theme.smallCapsTracking])
         return ceil(size.width)
     }
 
