@@ -81,10 +81,11 @@ struct PhotoSettingsView: View {
                 }
             } header: {
                 Text("Photo details")
+                    .settingsHeader()
             } footer: {
                 SettingsFooter([
                     locationNote(enabled: capture.saveLocation, access: locationAccess),
-                    "Your name and copyright go into every photo and video.",
+                    "Name and copyright go into every photo and video.",
                 ])
             }
         }
@@ -207,6 +208,7 @@ struct BasicPhotosSection: View {
             Toggle("Prioritize faster shooting", isOn: model.settingBinding(\.capture.prioritizeSpeed))
         } header: {
             Text("Photos")
+                .settingsHeader()
         } footer: {
             SettingsFooter(Self.notes(capture: capture, photo: photo, access: locationAccess))
         }

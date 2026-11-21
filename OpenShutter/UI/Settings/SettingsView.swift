@@ -36,8 +36,9 @@ struct SettingsView: View {
                 }
             }
         }
-        // On the stack rather than the form, so the pages pushed from it get green switches too.
-        .toggleStyle(SettingsSwitchStyle())
+        // On the stack rather than the form, so the pages pushed from it get them too: every number in mono digits,
+        // and the switches in the accent the sheet tints with, as the camera marks what is on.
+        .monospacedDigit()
         .sheetAppearance()
         .onAppear {
             if locationAccess == nil {
@@ -54,7 +55,7 @@ struct SettingsView: View {
 private struct AdvancedSettingsSection: View {
     let model: CameraModel
 
-    private static let explanation = "Shows every setting without changing the camera."
+    private static let explanation = "Shows every setting. The camera stays the same."
 
     var body: some View {
         Section {
@@ -128,11 +129,12 @@ private struct AdvancedMenuSection: View {
             }
         } header: {
             Text("Advanced")
+                .settingsHeader()
         }
     }
 }
 
-/// A row of the menu: the page's name beside its symbol in the accent.
+/// A row of the menu: the page's name beside its thin symbol in the accent.
 private struct MenuRowLabel: View {
     let title: String
     let symbol: String
@@ -147,6 +149,7 @@ private struct MenuRowLabel: View {
             Text(title)
         } icon: {
             Image(systemName: symbol)
+                .fontWeight(.light)
                 .foregroundStyle(Theme.accent)
         }
     }
@@ -181,6 +184,7 @@ private struct AboutSection: View {
             }
         } header: {
             Text("About")
+                .settingsHeader()
         }
     }
 

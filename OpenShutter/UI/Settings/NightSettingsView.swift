@@ -40,6 +40,7 @@ private struct NightShotSection: View {
                          options: pickerNumbers(Self.maxISOChoices, current: night.maxISO), label: ISOScale.label)
         } header: {
             Text("Night shot")
+                .settingsHeader()
         } footer: {
             SettingsFooter(Self.notes(night: night, caps: caps))
         }
@@ -74,6 +75,7 @@ private struct LongExposureSection: View {
                          options: pickerNumbers(Self.bulbLimits, current: long.maxBulbSeconds), label: Self.durationLabel)
         } header: {
             Text("Long exposure")
+                .settingsHeader()
         } footer: {
             // A blend or alignment that isn't the scene's own makes the scene Custom (CameraModel.commit), from here
             // as from the camera, and the scene menu names Custom Manual night.
@@ -106,6 +108,7 @@ struct BatterySaverSection: View {
         } header: {
             if let header {
                 Text(header)
+                    .settingsHeader()
             }
         } footer: {
             Text("Darkens the screen during shots of 10 seconds or more.")

@@ -13,6 +13,7 @@ struct CustomSetupsSection: View {
             }
         } header: {
             Text("Custom setups")
+                .settingsHeader()
         }
     }
 }

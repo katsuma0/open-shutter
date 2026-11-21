@@ -28,9 +28,11 @@ struct CapabilitiesView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                             Text(group.title)
+                                .settingsHeader()
                         }
                     } else {
                         Text(group.title)
+                            .settingsHeader()
                     }
                 } footer: {
                     if let footer = group.footer {
@@ -50,6 +52,7 @@ struct CapabilitiesView: View {
                 }
             } header: {
                 Text("Formats (\(formats.count))")
+                    .settingsHeader()
             }
         }
         .listStyle(.insetGrouped)

@@ -16,8 +16,9 @@ struct PhotoToolsSection: View {
             }
         } header: {
             Text("Tools")
+                .settingsHeader()
         } footer: {
-            Text("Photo info shows the details saved in a photo, and saves a copy without them.")
+            Text("Photo info reads a photo's details and saves a copy without them.")
         }
     }
 }

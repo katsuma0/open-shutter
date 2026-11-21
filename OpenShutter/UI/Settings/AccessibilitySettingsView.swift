@@ -18,7 +18,7 @@ struct AccessibilitySettingsView: View {
                 Toggle("Speak status", isOn: model.settingBinding(\.accessibility.speakStatus))
             } footer: {
                 SettingsFooter([
-                    "Speak status says the countdown, and when a long shot starts and ends.",
+                    "Speak status reads out the countdown and long shots.",
                     // The in-app switch adds nothing while iOS already keeps the camera still.
                     systemReducesMotion ? "Reduce Motion is already on in iOS." : nil,
                 ])
