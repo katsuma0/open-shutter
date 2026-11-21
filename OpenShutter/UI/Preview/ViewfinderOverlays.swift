@@ -489,9 +489,10 @@ private struct FocusReticle: View {
     var body: some View {
         ZStack {
             ReticleShape()
-                .stroke(Theme.accent, lineWidth: 1.25)
+                .stroke(Theme.accent, style: StrokeStyle(lineWidth: 1.25, lineCap: .square))
                 .frame(width: Self.side, height: Self.side)
-                .scaleEffect(settled ? 1 : 1.3)
+                // With Reduce motion the brackets land in place and only fade.
+                .scaleEffect(settled || AppearanceStore.shared.reduceMotion ? 1 : 1.3)
                 // A held lock stays on screen, dimmed; a plain tap fades out like the Camera app's square.
                 .opacity(faded ? (isLocked ? 0.6 : 0) : 1)
                 .accessibilityHidden(true)
@@ -537,11 +538,24 @@ private struct FocusReticle: View {
     }
 }
 
-/// A square with short ticks pointing in from the middle of each side, like the Camera app's.
+/// Four corner brackets with short ticks pointing in from the middle of each side: a rangefinder's frame lines
+/// rather than a full square, so less of the subject is drawn over.
 private struct ReticleShape: Shape {
     func path(in rect: CGRect) -> Path {
-        var path = Path(rect)
-        let tick = min(rect.width, rect.height) * 0.08
+        var path = Path()
+        let side = min(rect.width, rect.height)
+        let arm = side * 0.22
+        let tick = side * 0.08
+        for (corner, dx, dy) in [
+            (CGPoint(x: rect.minX, y: rect.minY), 1.0, 1.0),
+            (CGPoint(x: rect.maxX, y: rect.minY), -1.0, 1.0),
+            (CGPoint(x: rect.minX, y: rect.maxY), 1.0, -1.0),
+            (CGPoint(x: rect.maxX, y: rect.maxY), -1.0, -1.0),
+        ] {
+            path.move(to: CGPoint(x: corner.x + dx * arm, y: corner.y))
+            path.addLine(to: corner)
+            path.addLine(to: CGPoint(x: corner.x, y: corner.y + dy * arm))
+        }
         path.move(to: CGPoint(x: rect.midX, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.midX, y: rect.minY + tick))
         path.move(to: CGPoint(x: rect.midX, y: rect.maxY))

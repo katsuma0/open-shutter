@@ -55,6 +55,14 @@ enum Theme {
     /// The margin of every row of controls over the shutter, so their outer edges line up.
     static let edge: CGFloat = 12
 
+    /// Letter spacing for spaced small capitals: the modes, the dial's title, short status words.
+    static let smallCapsTracking: CGFloat = 1.2
+    /// The width of an instrument's edge: the chips' rim, the thumbnail's, the active lens's ring.
+    static let hairlineWidth: CGFloat = 0.5
+    /// Tick marks drawn on the controls, as on a lens barrel: the long ones bright, the short ones quieter.
+    static let majorTick = Color.white.opacity(0.95)
+    static let minorTick = Color.white.opacity(0.5)
+
     /// Messages and titles: toasts, the modes, the night plan.
     @MainActor static var labelFont: Font { larger ? Fonts.largeLabel : Fonts.label }
     @MainActor static var modeFont: Font { labelFont }
@@ -349,6 +357,39 @@ extension View {
     /// Thin lines and ticks drawn on the picture.
     func lineShadow() -> some View {
         shadow(color: .black.opacity(0.4), radius: 1.5)
+    }
+}
+
+/// The small accent dot that marks a message or a status as live, at its leading edge or under the active mode.
+struct AccentDot: View {
+    var size: CGFloat = 4
+
+    var body: some View {
+        Circle()
+            .fill(Theme.accent)
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// A chip's rim: a hairline, so the chip reads as an instrument over any picture, and while its dial is open a
+    /// short accent bar along the bottom. Solid buttons already draw a rim of their own.
+    @MainActor
+    func instrumentEdge(isActive: Bool) -> some View {
+        overlay {
+            if !AppearanceStore.shared.solidControls {
+                Capsule().strokeBorder(Theme.hairline, lineWidth: Theme.hairlineWidth)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Capsule()
+                .fill(Theme.accent)
+                .frame(width: 12, height: 1.5)
+                .padding(.bottom, 3)
+                .opacity(isActive ? 1 : 0)
+                .accessibilityHidden(true)
+        }
     }
 }
 

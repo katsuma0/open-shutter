@@ -122,7 +122,8 @@ struct RulerDial: View {
     }
 
     private var indicator: some View {
-        Capsule()
+        // Square ends like the ticks', so the index reads as one more line of the scale, only lit.
+        Rectangle()
             .fill(Theme.accent)
             .frame(width: 2, height: 26)
             .offset(y: 9)
@@ -165,8 +166,8 @@ struct RulerDial: View {
                 if warned { warnedMinor.addRect(tick) } else { minor.addRect(tick) }
             }
         }
-        context.fill(minor, with: .color(Theme.primaryText.opacity(0.45)))
-        context.fill(major, with: .color(Theme.primaryText.opacity(0.9)))
+        context.fill(minor, with: .color(Theme.minorTick))
+        context.fill(major, with: .color(Theme.majorTick))
         if warnsAfter != nil {
             context.fill(warnedMinor, with: .color(Theme.warning.opacity(0.6)))
             context.fill(warnedMajor, with: .color(Theme.warning.opacity(0.95)))
@@ -651,7 +652,7 @@ struct DialValueHeader: View {
             // Spoken as the value row's label below.
             Text(Self.capitals(title))
                 .font(Theme.microFont)
-                .tracking(0.8)
+                .tracking(Theme.smallCapsTracking)
                 .foregroundStyle(Theme.secondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)

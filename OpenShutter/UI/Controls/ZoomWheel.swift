@@ -516,8 +516,8 @@ private struct ZoomRuler: View, Animatable {
                                  width: majorWidth, height: Self.majorTickHeight))
             visibleLabels.append((label, x, y))
         }
-        context.fill(minor, with: .color(.white.opacity(0.45)))
-        context.fill(major, with: .color(.white.opacity(0.9)))
+        context.fill(minor, with: .color(Theme.minorTick))
+        context.fill(major, with: .color(Theme.majorTick))
         for item in visibleLabels {
             var text = context.resolve(Text(item.label.text).font(labelFont))
             text.shading = .color(item.label.grid == shownZoom ? accent : .white.opacity(0.75))

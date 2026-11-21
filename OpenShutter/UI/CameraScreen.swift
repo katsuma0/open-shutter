@@ -452,7 +452,7 @@ private struct ViewfinderStack: View {
                               isHidden: model.dimmer.isDimmed, isFrozen: lensFrozen)
             StackPreviewLayer(model: model, picture: geometry.picture)
             ModeSwitchVeil(isVisible: veilVisible)
-            ShutterBlink(model: model)
+            ShutterBlink(model: model, frame: frame)
             FrameBands(frame: frame, solid: bandsSolid)
             // Read off the picture like the bands, so every mark made on the picture is drawn over it: at the top's
             // middle it often meets a focus square's lock label, and the badges move under it.
@@ -747,8 +747,11 @@ private struct ToastCapsule: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // A glyph leads where the message has one; otherwise the accent dot marks it as the camera's word.
             if let symbol = toast.symbol {
                 Image(systemName: symbol)
+            } else {
+                AccentDot(size: 5)
             }
             Text(toast.message)
                 .multilineTextAlignment(.center)
