@@ -19,11 +19,12 @@ public enum StackBlend: String, Codable, Sendable, CaseIterable, Identifiable {
         }
     }
 
+    /// The line under the choice in Settings, short enough to read at a glance.
     public var detail: String {
         switch self {
-        case .additive: return "Adds light like a real long exposure. Use a tripod."
-        case .average: return "Blurs motion without brightening, like an ND filter."
-        case .lighten: return "Keeps the brightest pixels. Light trails, star trails."
+        case .additive: return "Adds light like one long exposure."
+        case .average: return "Averages frames, like an ND filter."
+        case .lighten: return "Keeps the brightest light, for trails."
         }
     }
 }

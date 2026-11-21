@@ -1001,4 +1001,108 @@ final class StopsTests: XCTestCase {
         XCTAssertEqual(scale.last, 100)
         XCTAssertEqual(EVFormat.scale(range: 1e12, step: .full).count, 201)
     }
+
+    // MARK: - Values the camera picks
+
+    func testAutoValuesReadAsACameraShowsThem() {
+        // Live readings from PHOTO's readout and the shutter chip, and what they read as.
+        XCTAssertEqual(AutoValues.shutter(1.0 / 83).label, "1/80")
+        XCTAssertEqual(AutoValues.shutter(1.0 / 119).label, "1/125")
+        XCTAssertEqual(AutoValues.shutter(1.0 / 121).label, "1/125")
+        XCTAssertEqual(AutoValues.shutter(1.0 / 1934).label, "1/2000")
+        XCTAssertEqual(AutoValues.shutter(0.7).label, "0.8s")
+        XCTAssertEqual(AutoValues.iso(437), 400)
+        XCTAssertEqual(AutoValues.iso(1873), 2000)
+        XCTAssertEqual(AutoValues.iso(13000), 12800)
+        XCTAssertEqual(ISOScale.label(AutoValues.iso(437)), "ISO 400")
+        XCTAssertEqual(AutoValues.kelvin(5130), 5100)
+        XCTAssertEqual(AutoValues.kelvin(5149), 5100)
+        XCTAssertEqual(AutoValues.kelvin(5151), 5200)
+        XCTAssertEqual(Formatting.kelvin(AutoValues.kelvin(5130)), "5100K")
+    }
+
+    func testAutoValuesHoldStillWhileTheReadingJitters() {
+        // Readings a few units apart, as ten a second bring them, all read the same.
+        for denominator in [77.0, 80, 83, 88, 89] {
+            XCTAssertEqual(AutoValues.shutter(1 / denominator).label, "1/80", "1/\(denominator)")
+        }
+        for iso in [360.0, 400, 420, 437, 445] {
+            XCTAssertEqual(AutoValues.iso(iso), 400, "\(iso)")
+        }
+        for kelvin in [5051.0, 5080, 5100, 5130, 5149] {
+            XCTAssertEqual(AutoValues.kelvin(kelvin), 5100, "\(kelvin)")
+        }
+        // 1/99 and 1/101 are one reading apart and differ in length; both read 1/100, so the chip's edge stays put.
+        XCTAssertEqual(AutoValues.shutter(1.0 / 99).label, "1/100")
+        XCTAssertEqual(AutoValues.shutter(1.0 / 101).label, "1/100")
+    }
+
+    func testAutoValuesStepThroughEveryThirdStopInOrder() {
+        // A reading that brightens slowly from 1/1000 s to 1 s steps through each third stop once, in order, and
+        // never further than a quarter stop from the reading: the label changes only when the exposure has moved.
+        var shown: [Double] = []
+        var reading = 1.0 / 1000
+        while reading <= 1 {
+            let snapped = AutoValues.shutter(reading).seconds
+            XCTAssertLessThanOrEqual(abs(log2(snapped / reading)), 0.25, "\(reading)")
+            if shown.last != snapped { shown.append(snapped) }
+            reading *= 1.002
+        }
+        let thirds = ShutterSpeed.nominalThirdStops.filter { $0 >= 1.0 / 1000 && $0 <= 1 }
+        XCTAssertEqual(shown, thirds)
+        XCTAssertEqual(shown.count, 31)
+
+        var isos: [Double] = []
+        var iso = 25.0
+        while iso <= 12800 {
+            let snapped = AutoValues.iso(iso)
+            XCTAssertLessThanOrEqual(abs(log2(snapped / iso)), 0.25, "\(iso)")
+            if isos.last != snapped { isos.append(snapped) }
+            iso *= 1.002
+        }
+        XCTAssertEqual(isos, ISOScale.nominalThirdStops.filter { $0 >= 25 && $0 <= 12800 })
+    }
+
+    func testAutoValuesAreAlreadyWhereTheySnapTo() {
+        // A value on the scale stays as it is, and snapping twice changes nothing more.
+        for seconds in ShutterSpeed.nominalThirdStops {
+            XCTAssertEqual(AutoValues.shutter(seconds), ShutterSpeed(seconds: seconds), "\(seconds)")
+        }
+        for iso in ISOScale.nominalThirdStops {
+            XCTAssertEqual(AutoValues.iso(iso), iso)
+        }
+        for reading in sweep(from: 1e-5, to: 5000, ratio: 1.07) {
+            let once = AutoValues.shutter(reading)
+            XCTAssertEqual(AutoValues.shutter(once.seconds), once, "\(reading)")
+        }
+        for reading in sweep(from: 5, to: 200_000, ratio: 1.07) {
+            let once = AutoValues.iso(reading)
+            XCTAssertEqual(AutoValues.iso(once), once, "\(reading)")
+        }
+        for reading in sweep(from: 1000, to: 20_000, ratio: 1.013) {
+            let once = AutoValues.kelvin(reading)
+            XCTAssertEqual(once.truncatingRemainder(dividingBy: 100), 0, "\(reading)")
+            XCTAssertLessThanOrEqual(abs(once - reading), 50, "\(reading)")
+            XCTAssertEqual(AutoValues.kelvin(once), once, "\(reading)")
+        }
+    }
+
+    func testAutoValuesPassWhatIsNoReadingThrough() {
+        // Nothing to round: the value comes back as the views had it without the snap.
+        for bad in [0.0, -2, .nan, .infinity] {
+            XCTAssertEqual(AutoValues.shutter(bad), ShutterSpeed(seconds: bad), "\(bad)")
+        }
+        XCTAssertTrue(AutoValues.iso(.nan).isNaN)
+        XCTAssertEqual(AutoValues.iso(0), 0)
+        XCTAssertEqual(AutoValues.iso(-100), -100)
+        XCTAssertEqual(AutoValues.iso(.infinity), .infinity)
+        XCTAssertTrue(AutoValues.kelvin(.nan).isNaN)
+        XCTAssertEqual(AutoValues.kelvin(0), 0)
+        // Off the 100 K steps, so rounding it would show.
+        XCTAssertEqual(AutoValues.kelvin(-4321), -4321)
+        XCTAssertEqual(AutoValues.kelvin(.infinity), .infinity)
+        // The labels such a value makes are the ones they always were.
+        XCTAssertEqual(ISOScale.label(AutoValues.iso(.nan)), "ISO 0")
+        XCTAssertEqual(Formatting.kelvin(AutoValues.kelvin(0)), "0K")
+    }
 }

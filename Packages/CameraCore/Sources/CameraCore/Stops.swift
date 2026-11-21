@@ -431,6 +431,40 @@ public enum EVFormat {
     }
 }
 
+// MARK: - Values the camera picks
+
+/// A value the camera picks for itself, as a camera's display shows it: on the third-stop scale for the shutter
+/// and the ISO, and to 100 K for the white balance. The live reading moves by a few units ten times a second;
+/// shown raw, its digits never settle. Shown this way they change only when the exposure moves a third of a stop.
+/// Only for what the camera picks: a value set by hand, a scene's value and every stored setting stay exact, and so
+/// does everything written into the photo.
+public enum AutoValues {
+    private static let shutterStops = ShutterSpeed.nominalThirdStops.map { ShutterSpeed(seconds: $0) }
+
+    /// The camera's shutter as the nearest third stop: a reading of 1/83 s reads 1/80. A reading that is no time
+    /// at all (zero, negative, not a number) comes back as `ShutterSpeed(seconds:)` makes it, so the snap never
+    /// invents a speed the camera didn't report.
+    public static func shutter(_ seconds: Double) -> ShutterSpeed {
+        let reading = ShutterSpeed(seconds: seconds)
+        guard seconds.isFinite, seconds > 0 else { return reading }
+        return reading.nearest(in: shutterStops)
+    }
+
+    /// The camera's ISO as the nearest third stop: 437 reads 400. A value that is no ISO comes back as it is.
+    public static func iso(_ iso: Double) -> Double {
+        guard iso.isFinite, iso > 0 else { return iso }
+        return ISOScale.nearest(iso, in: ISOScale.nominalThirdStops)
+    }
+
+    /// The camera's white balance to 100 K: 5130 K reads 5100 K. Auto white balance drifts by tens of kelvin from
+    /// reading to reading, which the 10 K steps of `Formatting.kelvin` would show. A value that is no temperature
+    /// comes back as it is.
+    public static func kelvin(_ kelvin: Double) -> Double {
+        guard kelvin.isFinite, kelvin > 0 else { return kelvin }
+        return (kelvin / 100).rounded() * 100
+    }
+}
+
 // MARK: - Shared scale rules
 
 /// Range rules shared by the shutter, ISO and aperture dials, so all three end at the hardware limits the same way.

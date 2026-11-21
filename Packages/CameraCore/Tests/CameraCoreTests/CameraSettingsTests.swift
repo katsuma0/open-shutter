@@ -88,6 +88,7 @@ final class CameraSettingsTests: XCTestCase {
         s.display.showReadout = false
         s.display.clippingWarnings = false
         s.display.dimDuringLongShots = true
+        s.display.showSteadySign = false
         s.night.seconds = 12.5
         s.night.stability = .handheld
         s.night.alignFrames = false
@@ -175,7 +176,7 @@ final class CameraSettingsTests: XCTestCase {
         "appearance", "accessibility", "topBar", "startup", "setups",
         "capture.prioritizeSpeed", "capture.artist", "capture.copyright", "capture.highQuality",
         "focusOptions.magnifier",
-        "display.dimDuringLongShots",
+        "display.dimDuringLongShots", "display.showSteadySign",
         "video.allowAudioPlayback",
         "controls.volumeUpAction", "controls.volumeDownAction", "controls.hapticStrength", "controls.dialTicks",
         "controls.zoomTicks",
@@ -206,6 +207,8 @@ final class CameraSettingsTests: XCTestCase {
         XCTAssertTrue(settings.controls.dialTicks)
         XCTAssertEqual(settings.controls.zoomTicks, .everyStep)
         XCTAssertFalse(settings.display.dimDuringLongShots)
+        // The steady sign showed wherever it applied.
+        XCTAssertTrue(settings.display.showSteadySign)
         XCTAssertFalse(settings.capture.prioritizeSpeed)
         XCTAssertEqual(settings.capture.artist, "")
         XCTAssertEqual(settings.capture.copyright, "")
@@ -244,6 +247,7 @@ final class CameraSettingsTests: XCTestCase {
         expected.focusOptions.magnifier = .x5
         expected.setups = CameraSetups()
         expected.display.dimDuringLongShots = false
+        expected.display.showSteadySign = true
         expected.video.allowAudioPlayback = false
         expected.controls.volumeUpAction = .shutter
         expected.controls.volumeDownAction = .shutter
@@ -262,7 +266,7 @@ final class CameraSettingsTests: XCTestCase {
         let json = #"""
             {"controls":{"haptics":false,"volumeUpAction":"selfie","volumeDownAction":"zoomIn","hapticStrength":3,
             "dialTicks":"no","zoomTicks":"lensValues"},
-            "display":{"grid":"thirds","dimDuringLongShots":"yes"},
+            "display":{"grid":"thirds","dimDuringLongShots":"yes","showSteadySign":"no"},
             "capture":{"quality":0.75,"prioritizeSpeed":"yes","artist":42,"copyright":"Sam","highQuality":"yes"},
             "focusOptions":{"smooth":true,"magnifier":"x20"},
             "video":{"audio":false,"allowAudioPlayback":{}},
@@ -282,6 +286,8 @@ final class CameraSettingsTests: XCTestCase {
         XCTAssertEqual(decoded.controls.zoomTicks, .lensValues)
         XCTAssertEqual(decoded.display.grid, .thirds)
         XCTAssertFalse(decoded.display.dimDuringLongShots)
+        // A word where a switch belongs reads as the default, so the sign still shows.
+        XCTAssertTrue(decoded.display.showSteadySign)
         XCTAssertEqual(decoded.capture.quality, 0.75, accuracy: 1e-9)
         XCTAssertFalse(decoded.capture.prioritizeSpeed)
         XCTAssertEqual(decoded.capture.artist, "")
@@ -300,7 +306,7 @@ final class CameraSettingsTests: XCTestCase {
         // Set values come back.
         let set = #"""
             {"controls":{"volumeUpAction":"brighter","volumeDownAction":"nextLens","hapticStrength":"strong",
-            "dialTicks":false},"display":{"dimDuringLongShots":true},
+            "dialTicks":false},"display":{"dimDuringLongShots":true,"showSteadySign":false},
             "capture":{"prioritizeSpeed":true,"artist":"Sam","copyright":"","highQuality":true},
             "focusOptions":{"magnifier":"off"},"video":{"allowAudioPlayback":true},
             "appearance":{"scheme":"light","accent":"green"},"topBar":{"leading":["level"],"trailing":[]}}
@@ -313,6 +319,7 @@ final class CameraSettingsTests: XCTestCase {
         XCTAssertEqual(chosen.controls.hapticStrength, .strong)
         XCTAssertFalse(chosen.controls.dialTicks)
         XCTAssertTrue(chosen.display.dimDuringLongShots)
+        XCTAssertFalse(chosen.display.showSteadySign)
         XCTAssertTrue(chosen.capture.prioritizeSpeed)
         XCTAssertEqual(chosen.capture.artist, "Sam")
         XCTAssertTrue(chosen.video.allowAudioPlayback)
@@ -505,6 +512,20 @@ final class CameraSettingsTests: XCTestCase {
                         "Low latency", "Auto"])
         XCTAssertEqual(CameraControlItem.whiteBalance.title, "White balance")
         XCTAssertEqual(MeteringArea.allCases.map(\.title), ["Auto", "Spot", "Whole frame"])
+    }
+
+    func testTheLinesUnderProcessingAndBlendAreShort() {
+        // Settings shows each under its choice, so a line says what the choice does and no more.
+        XCTAssertEqual(ProcessingLevel.allCases.map(\.detail),
+                       ["One frame, no fusion.", "Apple's default.", "Deep Fusion and Smart HDR. Slower."])
+        XCTAssertEqual(StackBlend.allCases.map(\.detail),
+                       ["Adds light like one long exposure.", "Averages frames, like an ND filter.",
+                        "Keeps the brightest light, for trails."])
+        for line in ProcessingLevel.allCases.map(\.detail) + StackBlend.allCases.map(\.detail) {
+            XCTAssertLessThanOrEqual(line.count, 40, line)
+            XCTAssertTrue(line.hasSuffix("."), line)
+            XCTAssertFalse(line.contains("\u{2014}"), line)
+        }
     }
 
     func testDefaultCameraControlSelectionFitsTheHardwareLimit() {

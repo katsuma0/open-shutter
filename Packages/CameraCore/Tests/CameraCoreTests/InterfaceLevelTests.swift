@@ -10,7 +10,8 @@ final class InterfaceLevelTests: XCTestCase {
         "capture.processedFormat", "capture.flash", "capture.aspect", "capture.livePhoto", "capture.silentShutter",
         "capture.mirrorFront", "capture.saveLocation", "capture.schedule",
         "capture.prioritizeSpeed", "capture.artist", "capture.copyright",
-        "display.grid", "display.showLevel", "display.dimDuringLongShots",
+        // The simple interface showed the steady sign too.
+        "display.grid", "display.showLevel", "display.dimDuringLongShots", "display.showSteadySign",
         "night.seconds", "night.biasEV",
         "longExposure.scene", "longExposure.seconds", "longExposure.blend", "longExposure.bulb", "longExposure.align",
         "longExposure.frameSeconds",
@@ -89,6 +90,7 @@ final class InterfaceLevelTests: XCTestCase {
         s.display.showReadout = false
         s.display.clippingWarnings = false
         s.display.dimDuringLongShots = true
+        s.display.showSteadySign = false
         s.night.seconds = 12.5
         s.night.stability = .handheld
         s.night.alignFrames = false
