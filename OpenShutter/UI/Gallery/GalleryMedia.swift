@@ -15,6 +15,11 @@ struct GalleryPage: View {
     /// The page on screen. The others stop playing and drop their zoom.
     let isCurrent: Bool
     @Binding var isZoomed: Bool
+    /// Off while the info panel is up, which has the room the zoom would take.
+    var zoomEnabled = true
+    /// Which way a vertical drag on the photo moves the info panel; nil when it doesn't.
+    var infoSwipe: InfoSwipeDirection? = nil
+    var onInfoDrag: (InfoDragPhase) -> Void = { _ in }
     let onTap: () -> Void
 
     var body: some View {
@@ -24,9 +29,11 @@ struct GalleryPage: View {
             } else if asset.playbackStyle == .livePhoto {
                 // Not the Live subtype: Loop, Bounce and Live off keep it but no longer play as Live Photos, so
                 // they show as stills.
-                LivePhotoPage(asset: asset, manager: manager, isCurrent: isCurrent, onTap: onTap)
+                LivePhotoPage(asset: asset, manager: manager, isCurrent: isCurrent, infoSwipe: infoSwipe,
+                              onInfoDrag: onInfoDrag, onTap: onTap)
             } else {
-                PhotoPage(asset: asset, manager: manager, isCurrent: isCurrent, isZoomed: $isZoomed, onTap: onTap)
+                PhotoPage(asset: asset, manager: manager, isCurrent: isCurrent, isZoomed: $isZoomed,
+                          zoomEnabled: zoomEnabled, infoSwipe: infoSwipe, onInfoDrag: onInfoDrag, onTap: onTap)
             }
         }
         .accessibilityElement(children: .contain)
@@ -63,6 +70,9 @@ private struct PhotoPage: View {
     let manager: PHImageManager
     let isCurrent: Bool
     @Binding var isZoomed: Bool
+    let zoomEnabled: Bool
+    let infoSwipe: InfoSwipeDirection?
+    let onInfoDrag: (InfoDragPhase) -> Void
     let onTap: () -> Void
     @State private var image: UIImage?
     @State private var progress: Double?
@@ -71,7 +81,8 @@ private struct PhotoPage: View {
     var body: some View {
         GeometryReader { proxy in
             let request = PageRequest(asset, size: proxy.size, scale: displayScale)
-            ZoomableImage(image: image, isCurrent: isCurrent, isZoomed: $isZoomed, onTap: onTap)
+            ZoomableImage(image: image, isCurrent: isCurrent, isZoomed: $isZoomed, zoomEnabled: zoomEnabled,
+                          infoSwipe: infoSwipe, onInfoDrag: onInfoDrag, onTap: onTap)
                 .overlay {
                     DownloadRing(progress: progress)
                 }
@@ -107,6 +118,9 @@ private struct ZoomableImage: UIViewRepresentable {
     let image: UIImage?
     let isCurrent: Bool
     @Binding var isZoomed: Bool
+    let zoomEnabled: Bool
+    let infoSwipe: InfoSwipeDirection?
+    let onInfoDrag: (InfoDragPhase) -> Void
     let onTap: () -> Void
 
     func makeUIView(context: Context) -> ZoomingImageView {
@@ -119,7 +133,10 @@ private struct ZoomableImage: UIViewRepresentable {
         view.onZoomChange = { isZoomedNow in
             if zoomed.wrappedValue != isZoomedNow { zoomed.wrappedValue = isZoomedNow }
         }
+        view.infoDirection = infoSwipe
+        view.infoSwipe.onPhase = onInfoDrag
         view.setImage(image)
+        view.isZoomEnabled = zoomEnabled
         if !isCurrent { view.resetZoom() }
     }
 }
@@ -129,8 +146,23 @@ private struct ZoomableImage: UIViewRepresentable {
 private final class ZoomingImageView: UIScrollView, UIScrollViewDelegate {
     var onTap: (() -> Void)?
     var onZoomChange: ((Bool) -> Void)?
+    /// Raises or lowers the info panel. Its own delegate: this view is already its pan's and pinch's, and
+    /// overriding gestureRecognizerShouldBegin here would reach those too.
+    let infoSwipe = InfoSwipeRecognizer()
+    /// Which way the info panel may move from here, before the zoom has its say.
+    var infoDirection: InfoSwipeDirection?
+    /// Pinch and double tap. Turning it off drops the zoom once; doing that on every update would fight a pinch.
+    var isZoomEnabled = true {
+        didSet {
+            guard isZoomEnabled != oldValue else { return }
+            pinchGestureRecognizer?.isEnabled = isZoomEnabled
+            doubleTap.isEnabled = isZoomEnabled
+            if !isZoomEnabled { resetZoom() }
+        }
+    }
 
     private let imageView = UIImageView()
+    private let doubleTap = UITapGestureRecognizer()
     /// The page size the picture was last fitted to.
     private var fittedBounds: CGSize = .zero
     /// Off while the zoom changes from code inside a view update, which mustn't write SwiftUI state.
@@ -151,12 +183,18 @@ private final class ZoomingImageView: UIScrollView, UIScrollViewDelegate {
         imageView.preferredImageDynamicRange = .high
         addSubview(imageView)
 
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped(_:)))
+        doubleTap.addTarget(self, action: #selector(doubleTapped(_:)))
         doubleTap.numberOfTapsRequired = 2
         addGestureRecognizer(doubleTap)
         let singleTap = UITapGestureRecognizer(target: self, action: #selector(singleTapped))
         singleTap.require(toFail: doubleTap)
         addGestureRecognizer(singleTap)
+        // A zoomed photo pans instead.
+        infoSwipe.allowed = { [weak self] in
+            guard let self, self.zoomScale <= self.minimumZoomScale + 0.01 else { return nil }
+            return self.infoDirection
+        }
+        addGestureRecognizer(infoSwipe)
     }
 
     @available(*, unavailable)
@@ -251,6 +289,53 @@ private final class ZoomingImageView: UIScrollView, UIScrollViewDelegate {
     }
 }
 
+// MARK: - Info swipe
+
+/// Which way a drag on a photo moves the info panel: up raises it, down lowers it.
+enum InfoSwipeDirection {
+    case up, down
+}
+
+/// A drag on a photo as the info panel follows it. Translations and velocities are vertical, positive down.
+enum InfoDragPhase {
+    case changed(CGFloat)
+    case ended(translation: CGFloat, velocity: CGFloat)
+    case cancelled
+}
+
+/// A vertical drag that raises or lowers the info panel. It begins only for a mostly vertical drag in the allowed
+/// direction, so a sideways drag still turns the page, a zoomed photo still pans, and a drag down on a photo with the
+/// panel closed stays the way back to the grid.
+final class InfoSwipeRecognizer: UIPanGestureRecognizer, UIGestureRecognizerDelegate {
+    /// The direction a drag may take now; nil turns the recognizer off.
+    var allowed: () -> InfoSwipeDirection? = { nil }
+    var onPhase: (InfoDragPhase) -> Void = { _ in }
+
+    init() {
+        super.init(target: nil, action: nil)
+        addTarget(self, action: #selector(moved))
+        delegate = self
+        maximumNumberOfTouches = 1
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let direction = allowed() else { return false }
+        let speed = velocity(in: view)
+        guard abs(speed.y) > abs(speed.x) * 1.2 else { return false }
+        return direction == .up ? speed.y < 0 : speed.y > 0
+    }
+
+    @objc private func moved() {
+        let travel = translation(in: view).y
+        switch state {
+        case .changed: onPhase(.changed(travel))
+        case .ended: onPhase(.ended(translation: travel, velocity: velocity(in: view).y))
+        case .cancelled, .failed: onPhase(.cancelled)
+        default: break
+        }
+    }
+}
+
 // MARK: - Live Photo
 
 /// Touch and hold plays it, through the view's own gesture, as in Photos.
@@ -258,6 +343,8 @@ private struct LivePhotoPage: View {
     let asset: PHAsset
     let manager: PHImageManager
     let isCurrent: Bool
+    let infoSwipe: InfoSwipeDirection?
+    let onInfoDrag: (InfoDragPhase) -> Void
     let onTap: () -> Void
     @State private var livePhoto: PHLivePhoto?
     @State private var progress: Double?
@@ -266,7 +353,8 @@ private struct LivePhotoPage: View {
     var body: some View {
         GeometryReader { proxy in
             let request = PageRequest(asset, size: proxy.size, scale: displayScale)
-            LivePhotoCanvas(livePhoto: livePhoto, isCurrent: isCurrent, onTap: onTap)
+            LivePhotoCanvas(livePhoto: livePhoto, isCurrent: isCurrent, infoSwipe: infoSwipe, onInfoDrag: onInfoDrag,
+                            onTap: onTap)
                 .overlay {
                     DownloadRing(progress: progress)
                 }
@@ -300,6 +388,8 @@ private struct LivePhotoPage: View {
 private struct LivePhotoCanvas: UIViewRepresentable {
     let livePhoto: PHLivePhoto?
     let isCurrent: Bool
+    let infoSwipe: InfoSwipeDirection?
+    let onInfoDrag: (InfoDragPhase) -> Void
     let onTap: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -312,11 +402,17 @@ private struct LivePhotoCanvas: UIViewRepresentable {
         // A tap shows or hides the chrome; touch and hold stays the view's own playback gesture.
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
         view.addGestureRecognizer(tap)
+        // A vertical drag moves the info panel; touch and hold, the playback, is a long press it doesn't start.
+        let coordinator = context.coordinator
+        coordinator.infoSwipe.allowed = { [weak coordinator] in coordinator?.infoDirection }
+        view.addGestureRecognizer(coordinator.infoSwipe)
         return view
     }
 
     func updateUIView(_ view: PHLivePhotoView, context: Context) {
         context.coordinator.onTap = onTap
+        context.coordinator.infoDirection = infoSwipe
+        context.coordinator.infoSwipe.onPhase = onInfoDrag
         if view.livePhoto !== livePhoto { view.livePhoto = livePhoto }
         if !isCurrent { view.stopPlayback() }
     }
@@ -324,6 +420,8 @@ private struct LivePhotoCanvas: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         var onTap: (() -> Void)?
+        let infoSwipe = InfoSwipeRecognizer()
+        var infoDirection: InfoSwipeDirection?
 
         @objc func tapped() {
             onTap?()

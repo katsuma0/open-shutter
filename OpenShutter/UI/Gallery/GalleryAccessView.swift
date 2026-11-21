@@ -98,12 +98,11 @@ struct GalleryAccessView: View {
     private static func message(for access: LibraryAccess) -> String {
         switch access {
         case .notAsked, .full, .limited:
-            return "To show and edit the photos and videos you take here, Open Shutter needs access to your "
-                + "library. With Limited Access it sees only the photos you pick and the ones it takes."
+            return "Open Shutter needs access to your library to show the photos you take here."
         case .denied:
-            return "Open Shutter can't see your library. Turn on access in Settings to see your photos here."
+            return "Turn on photo access in Settings to see your photos here."
         case .restricted:
-            return "Open Shutter can't see your library. Access to it is restricted on this iPhone."
+            return "Photo access is restricted on this iPhone."
         }
     }
 }
@@ -124,7 +123,7 @@ struct LimitedAccessBanner: View {
                 Text("Open Shutter sees only some of your photos.")
                     .foregroundStyle(.primary)
                 if missingCount > 0 {
-                    Text("Some photos taken here aren't shared with Open Shutter.")
+                    Text("Some photos you took here aren't shared.")
                         .foregroundStyle(.secondary)
                 }
             }

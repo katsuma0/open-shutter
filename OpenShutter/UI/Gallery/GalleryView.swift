@@ -3,28 +3,15 @@ import UIKit
 import Photos
 import CameraCore
 
-/// The gallery, presented over the camera from its thumbnail. Like the Camera app it opens on the newest photo, and
-/// its back button leads to the grid. Without read access it explains why and lists this session's captures.
+/// The gallery, presented over the camera from its thumbnail. It opens on the grid, scrolled to the newest photo at
+/// the bottom; a cell opens the viewer. Without read access it explains why and lists this session's captures.
 /// The grid follows the appearance setting; the viewer stays black.
 struct GalleryView: View {
     let model: CameraModel
-    @State private var path: [String]
+    @State private var path: [String] = []
     @State private var gridScrollID: String?
-    /// The newest photo was still on its way into the list when the gallery opened; it opens once it lands.
-    @State private var opensNewestWhenFetched: Bool
     @State private var showsLimitedPicker = false
     @Namespace private var zoomSpace
-
-    init(model: CameraModel) {
-        self.model = model
-        let library = model.library
-        let newest = library.assets?.identifiers.first
-        let isCurrent = library.access.canRead && library.assets != nil && !library.isFetching
-        let start = isCurrent ? newest : nil
-        _path = State(initialValue: start.map { [$0] } ?? [])
-        _gridScrollID = State(initialValue: start)
-        _opensNewestWhenFetched = State(initialValue: library.access.canRead && !isCurrent)
-    }
 
     var body: some View {
         let library = model.library
@@ -50,35 +37,13 @@ struct GalleryView: View {
             library.imageManager.stopCachingImagesForAllAssets()
         }
         .onChange(of: library.access.canRead) { _, canRead in
-            if canRead {
-                // Access was just given: the thumbnail that opened the gallery stood for the newest photo. The
-                // first fetch may already have landed, so it is tried now as well.
-                guard path.isEmpty else { return }
-                opensNewestWhenFetched = true
-                openNewestIfWaiting()
-            } else {
-                path = []
-                opensNewestWhenFetched = false
-            }
-        }
-        .onChange(of: library.assets.map { ObjectIdentifier($0.result) }) {
-            openNewestIfWaiting()
+            // Access lost: back to the page that explains it.
+            if !canRead { path = [] }
         }
     }
 
     private func open(_ id: String) {
-        opensNewestWhenFetched = false
         path.append(id)
-    }
-
-    private func openNewestIfWaiting() {
-        let library = model.library
-        // No list yet means the fetch hasn't started (the stored list is still loading), so it keeps waiting.
-        guard opensNewestWhenFetched, !library.isFetching, library.assets != nil else { return }
-        opensNewestWhenFetched = false
-        guard path.isEmpty, let newest = library.assets?.identifiers.first else { return }
-        gridScrollID = newest
-        path = [newest]
     }
 }
 
@@ -91,27 +56,74 @@ private struct GalleryHome: View {
     let onOpen: (String) -> Void
     let onChangeShared: () -> Void
     @State private var photosFailed = false
+    @State private var isSelecting = false
+    @State private var selection: Set<String> = []
+    /// A share of the selected photos being copied out, for its progress card.
+    @State private var sharing: ShareJob?
+    @State private var shareTask: Task<Void, Never>?
+    @State private var shareURLs: [URL]?
+    @State private var failure: String?
 
     var body: some View {
         let access = library.access
+        let hasPhotos = !(library.assets?.isEmpty ?? true)
         Group {
             if access.canRead {
-                GalleryGrid(library: library, zoomSpace: zoomSpace, scrollID: $scrollID, onOpen: onOpen,
-                            onChangeShared: onChangeShared)
+                GalleryGrid(library: library, zoomSpace: zoomSpace, scrollID: $scrollID, isSelecting: isSelecting,
+                            selection: $selection, onOpen: onOpen, onChangeShared: onChangeShared)
             } else {
                 GalleryAccessView(model: model, library: library)
             }
         }
-        .navigationTitle("Gallery")
+        .overlay {
+            if let sharing {
+                ShareProgressCard(job: sharing) {
+                    shareTask?.cancel()
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(Theme.fade, value: sharing == nil)
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Close") {
-                    model.isReviewPresented = false
+            // Close is gone while selecting, so a stray tap there doesn't throw the selection away.
+            if !isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close") {
+                        model.isReviewPresented = false
+                    }
+                    .accessibilityHint("Goes back to the camera.")
                 }
-                .accessibilityHint("Goes back to the camera.")
             }
-            if access.canRead {
+            if access.canRead, hasPhotos || isSelecting {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(isSelecting ? "Cancel" : "Select") {
+                        setSelecting(!isSelecting)
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                }
+            }
+            if isSelecting {
+                ToolbarItemGroup(placement: .bottomBar) {
+                    Button {
+                        shareSelection()
+                    } label: {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(selection.isEmpty || sharing != nil)
+                    Spacer()
+                    Button(role: .destructive) {
+                        deleteSelection()
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .disabled(selection.isEmpty || sharing != nil)
+                }
+            }
+            if access.canRead, !isSelecting {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
@@ -133,8 +145,90 @@ private struct GalleryHome: View {
                 }
             }
         }
+        .toolbar(isSelecting ? .visible : .hidden, for: .bottomBar)
         .alert("Photos couldn't be opened.", isPresented: $photosFailed) {
             Button("OK", role: .cancel) {}
+        }
+        .alert(failure ?? "", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
+        .background {
+            SharePresenter(urls: $shareURLs) {
+                GalleryFiles.clearShares()
+            }
+        }
+        .onChange(of: library.assets.map { ObjectIdentifier($0.result) }) {
+            // Deleted here or in Photos, or no longer shared: a tick on a photo that's gone would share nothing.
+            guard isSelecting else { return }
+            let shown = library.assets.map { Set($0.identifiers) } ?? []
+            selection.formIntersection(shown)
+            if shown.isEmpty { setSelecting(false) }
+        }
+        .onChange(of: access.canRead) { _, canRead in
+            if !canRead { setSelecting(false) }
+        }
+    }
+
+    private var title: String {
+        guard isSelecting else { return "Gallery" }
+        return selection.isEmpty ? "Select photos" : "\(selection.count) selected"
+    }
+
+    private func setSelecting(_ isOn: Bool) {
+        if !isOn {
+            shareTask?.cancel()
+        }
+        withAnimation(Theme.snappy) {
+            isSelecting = isOn
+            selection = []
+        }
+    }
+
+    /// The selected assets in grid order, oldest first.
+    private func selectedAssets() -> [PHAsset] {
+        guard let assets = library.assets else { return [] }
+        return assets.identifiers.filter(selection.contains).compactMap { assets.asset(id: $0) }
+    }
+
+    private func deleteSelection() {
+        let doomed = selectedAssets().filter { $0.canPerform(.delete) }
+        guard !doomed.isEmpty else {
+            failure = "These couldn't be deleted."
+            return
+        }
+        Task {
+            do {
+                // iOS asks once for all of them.
+                try await library.delete(doomed)
+                setSelecting(false)
+            } catch {
+                if !CaptureLibrary.isCancellation(error) {
+                    failure = "These couldn't be deleted."
+                }
+            }
+        }
+    }
+
+    private func shareSelection() {
+        let chosen = selectedAssets()
+        guard !chosen.isEmpty, sharing == nil else { return }
+        sharing = ShareJob(total: chosen.count)
+        let manager = library.imageManager
+        shareTask = Task {
+            let urls = await GalleryFiles.exportCopies(of: chosen, manager: manager) { done in
+                sharing?.done = done
+            }
+            let cancelled = Task.isCancelled
+            sharing = nil
+            shareTask = nil
+            if cancelled {
+                GalleryFiles.clearShares()
+            } else if urls.isEmpty {
+                failure = "These couldn't be shared."
+            } else {
+                // Any that failed are left out; the rest still go.
+                shareURLs = urls
+            }
         }
     }
 

@@ -35,7 +35,7 @@ struct ThumbnailButton: View {
         .disabled(!canOpen)
         .accessibilityLabel("Photos")
         .accessibilityValue(picture.spokenValue)
-        .accessibilityHint("Shows the photos and videos you took. Touch and hold for more options.")
+        .accessibilityHint("Shows the photos and videos you took. Touch and hold to open Photos.")
         .accessibilityAction(named: "Open Photos") { Self.openPhotos(model) }
         // Laid over the disabled button as well: Photos can be opened before anything has been captured.
         .overlay {
@@ -45,7 +45,7 @@ struct ThumbnailButton: View {
         .opacity(isHidden ? 0 : 1)
         .allowsHitTesting(!isHidden)
         .animation(Theme.spring, value: picture.key)
-        .animation(.easeInOut(duration: 0.2), value: isHidden)
+        .animation(Theme.fade, value: isHidden)
         .fullScreenCover(isPresented: $model.isReviewPresented) {
             GalleryView(model: model)
                 .galleryZoomTransition(sourceID: GalleryZoom.thumbnail, in: galleryZoom)
@@ -149,17 +149,12 @@ private struct ThumbnailOptions: View {
     let model: CameraModel
 
     var body: some View {
+        // A tap already opens the gallery, so the menu only adds the way out to Photos.
         Button {
             ThumbnailButton.openPhotos(model)
         } label: {
             Label("Open Photos", systemImage: "photo.on.rectangle")
         }
-        Button {
-            ThumbnailButton.showGallery(model)
-        } label: {
-            Label("Show gallery", systemImage: "square.grid.3x3")
-        }
-        .disabled(!ThumbnailButton.canOpen(model))
     }
 }
 
@@ -172,7 +167,7 @@ private struct ThumbnailImage: View {
         let side = Self.side
         ZStack {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(Theme.trackFill)
             if let image = picture.image {
                 image
                     .resizable()
@@ -186,7 +181,7 @@ private struct ThumbnailImage: View {
                 Image(systemName: "video.fill")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(Theme.primaryText)
-                    .shadow(color: .black.opacity(0.6), radius: 2)
+                    .legibleShadow()
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .padding(4)
             }
@@ -214,14 +209,15 @@ private struct Upright<Content: View>: View {
     }
 }
 
+/// PressScaleStyle's look, which also takes a press that lands on a layer above the button, such as its touch and
+/// hold menu.
 private struct PressScaleButtonStyle: ButtonStyle {
-    /// A press that lands on a layer above the button, such as its touch and hold menu.
     var isPressed = false
 
     func makeBody(configuration: Configuration) -> some View {
         let pressed = configuration.isPressed || isPressed
         configuration.label
-            .scaleEffect(pressed ? 0.92 : 1)
+            .scaleEffect(pressed ? PressScaleStyle().scale : 1)
             .animation(Theme.snappy, value: pressed)
             .contentShape(Rectangle())
     }

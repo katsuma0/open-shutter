@@ -6,9 +6,9 @@ import ImageIO
 import UniformTypeIdentifiers
 import CameraCore
 
-/// The app's assets that one fetch found, newest first, hidden ones left out. PHFetchResult has no Collection
-/// conformance, and copying thousands of assets into an array up front would load every one of them at once; this
-/// keeps the fetch result and reads an asset only when a cell or a page asks for it.
+/// The app's assets that one fetch found, oldest first so the newest is last, as in Photos; hidden ones left out.
+/// PHFetchResult has no Collection conformance, and copying thousands of assets into an array up front would load
+/// every one of them at once; this keeps the fetch result and reads an asset only when a cell or a page asks for it.
 struct AssetList: RandomAccessCollection, Sendable {
     let result: PHFetchResult<PHAsset>
     /// Local identifiers in list order, read once while fetching: cheap ids for the grid and the pager, which would
@@ -17,6 +17,9 @@ struct AssetList: RandomAccessCollection, Sendable {
     /// Where each listed asset sits in `result`. A hidden asset has no entry.
     private let positions: [Int]
     private let indexByID: [String: Int]
+    /// What the grid's footer counts. Anything that is neither, such as audio, is in neither.
+    let photoCount: Int
+    let videoCount: Int
 
     var startIndex: Int { 0 }
     var endIndex: Int { positions.count }
@@ -39,6 +42,8 @@ struct AssetList: RandomAccessCollection, Sendable {
         var identifiers: [String] = []
         positions.reserveCapacity(result.count)
         identifiers.reserveCapacity(result.count)
+        var photoCount = 0
+        var videoCount = 0
         for position in 0..<result.count {
             let asset = result.object(at: position)
             // A second guard after the fetch option: a photo moved to the Hidden album, which Face ID locks, must
@@ -46,20 +51,28 @@ struct AssetList: RandomAccessCollection, Sendable {
             guard !asset.isHidden else { continue }
             positions.append(position)
             identifiers.append(asset.localIdentifier)
+            switch asset.mediaType {
+            case .image: photoCount += 1
+            case .video: videoCount += 1
+            default: break
+            }
         }
         self.result = result
         self.positions = positions
         self.identifiers = identifiers
+        self.photoCount = photoCount
+        self.videoCount = videoCount
         indexByID = Dictionary(identifiers.enumerated().map { ($0.element, $0.offset) },
                                uniquingKeysWith: { first, _ in first })
     }
 
-    /// The assets behind `identifiers` that the app may see now, newest first by creation date.
+    /// The assets behind `identifiers` that the app may see now, oldest first by creation date, so the newest is
+    /// last, as in Photos.
     static func fetch(_ identifiers: [String]) -> AssetList {
         let options = PHFetchOptions()
         // A fetch by identifier includes hidden assets unless the options say otherwise.
         options.includeHiddenAssets = false
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
         return AssetList(result: PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: options))
     }
 }
@@ -164,11 +177,22 @@ enum AssetRequests {
     static func appValues(of asset: PHAsset) async -> [ShotXMP.Field: String] {
         let resources = PHAssetResource.assetResources(for: asset)
         guard let resource = resources.first(where: { $0.type == .photo }) else { return [:] }
+        guard let data = await data(of: resource) else { return [:] }
+        return appValues(in: data)
+    }
+
+    /// A resource's whole file, downloaded from iCloud when the phone has only a preview. nil when it can't be read,
+    /// or when the task is cancelled first. `progress` gets the download's share, 0 to 1, on PhotoKit's queue.
+    static func data(of resource: PHAssetResource,
+                     progress: (@Sendable (Double) -> Void)? = nil) async -> Data? {
         let collected = DataCollector()
         let manager = PHAssetResourceManager.default()
         let stream = stream(start: { (continuation: AsyncStream<Data>.Continuation) in
             let options = PHAssetResourceRequestOptions()
             options.isNetworkAccessAllowed = true
+            if let progress {
+                options.progressHandler = { share in progress(share) }
+            }
             return manager.requestData(for: resource, options: options, dataReceivedHandler: { chunk in
                 collected.append(chunk)
             }, completionHandler: { error in
@@ -178,16 +202,20 @@ enum AssetRequests {
                 continuation.finish()
             })
         }, cancel: { manager.cancelDataRequest($0) })
-        guard let data = await first(of: stream) else { return [:] }
-        return appValues(in: data)
+        return await first(of: stream)
     }
 
     static func appValues(in data: Data) -> [ShotXMP.Field: String] {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions),
-              CGImageSourceGetCount(source) > 0,
-              let metadata = CGImageSourceCopyMetadataAtIndex(source, CGImageSourceGetPrimaryImageIndex(source), nil)
+              CGImageSourceGetCount(source) > 0
         else { return [:] }
+        return appValues(in: source, at: CGImageSourceGetPrimaryImageIndex(source))
+    }
+
+    /// The same fields from a source that is already open, so a reader that wants the EXIF too opens the file once.
+    static func appValues(in source: CGImageSource, at index: Int) -> [ShotXMP.Field: String] {
+        guard let metadata = CGImageSourceCopyMetadataAtIndex(source, index, nil) else { return [:] }
         var values: [ShotXMP.Field: String] = [:]
         // Matched by namespace, not by prefix: a file edited elsewhere may name the namespace differently.
         CGImageMetadataEnumerateTagsUsingBlock(metadata, nil, nil) { _, tag in
