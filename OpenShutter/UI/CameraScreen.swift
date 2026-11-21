@@ -452,7 +452,7 @@ private struct ViewfinderStack: View {
                               isHidden: model.dimmer.isDimmed, isFrozen: lensFrozen)
             StackPreviewLayer(model: model, picture: geometry.picture)
             ModeSwitchVeil(isVisible: veilVisible)
-            ShutterBlink(model: model, frame: frame)
+            ShutterBlink(model: model)
             FrameBands(frame: frame, solid: bandsSolid)
             // Read off the picture like the bands, so every mark made on the picture is drawn over it: at the top's
             // middle it often meets a focus square's lock label, and the badges move under it.

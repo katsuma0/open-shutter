@@ -61,56 +61,30 @@ struct StackPreviewLayer: View {
 
 // MARK: - Capture blink
 
-/// Each time the backend fires the shutter, a thin frame line pulses at the photo frame's edges and closes in a
-/// little, like an iris, over a short dip of the picture, so timer, intervalometer and bracket shots show too. The dip
-/// is shallow: the line carries the signal, and the scene stays in view. It sits under the bands, inside the frame's
-/// cutout. Dim Flashing Lights drops the dip and keeps the line; Reduce motion keeps the line still and only fades it.
+/// The picture blinks black each time the backend fires the shutter, like Apple's Camera, so timer, intervalometer
+/// and bracket shots show too. It covers the picture only: the bands, the overlays and the controls sit above it.
 struct ShutterBlink: View {
     let model: CameraModel
-    /// The photo frame, in the coordinates of the screen this view covers.
-    let frame: CGRect
-    @State private var dip = 0.0
-    @State private var edge = 0.0
-    @State private var closed = false
+    @State private var opacity = 0.0
     @Environment(\.accessibilityDimFlashingLights) private var dimFlashingLights
 
-    /// How far the line closes in from the frame's edge.
-    private static let travel: CGFloat = 6
-
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Rectangle()
-                .fill(Color.black)
-                .opacity(dip)
-            Rectangle()
-                .strokeBorder(Theme.primaryText, lineWidth: 1.5)
-                .lineShadow()
-                .frame(width: max(frame.width - 2 * inset, 0), height: max(frame.height - 2 * inset, 0))
-                .offset(x: frame.minX + inset, y: frame.minY + inset)
-                .opacity(edge)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-        .onChange(of: model.shutterCount) { _, _ in
-            let still = AppearanceStore.shared.reduceMotion
-            var reset = Transaction(animation: nil)
-            reset.disablesAnimations = true
-            withTransaction(reset) { closed = false }
-            // Two steps: a change and its reversal in one transaction would never reach the screen.
-            withAnimation(.easeIn(duration: 0.05)) {
-                dip = dimFlashingLights ? 0 : 0.4
-                edge = 1
-            } completion: {
-                withAnimation(.easeOut(duration: 0.28)) {
-                    dip = 0
-                    edge = 0
-                    if !still { closed = true }
+        Rectangle()
+            .fill(Color.black)
+            .opacity(opacity)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: model.shutterCount) { _, _ in
+                // Dim Flashing Lights asks for softer flashes; half the darkness still says the shot was taken.
+                let peak = dimFlashingLights ? 0.5 : 1.0
+                // Two steps: a change and its reversal in one transaction would never reach the screen.
+                withAnimation(.easeIn(duration: 0.05)) {
+                    opacity = peak
+                } completion: {
+                    withAnimation(.easeOut(duration: 0.22)) { opacity = 0 }
                 }
             }
-        }
     }
-
-    private var inset: CGFloat { closed ? Self.travel : 0 }
 }
 
 // MARK: - Countdown
