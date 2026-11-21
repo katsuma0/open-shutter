@@ -914,14 +914,14 @@ struct ExposureSliderLayer: View {
             }
         }
         .frame(width: geometry.screen.width, height: geometry.screen.height)
-        .animation(.easeOut(duration: 0.2), value: visibleAnchor == nil)
+        .animation(Theme.fade, value: visibleAnchor == nil)
         // Beside a square under the controls, the sun stops at their edge with it.
         .clipShape(OpenAreaClip(rect: geometry.open))
         .frameMotion(value: geometry.open)
         // The Camera Control's overlay has an exposure slider of its own, which changes the same value: a second
         // one beside the square would show each change twice.
         .opacity(model.controlsFullscreen ? 0 : 1)
-        .animation(.easeOut(duration: 0.2), value: model.controlsFullscreen)
+        .animation(Theme.fade, value: model.controlsFullscreen)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .onChange(of: model.focusPoint, initial: true) { _, point in
@@ -1054,10 +1054,10 @@ private struct SunSliderGraphic: View {
                 .opacity(showsValue ? 1 : 0)
         }
         .frame(width: 2 * (Self.sunDistance + 60), height: 2 * Self.trackHalf + 32)
-        .shadow(color: .black.opacity(0.4), radius: 1.5)
+        .lineShadow()
         .animation(Theme.snappy, value: bias)
-        .animation(.easeOut(duration: 0.2), value: showsTrack)
-        .animation(.easeOut(duration: 0.2), value: showsValue)
+        .animation(Theme.fade, value: showsTrack)
+        .animation(Theme.fade, value: showsValue)
     }
 
     /// A limit inside the track's half length. One that isn't a number leaves the whole track.

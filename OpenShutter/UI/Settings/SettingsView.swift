@@ -24,8 +24,7 @@ struct SettingsView: View {
                 CustomSetupsSection(model: model)
                 SettingsListSections(model: model, locationAccess: locationAccess)
                 LookAndControlsSection(model: model)
-                PhotoToolsSection()
-                PhoneSection(model: model)
+                PhotoToolsSection(model: model)
                 AboutSection(model: model)
             }
             .formStyle(.grouped)
@@ -55,7 +54,7 @@ struct SettingsView: View {
 private struct AdvancedSettingsSection: View {
     let model: CameraModel
 
-    private static let explanation = "Lists every setting, in groups. Off keeps this page to the ones most people change. The camera itself stays the same."
+    private static let explanation = "Shows every setting without changing the camera."
 
     var body: some View {
         Section {
@@ -64,7 +63,7 @@ private struct AdvancedSettingsSection: View {
                 set: { model.setAdvancedSettings($0) }
             ))
         } footer: {
-            SettingsFooter([Self.explanation])
+            Text(Self.explanation)
         }
     }
 }
@@ -81,7 +80,7 @@ private struct SettingsListSections: View {
         } else {
             // What most people change. Each section has its page in the full list, where the rest of its subject is.
             BasicPhotosSection(model: model, locationAccess: locationAccess)
-            BatterySaverSection(model: model)
+            BatterySaverSection(model: model, header: "Night")
             BasicVideoSection(model: model)
         }
     }
@@ -89,8 +88,8 @@ private struct SettingsListSections: View {
 
 // MARK: - Full list
 
-/// The full list as a menu. On one page it ran to some sixty rows, so each subject has a page of its own and a row
-/// here that opens it. Each row says what its page holds, so a setting can be found without opening every page.
+/// The full list as a menu of pages, one per subject. The page names say what each holds, so the rows carry no second
+/// line. What the camera reports is not a page of settings, so it sits with the tools.
 private struct AdvancedMenuSection: View {
     let model: CameraModel
     let locationAccess: LocationPermissionWatcher?
@@ -100,117 +99,55 @@ private struct AdvancedMenuSection: View {
             NavigationLink {
                 PhotoSettingsView(model: model, locationAccess: locationAccess)
             } label: {
-                MenuRowLabel("Photos", detail: "Format, RAW, resolution and processing", symbol: "photo")
+                MenuRowLabel("Photos", symbol: "photo")
             }
             NavigationLink {
                 ExposureSettingsView(model: model)
             } label: {
-                MenuRowLabel("Exposure", detail: "Auto exposure limit, metering and HDR", symbol: "plusminus.circle")
+                MenuRowLabel("Exposure", symbol: "plusminus.circle")
             }
             NavigationLink {
                 FocusSettingsView(model: model)
             } label: {
-                MenuRowLabel("Focus", detail: "Autofocus range, faces, tracking and the magnifier", symbol: "scope")
+                MenuRowLabel("Focus", symbol: "scope")
             }
             NavigationLink {
                 ViewfinderSettingsView(model: model)
             } label: {
-                MenuRowLabel("Viewfinder", detail: "Histogram, zebras and focus peaking", symbol: "viewfinder")
+                MenuRowLabel("Viewfinder", symbol: "viewfinder")
             }
             NavigationLink {
                 NightSettingsView(model: model)
             } label: {
-                MenuRowLabel("Night", detail: "Long exposures and battery saver", symbol: "moon.stars")
+                MenuRowLabel("Night", symbol: "moon.stars")
             }
             NavigationLink {
                 VideoSettingsView(model: model)
             } label: {
-                MenuRowLabel("Video", detail: "Resolution, frame rate and sound", symbol: "video")
+                MenuRowLabel("Video", symbol: "video")
             }
-            NavigationLink {
-                ControlsSettingsView(model: model)
-            } label: {
-                MenuRowLabel("Controls", detail: "Camera Control and lens switching", symbol: "slider.horizontal.3")
-            }
-            ThisCameraLink(model: model)
         } header: {
             Text("Advanced")
         }
     }
 }
 
-/// The last row of the menu, to everything the current camera reports to apps. It reads the capabilities itself, so
-/// a change of lens redraws this row and not the whole menu.
-private struct ThisCameraLink: View {
-    let model: CameraModel
-
-    var body: some View {
-        let capabilities = model.capabilities
-
-        NavigationLink {
-            CapabilitiesView(capabilities: capabilities)
-        } label: {
-            MenuRowLabel("This camera", detail: Self.summary(capabilities), symbol: "info.circle")
-        }
-    }
-
-    /// The lens by name, focal length and aperture. The active format is on the page itself.
-    private static func summary(_ capabilities: CameraCapabilities) -> String {
-        let lens = capabilities.lens
-        let range = capabilities.exposure.aperture
-        let aperture = capabilities.supportsVariableAperture
-            ? ApertureScale.label(range.lowerBound) + "\u{2013}" + ApertureScale.compactLabel(range.upperBound)
-            : ApertureScale.label(lens.aperture)
-        return [lens.name, LensMath.focalLengthLabel(lens.equivalentFocalLength), aperture]
-            .joined(separator: " \u{00B7} ")
-    }
-}
-
-/// A row of the menu: the subject's name over a line that says what its page holds.
+/// A row of the menu: the page's name beside its symbol in the accent.
 private struct MenuRowLabel: View {
     let title: String
-    let detail: String
     let symbol: String
 
-    init(_ title: String, detail: String, symbol: String) {
+    init(_ title: String, symbol: String) {
         self.title = title
-        self.detail = detail
         self.symbol = symbol
     }
 
     var body: some View {
         Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+            Text(title)
         } icon: {
             Image(systemName: symbol)
                 .foregroundStyle(Theme.accent)
-        }
-    }
-}
-
-// MARK: - Phone
-
-/// Which iPhones the app is made for, and what this one gets. Every iPhone that runs it takes the night shot and the
-/// long exposures; manual shutter speeds need the iPhone 18 Pro (CameraModel.allowsManualShutter).
-private struct PhoneSection: View {
-    let model: CameraModel
-
-    var body: some View {
-        Section {
-            LabeledContent("Recommended", value: "iPhone 11 or later")
-            LabeledContent("Best", value: "iPhone 18 Pro")
-            LabeledContent("This iPhone", value: model.allowsManualShutter ? "Every control" : "Night and long exposures")
-        } header: {
-            Text("Phone")
-        } footer: {
-            Text(model.allowsManualShutter
-                 ? "Night mode, the long exposure scenes and manual shutter speeds all work on this phone."
-                 : "Night mode and the long exposure scenes work on any iPhone 11 or later, with durations up to 30 minutes. Manual shutter speeds need an iPhone 18 Pro.")
         }
     }
 }
@@ -228,6 +165,11 @@ private struct AboutSection: View {
             if model.isSimulated {
                 LabeledContent("Camera", value: "Simulated")
             }
+            // Every iPhone that runs the app takes the night shot and the long exposures; manual shutter speeds need
+            // the iPhone 18 Pro (CameraModel.allowsManualShutter).
+            LabeledContent("Recommended", value: "iPhone 11 or later")
+            LabeledContent("Best", value: "iPhone 18 Pro")
+            LabeledContent("This iPhone", value: model.allowsManualShutter ? "Every feature" : "No manual shutter")
             Button("Reset all settings", role: .destructive) {
                 isConfirmingReset = true
             }
@@ -235,7 +177,7 @@ private struct AboutSection: View {
                 Button("Reset", role: .destructive, action: resetAll)
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Every setting goes back to its default, including the look and the buttons. The Advanced settings switch and the accessibility options stay as they are. Custom setups stay too. Photos and videos you took stay in your library.")
+                Text("Photos, custom setups and accessibility options are kept.")
             }
         } header: {
             Text("About")

@@ -17,7 +17,7 @@ public enum CaptureMode: String, Codable, Sendable, CaseIterable, Identifiable {
     public var title: String { rawValue.uppercased() }
     public var usesStacking: Bool { self == .night || self == .long }
     /// NIGHT's shots are built from many frames, so a histogram of the framing frame says little about the picture.
-    /// It shows none, and its top bar holds the night shot's stability in the histogram's place.
+    /// It shows none, and its top bar holds the steady sign's switch in the histogram's place.
     public var hasHistogram: Bool { !usesStacking }
     /// Left to right in the mode carousel. NIGHT stands for both stacking modes: the night shot and the long
     /// exposure scenes are one mode on screen, picked between inside it, so LONG has no entry of its own.
@@ -141,11 +141,12 @@ public enum ProcessingLevel: String, Codable, Sendable, CaseIterable, Identifiab
         case .maximum: return "Maximum"
         }
     }
+    /// The line under the choice in Settings, short enough to read at a glance.
     public var detail: String {
         switch self {
-        case .minimal: return "One frame, no fusion. Respects manual shutter and ISO exactly."
-        case .balanced: return "Apple's default mix of speed and quality."
-        case .maximum: return "Deep Fusion and Smart HDR when available. Slower."
+        case .minimal: return "One frame, no fusion."
+        case .balanced: return "Apple's default."
+        case .maximum: return "Deep Fusion and Smart HDR. Slower."
         }
     }
 }
@@ -590,12 +591,16 @@ public struct DisplaySettings: Codable, Hashable, Sendable {
     /// Battery saver: darkens the screen during night and long exposure shots of 10 seconds or more once the phone
     /// is steady. Off by default, since a screen that goes black by itself surprises someone watching the shot.
     public var dimDuringLongShots: Bool = false
+    /// The steady sign over the picture in NIGHT and with a stacked MANUAL shutter: the words that say whether the
+    /// phone is still enough, and the line beside them. NIGHT's top bar switches it, and so does Settings >
+    /// Viewfinder, so it can come back from any mode. On, as the sign has always shown.
+    public var showSteadySign: Bool = true
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case grid, showLevel, histogram, zebras, zebraThreshold, peaking, peakingColor, peakingSensitivity, falseColor, showReadout, clippingWarnings
-        case dimDuringLongShots
+        case dimDuringLongShots, showSteadySign
     }
 
     public init(from decoder: Decoder) throws {
@@ -613,13 +618,14 @@ public struct DisplaySettings: Codable, Hashable, Sendable {
         showReadout = c.value(.showReadout, default: d.showReadout)
         clippingWarnings = c.value(.clippingWarnings, default: d.clippingWarnings)
         dimDuringLongShots = c.value(.dimDuringLongShots, default: d.dimDuringLongShots)
+        showSteadySign = c.value(.showSteadySign, default: d.showSteadySign)
     }
 }
 
 public struct NightSettings: Codable, Hashable, Sendable {
     /// nil = automatic duration from the light level.
     public var seconds: Double? = nil
-    /// A tripod unless the person says otherwise, on NIGHT's top bar or in Settings > Night.
+    /// A tripod unless the person says otherwise in Settings > Night.
     public var stability: NightStabilityChoice = .tripod
     public var alignFrames: Bool = true
     public var maxISO: Double = 3200

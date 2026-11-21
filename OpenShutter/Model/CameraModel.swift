@@ -200,12 +200,13 @@ final class CameraModel {
     /// wheel swaps without it, because the finger is still framing.
     private(set) var isSwitchingLensVisibly = false
     /// The tripod and hold-still status for NIGHT, LONG and a stacked MANUAL shutter. nil in other modes, once every
-    /// frame of a shot is in, under the Camera Control's overlay and while the battery saver has the screen dark.
+    /// frame of a shot is in, under the Camera Control's overlay, while the battery saver has the screen dark, and
+    /// while the steady sign is switched off (display.showSteadySign).
     /// Stored and only written when the message changes, so the pill (and any layout around it) redraws on a change
     /// of message, not with every reading.
     private(set) var steadyStatus: SteadyMessage?
     /// A tripod shot's settle has run out while the phone still moves, and the shot waits a little longer for it
-    /// to come to rest ("Waiting for the phone to settle." under the countdown).
+    /// to come to rest ("Waiting for the phone to settle" under the countdown).
     private(set) var isWaitingForSteady = false
     /// How far the phone turned since a NIGHT or LONG shot began, for the crosshairs.
     let drift = DriftState()
@@ -455,8 +456,9 @@ final class CameraModel {
     }
 
     private var currentSteadyMessage: SteadyMessage? {
-        // Nobody sees the pill under the Camera Control's overlay or the battery saver's black screen.
-        guard !controlsFullscreen, !dimmer.isDimmed else { return nil }
+        // Switched off on NIGHT's top bar or in Settings. Nobody sees the pill under the Camera Control's overlay or
+        // the battery saver's black screen.
+        guard settings.display.showSteadySign, !controlsFullscreen, !dimmer.isDimmed else { return nil }
         let phase: SteadyPhase
         switch activity {
         case .idle:
@@ -611,6 +613,13 @@ final class CameraModel {
         spoken.say(text)
     }
 
+    /// For VoiceOver alone, whatever Speak status is set to: what the screen shows without words (a lock, macro,
+    /// the half press). A toast would say it a second time to everyone else.
+    private func announce(_ text: String) {
+        guard UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(notification: .announcement, argument: text)
+    }
+
     /// Haptics follow the settings from here: the views that play them read no settings.
     private func mirrorHaptics() {
         let controls = settings.controls
@@ -644,9 +653,10 @@ final class CameraModel {
             store.save(stored)
             store.clearAdvancedSnapshot()
         }
-        // The night shot plans for a tripod unless the person says otherwise. A save from the build that had no
-        // control for it on the camera screen is moved to tripod once, whatever it held: an old Handheld would have
-        // shown only as shots that came out differently. NIGHT's top bar has the choice again since.
+        // The night shot plans for a tripod unless the person says otherwise in Settings > Night. A save from the
+        // build that had no control for it on the camera screen is moved to tripod once, whatever it held: an old
+        // Handheld would have shown only as shots that came out differently. A choice made since stays, wherever it
+        // was made.
         if !store.nightMovedToTripod {
             if stored.night.stability != .tripod {
                 stored.night.stability = .tripod
@@ -1404,11 +1414,8 @@ final class CameraModel {
             lockedMeter = (liveMeteredProduct, settings.night.biasEV)
         }
         Haptics.tap()
-        if aeLocked {
-            showLockToast(focus: false, exposure: true)
-        } else {
-            showToast("AE lock off", symbol: "lock.open")
-        }
+        // The button's lock and the corner badge show it, so only VoiceOver hears it.
+        announce(aeLocked ? Self.lockAnnouncement(focus: false, exposure: true) : "Exposure lock off")
         scheduleApply(.exposure)
     }
 
@@ -1462,10 +1469,11 @@ final class CameraModel {
         focusHeld = lock && focusIsAuto
         if lock {
             aeLocked = exposureIsAuto
-            // Manual focus or a manual exposure has nothing to hold, so the toast names only what is locked.
+            // Manual focus or a manual exposure has nothing to hold, so only what is locked is named. The square's
+            // label shows it, or the corner badge where the label is out of sight, so only VoiceOver hears it.
             if focusHeld || aeLocked {
                 Haptics.stop()
-                showLockToast(focus: focusHeld, exposure: aeLocked)
+                announce(Self.lockAnnouncement(focus: focusHeld, exposure: aeLocked))
             }
         } else if aeLocked {
             aeLocked = false
@@ -1484,9 +1492,9 @@ final class CameraModel {
     /// nothing auto to hold, alone.
     var focusLocked: Bool { focusHeld }
 
-    private func showLockToast(focus: Bool, exposure: Bool) {
-        let message = focus && exposure ? "AE/AF LOCK" : (exposure ? "AE LOCK" : "AF LOCK")
-        showToast(message, symbol: "lock.fill")
+    /// What VoiceOver hears for a lock, in the words the square's label is read with.
+    private static func lockAnnouncement(focus: Bool, exposure: Bool) -> String {
+        focus && exposure ? "Exposure and focus locked" : (exposure ? "Exposure locked" : "Focus locked")
     }
 
     /// Ends AE LOCK or AE/AF LOCK: exposure follows its request again, a held focus goes back to autofocus, and
@@ -1573,7 +1581,7 @@ final class CameraModel {
         adoptNextWhiteBalanceReading = true
         backend.apply(whiteBalance: .grayWorld)
         Haptics.tap()
-        showToast("White balance set from the scene", symbol: "eyedropper")
+        showToast("White balance set", symbol: "eyedropper")
     }
 
     // MARK: - Night and long exposure
@@ -1800,9 +1808,8 @@ final class CameraModel {
     /// A half press takes nothing and plays no shutter sound. Someone who can't see the whole frame come back would
     /// take it for a photo, so VoiceOver says what happened, whatever Speak status is set to.
     private func announceHalfPress() {
-        guard UIAccessibility.isVoiceOverRunning else { return }
         let next = settings.mode == .video ? "start recording" : "take the photo"
-        UIAccessibility.post(notification: .announcement, argument: "Whole frame. Press again to \(next).")
+        announce("Whole frame. Press again to \(next).")
     }
 
     /// A press as a countdown runs out was meant to cancel it, and the shot it started has nothing yet: ended
@@ -3404,7 +3411,8 @@ final class CameraModel {
         isMacro = true
         select(LensPreset(lensID: ultra.id, zoomFactor: factor, displayZoom: factor * ultra.relativeZoom),
                haptic: true, replaying: false)
-        showToast("Macro", symbol: "camera.macro")
+        // The button's ring shows it, so only VoiceOver hears it.
+        announce("Macro on")
     }
 
     /// Only the running lens reports its range; the backend keeps the top inside what the new lens can do.
@@ -3435,7 +3443,7 @@ final class CameraModel {
         let zoom = readings.displayZoom.isFinite && readings.displayZoom > 0 ? readings.displayZoom : lens.relativeZoom
         let factor = clampFactor(zoom / max(wide.relativeZoom, 0.01), for: wide)
         select(LensPreset(lensID: wide.id, zoomFactor: factor, displayZoom: factor * wide.relativeZoom), haptic: false)
-        showToast("Too close for the \(LensMath.zoomLabel(lens.relativeZoom, selected: true)) lens. Using the main camera.",
+        showToast("Too close for \(LensMath.zoomLabel(lens.relativeZoom, selected: true)). Using the main camera.",
                   symbol: "camera.macro")
     }
 

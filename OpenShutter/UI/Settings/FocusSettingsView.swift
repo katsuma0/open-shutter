@@ -31,22 +31,20 @@ struct FocusSettingsView: View {
                     // It enlarges the frame while the lens is focused by hand, which this camera can't do.
                     .disabled(!caps.supportsManualFocus)
             } footer: {
-                SettingsFooter(Self.magnifierNotes(caps: caps))
+                SettingsFooter(Self.magnifierNotes(caps: caps, depth: model.settings.capture.depth))
             }
         }
         .navigationTitle("Focus")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private static func magnifierNotes(caps: CameraCapabilities) -> [String?] {
+    private static func magnifierNotes(caps: CameraCapabilities, depth: Bool) -> [String?] {
         var unavailable = UnavailableFeatures()
         unavailable.note("focus magnifier", supported: caps.supportsManualFocus)
         return [
-            "The focus magnifier enlarges the middle of the frame when you turn the focus dial, so you can see whether stars and fine edges are sharp.",
-            "It is a crop of the sensor, so the detail is real. Photos keep the zoom you chose.",
-            "Done, a tap on the picture or a zoom shows the whole frame again. While the frame is enlarged, the shutter first shows the whole frame, and the next press takes the shot.",
+            "Enlarges the middle of the picture while you turn the focus dial.",
             // Depth delivery rebuilds the capture pipeline at every zoom change, so the model doesn't offer it then.
-            "Not with Depth on.",
+            depth && caps.depthSupported ? "The magnifier is off while Depth is on." : nil,
             unavailable.text,
         ]
     }
@@ -57,10 +55,6 @@ struct FocusSettingsView: View {
         unavailable.note("smooth autofocus", supported: caps.smoothFocusSupported)
         unavailable.note("face-driven focus", supported: caps.faceDrivenAutoFocusSupported)
         unavailable.noteFromIOS27("subject tracking", supported: caps.continuousAFTrackingSupported)
-        return [
-            "Near and Far keep autofocus from searching the whole range. Smooth autofocus makes gentler focus changes for video.",
-            "Subject tracking keeps focus on a moving subject.",
-            unavailable.text,
-        ]
+        return [unavailable.text]
     }
 }

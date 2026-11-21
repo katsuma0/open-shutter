@@ -26,7 +26,7 @@ final class CaptureLibrary: NSObject, PHPhotoLibraryChangeObserver {
     /// The stored rows by identifier, built once per change of the list, for the cells' badges.
     private(set) var entries: [String: CapturedAsset] = [:]
     private(set) var isLoaded = false
-    /// The recorded assets the library shows now, newest first. nil without read access or before the first fetch.
+    /// The recorded assets the library shows now, oldest first (the newest is `last`). nil without read access or before the first fetch.
     private(set) var assets: AssetList?
     /// Recorded assets the last fetch didn't find: deleted, hidden, or outside a limited selection, leaving out the
     /// ones deleted in the gallery during this run. The list keeps them all: a restored photo comes back with the
@@ -188,15 +188,22 @@ final class CaptureLibrary: NSObject, PHPhotoLibraryChangeObserver {
     /// iOS asks the person to confirm and moves the asset to Recently Deleted. A refusal throws a cancellation
     /// (`isCancellation`).
     func delete(_ asset: PHAsset) async throws {
-        let id = asset.localIdentifier
+        try await delete([asset])
+    }
+
+    /// Several at once, under one confirmation from iOS for all of them.
+    func delete(_ assets: [PHAsset]) async throws {
+        guard !assets.isEmpty else { return }
+        // Only the ones not marked already come off again on a failure: another deletion may still be running.
+        let ids = Set(assets.map(\.localIdentifier)).subtracting(deletedHere)
         // Marked first: the fetch that the deletion starts can land before this call returns.
-        deletedHere.insert(id)
+        deletedHere.formUnion(ids)
         do {
             try await Self.performChanges {
-                PHAssetChangeRequest.deleteAssets([asset] as NSArray)
+                PHAssetChangeRequest.deleteAssets(assets as NSArray)
             }
         } catch {
-            deletedHere.remove(id)
+            deletedHere.subtract(ids)
             throw error
         }
     }
@@ -304,7 +311,7 @@ final class CaptureLibrary: NSObject, PHPhotoLibraryChangeObserver {
 
     private func refreshLatestThumbnail() {
         guard let side = latestPixelSide, let assets else { return }
-        let newest = assets.first
+        let newest = assets.last
         let key = newest.map(AssetVersion.init)
         guard key != latestKey else { return }
         latestKey = key

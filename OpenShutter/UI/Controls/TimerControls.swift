@@ -72,9 +72,8 @@ struct TimerControls: View {
                 } : nil
             )
         } header: {
+            // No footer: the header says what it is, and the Timer button dims where it has nothing to count down.
             Text("Self timer")
-        } footer: {
-            Text("Counts down before the first shot. Video and bulb start right away.")
         }
     }
 
@@ -107,7 +106,7 @@ struct TimerControls: View {
         } header: {
             Text("Intervalometer")
         } footer: {
-            Text("The interval runs from the start of one shot to the start of the next. A shot that runs long pushes the next one back.")
+            Text("Measured from the start of one shot to the start of the next.")
         }
     }
 
@@ -307,18 +306,18 @@ private enum TimerText {
         }
     }
 
+    /// The modes as the mode strip names them.
     static func bracketFooter(_ kind: BracketKind, maxCount: Int) -> String {
-        let modes = "Works in photo and manual modes."
         switch kind {
         case .off:
-            return "Brackets take several photos from one press. " + modes
+            return "Several photos from one press, in Photo and Manual."
         case .exposure:
             let limit = maxCount < 9 ? " This camera takes up to \(max(maxCount, 3)) frames." : ""
-            return "One burst of photos spaced evenly darker and brighter than the metered exposure. " + modes + limit
+            return "Photos darker and brighter than the metered one, in Photo and Manual." + limit
         case .focus:
-            return "Moves the focus between shots, for focus stacking later. Use a tripod. " + modes
+            return "Moves the focus between shots, for focus stacking. Use a tripod. In Photo and Manual."
         case .whiteBalance:
-            return "Shifts the color temperature between shots. " + modes
+            return "Shifts the color temperature between shots, in Photo and Manual."
         }
     }
 

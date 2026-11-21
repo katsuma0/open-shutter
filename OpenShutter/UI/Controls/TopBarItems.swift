@@ -8,7 +8,7 @@ import CameraCore
 // MARK: - Buttons
 
 /// One of the top bar's fixed buttons: flash (the flashlight in VIDEO), shape, timer, format, histogram (in NIGHT the
-/// night shot's stability), AE lock or Live Photo.
+/// steady sign's switch), AE lock or Live Photo.
 struct TopBarItemButton: View {
     let model: CameraModel
     let item: TopBarItem
@@ -35,8 +35,8 @@ struct TopBarItemButton: View {
             BarFormat(model: model)
         case .histogram:
             BarHistogram(model: model)
-        case .nightStability:
-            BarNightStability(model: model, mode: mode)
+        case .steadySign:
+            BarSteadySign(model: model)
         case .exposureLock:
             BarExposureLock(model: model)
         default:
@@ -60,7 +60,7 @@ struct TopBarItemButton: View {
             // With every value set by hand there is no auto exposure to hold, but a lock that is on can be undone.
             return (QuickActions.aeLockApplies(model) || model.aeLocked) && !QuickActions.exposureIsBusy(model.activity)
         default:
-            // The shape, the histogram and the night shot's stability work on every camera, and so does the format:
+            // The shape, the histogram and the steady sign's switch work on every camera, and so does the format:
             // the app writes PNG and TIFF itself. The other cases are never asked about.
             return true
         }
@@ -81,6 +81,8 @@ private struct BarFlash: View {
         let stacked = mode == .manual && model.shutterIsStacked
         Upright(model: model) {
             Image(systemName: flash.symbolName)
+                // The pick animates, so the glyph changes over as iOS's own toggles do.
+                .contentTransition(.symbolEffect(.replace))
         }
         .modifier(BarGlyphLook(isActive: flash == .on && !stacked, isPressed: press.isPressed))
         // The menu over the glyph is what VoiceOver reads and opens.
@@ -90,7 +92,7 @@ private struct BarFlash: View {
                           hint: stacked ? "Stacked exposures don't use the flash." : HoldMenuText.choicesHint)
         }
         .disabled(stacked)
-        .opacity(stacked ? 0.35 : 1)
+        .opacity(stacked ? Theme.Dim.off : 1)
     }
 }
 
@@ -110,7 +112,9 @@ private struct FlashOptions: View {
 
     private func choose(_ flash: FlashSetting) {
         Haptics.tick()
-        model.updateSettings { $0.capture.flash = flash }
+        withAnimation(Theme.snappy) {
+            model.updateSettings { $0.capture.flash = flash }
+        }
     }
 }
 
@@ -127,6 +131,7 @@ private struct BarTorch: View {
         } label: {
             Upright(model: model) {
                 Image(systemName: isOn ? "flashlight.on.fill" : "flashlight.off.fill")
+                    .contentTransition(.symbolEffect(.replace))
             }
         }
         .buttonStyle(BarCircleStyle(isActive: isOn, isPressed: press.isPressed))
@@ -146,16 +151,20 @@ private struct BarTorch: View {
     }
 
     static func toggle(_ model: CameraModel) {
-        // setTorch plays its own click.
-        model.setTorch(!model.torchOn)
+        // setTorch plays its own click. Animated, so the glyph changes over rather than cuts.
+        withAnimation(Theme.snappy) {
+            model.setTorch(!model.torchOn)
+        }
     }
 
     /// The model clicks for both.
     static func choose(_ brightness: TorchBrightness, model: CameraModel) {
-        if let level = brightness.level {
-            model.setTorchLevel(level)
-        } else {
-            model.setTorch(false)
+        withAnimation(Theme.snappy) {
+            if let level = brightness.level {
+                model.setTorchLevel(level)
+            } else {
+                model.setTorch(false)
+            }
         }
     }
 }
@@ -244,15 +253,18 @@ private struct BarLivePhoto: View {
         let isOn = capture.livePhoto && !blocked
         Button {
             Haptics.tap()
-            model.updateSettings { $0.capture.livePhoto.toggle() }
+            withAnimation(Theme.snappy) {
+                model.updateSettings { $0.capture.livePhoto.toggle() }
+            }
         } label: {
             Upright(model: model) {
                 Image(systemName: isOn ? "livephoto" : "livephoto.slash")
+                    .contentTransition(.symbolEffect(.replace))
             }
         }
         .buttonStyle(BarCircleStyle(isActive: isOn))
         .disabled(blocked)
-        .opacity(blocked ? 0.4 : 1)
+        .opacity(blocked ? Theme.Dim.off : 1)
         .accessibilityLabel("Live Photo")
         .accessibilityValue(isOn ? "On" : "Off")
         .accessibilityHint(blocked ? "Live Photos need HEIF or JPEG, and RAW off." : "")
@@ -459,7 +471,7 @@ private struct BarAspect: View {
     var body: some View {
         let aspect = model.settings.capture.aspect
         Upright(model: model) {
-            ItemText(aspect.label, size: 13)
+            ItemText(aspect.label)
         }
         .modifier(BarGlyphLook(isActive: QuickActions.aspectIsActive(aspect), isPressed: press.isPressed))
         .accessibilityHidden(true)
@@ -583,7 +595,7 @@ private struct FormatFace: View {
         // Both lines medium, like the rest of the bar's text: a heavier HIGH or +RAW stood out beside the thin glyphs.
         VStack(spacing: 0) {
             Text(type)
-                .font(.system(size: 12 * scale, weight: .medium))
+                .font(Theme.chipFont.weight(.medium))
             if let detail {
                 Text(detail)
                     .font(.system(size: 8 * scale, weight: .medium))
@@ -642,8 +654,8 @@ struct PhotoFormatRows: View {
     }
 }
 
-/// Off, RAW and ProRAW, each saying what it is, for the Format menu and the quick settings panel's RAW item. A kind
-/// this camera lacks dims, and in a stack the whole list does, as a stack saves no RAW.
+/// Off, RAW and ProRAW, for the Format menu and the quick settings panel's RAW item. A kind this camera lacks dims,
+/// and in a stack the whole list does, as a stack saves no RAW.
 struct RawFormatRows: View {
     let model: CameraModel
 
@@ -671,7 +683,7 @@ struct RawFormatRows: View {
         guard raw != RawFormat.none else { return nil }
         if stacked {
             // Said once, under the first of the two.
-            return raw == .bayer ? QuickActions.stackedPhotos(model.settings.mode) + " have no RAW." : raw.detail
+            return raw == .bayer ? QuickActions.stackedPhotos(model.settings.mode) + " have no RAW." : nil
         }
         if !isSupported(raw, model.capabilities) { return "Not on this camera" }
         // Tested on the zoom itself: rawBlockedByZoom reads the stored setting, so it only holds once RAW is on, and
@@ -680,7 +692,8 @@ struct RawFormatRows: View {
             // Macro keeps the 1x button lit, so "this zoom" would point at a lens that isn't the one running.
             return model.isMacro ? "Not in macro" : "Not at this zoom"
         }
-        return raw.detail
+        // The names say enough; a detail is there only to say why a row is dimmed.
+        return nil
     }
 }
 
@@ -748,71 +761,33 @@ struct HistogramOptions: View {
     }
 }
 
-// MARK: - NIGHT's stability
+// MARK: - NIGHT's steady sign
 
-/// NIGHT's button in the histogram's place: what the night shot plans for, a tripod, a hand, or Auto, which plans for
-/// a hand until the motion sensor finds the phone still. Only the night shot reads it, so it dims in the long
-/// exposure scenes, Manual night among them.
-private struct BarNightStability: View {
-    let model: CameraModel
-    let mode: CaptureMode
-    @State private var press = PressTracker()
-
-    var body: some View {
-        let choice = model.settings.night.stability
-        Upright(model: model) {
-            StabilityFace(choice: choice)
-        }
-        // Lit away from the default, as the shape is, so a new phone's bar starts unlit.
-        .modifier(BarGlyphLook(isActive: choice != CameraSettings.default.night.stability, isPressed: press.isPressed))
-        .accessibilityHidden(true)
-        .overlay {
-            ItemMenuLayer(model: model, control: .nightStability, press: press,
-                          label: TopBarItem.nightStability.title, value: choice.title,
-                          hint: mode == .night ? HoldMenuText.choicesHint : "Only the night shot uses it.")
-        }
-    }
-}
-
-/// The drawn tripod for Tripod, as SF Symbols has none, in thin lines beside the bar's outline symbols. A hand for
-/// Handheld, and a hand with a small A for Auto, which plans for a hand until the phone holds still. The colour and
-/// the shadow come from the bar's look, and so does the hand's size.
-private struct StabilityFace: View {
-    let choice: NightStabilityChoice
-
-    var body: some View {
-        switch choice {
-        case .tripod:
-            // A drawing has no size of its own and takes no font: about the hand's, a little narrower.
-            TripodGlyph(lineWidth: 1.2)
-                .frame(width: 17 * Theme.labelScale, height: 19 * Theme.labelScale)
-        case .handheld:
-            Image(systemName: "hand.raised")
-        case .automatic:
-            Image(systemName: "hand.raised")
-                .overlay(alignment: .topTrailing) {
-                    // Medium, like the rest of the bar's text, so the A is no heavier than the hand's thin lines.
-                    Text("A")
-                        .font(.system(size: 8 * Theme.labelScale, weight: .medium))
-                        .offset(x: 5 * Theme.labelScale, y: -3 * Theme.labelScale)
-                }
-        }
-    }
-}
-
-/// Auto, Handheld, Tripod, as Settings > Night lists them.
-private struct NightStabilityOptions: View {
+/// NIGHT's button in the histogram's place: shows or hides the steady sign, the words over the picture that say
+/// whether the phone is still enough and the line beside them. A tap switches it, as Live Photo's does. The switch
+/// covers the sign of a stacked MANUAL shutter too, and Settings > Viewfinder has it as well.
+private struct BarSteadySign: View {
     let model: CameraModel
 
     var body: some View {
-        let current = model.settings.night.stability
-        Picker("Stability", selection: Binding(get: { current },
-                                               set: { QuickActions.set(\.night.stability, to: $0, model) })) {
-            ForEach(NightStabilityChoice.allCases) { choice in
-                Text(choice.title).tag(choice)
+        let isOn = model.settings.display.showSteadySign
+        Button {
+            // No toast: the sign coming or going over the picture says it.
+            QuickActions.toggle(\.display.showSteadySign, model)
+        } label: {
+            Upright(model: model) {
+                // A drawing takes no font, so it is sized here: about a symbol's height, a little narrower. The same
+                // tripod on and off, lit while the sign shows, with the histogram's dot for Differentiate Without
+                // Color.
+                TripodGlyph(lineWidth: 1.2)
+                    .frame(width: 17 * Theme.labelScale, height: 19 * Theme.labelScale)
+                    .marksOn(isOn)
             }
         }
-        .pickerStyle(.inline)
+        .buttonStyle(BarCircleStyle(isActive: isOn))
+        .accessibilityLabel(TopBarItem.steadySign.title)
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityHint("Shows whether the phone is still.")
     }
 }
 
@@ -827,10 +802,13 @@ private struct BarExposureLock: View {
         let locked = model.aeLocked && QuickActions.aeLockApplies(model)
         Button {
             Haptics.tap()
-            model.toggleAELock()
+            withAnimation(Theme.snappy) {
+                model.toggleAELock()
+            }
         } label: {
             Upright(model: model) {
                 Image(systemName: locked ? "lock.fill" : "lock.open")
+                    .contentTransition(.symbolEffect(.replace))
             }
         }
         .buttonStyle(BarCircleStyle(isActive: locked))
@@ -846,7 +824,7 @@ private struct BarExposureLock: View {
 /// button's redraws with every settings change leave the system's menu button alone.
 private struct ItemMenuLayer: View {
     enum Control {
-        case flash, aspect, format, histogram, nightStability
+        case flash, aspect, format, histogram
     }
 
     let model: CameraModel
@@ -863,7 +841,6 @@ private struct ItemMenuLayer: View {
             case .aspect: AspectOptions(model: model)
             case .format: FormatOptions(model: model)
             case .histogram: HistogramOptions(model: model)
-            case .nightStability: NightStabilityOptions(model: model)
             }
         }
     }
@@ -872,19 +849,18 @@ private struct ItemMenuLayer: View {
 // MARK: - Faces
 
 /// A short value as a button's face, such as "16:9", kept narrow enough for the dark circle Solid buttons puts behind
-/// it.
+/// it. The size of the bar's other text, HEIF and VIDEO's "4K · 30", so the neighbours match.
 private struct ItemText: View {
     let text: String
-    let size: CGFloat
 
-    init(_ text: String, size: CGFloat) {
+    init(_ text: String) {
         self.text = text
-        self.size = size
     }
 
     var body: some View {
         Text(text)
-            .font(.system(size: size * Theme.labelScale, weight: .medium).monospacedDigit())
+            // Medium, like the rest of the bar's text: the bare glyphs beside it are drawn in thin lines.
+            .font(Theme.chipFont.weight(.medium))
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             .padding(.horizontal, 4)
@@ -1024,9 +1000,12 @@ enum QuickActions {
         model.updateSettings { $0[keyPath: keyPath] = value }
     }
 
+    /// Animated, so a glyph that shows the switch changes over as iOS's own toggles do.
     static func toggle(_ keyPath: WritableKeyPath<CameraSettings, Bool>, _ model: CameraModel) {
         Haptics.tap()
-        model.updateSettings { $0[keyPath: keyPath].toggle() }
+        withAnimation(Theme.snappy) {
+            model.updateSettings { $0[keyPath: keyPath].toggle() }
+        }
     }
 
     /// "Off", "MF", "On": short enough for the drawer's value line.

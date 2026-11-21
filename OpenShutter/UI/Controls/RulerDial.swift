@@ -607,7 +607,7 @@ struct DialValueHeader: View {
     /// False for a value that holds still without the person having set it, such as one LONG's scene fixes. It
     /// shows in white like an auto value, without the A that auto gets.
     var isSetByPerson: Bool = true
-    /// The value is built from several frames, which the STACK badge beside it says.
+    /// The value is built from several frames, which the stack badge beside it says.
     var isStacked: Bool = false
     /// The value is past a limit the title names, such as the time stars stay points for, and shows in orange.
     var isWarning: Bool = false
@@ -630,15 +630,15 @@ struct DialValueHeader: View {
         HStack(spacing: 0) {
             autoButton
                 .frame(width: Self.sideWidth, alignment: .leading)
-                .opacity(isDimmed ? 0.45 : 1)
+                .opacity(isDimmed ? Theme.Dim.held : 1)
             Spacer(minLength: 4)
             readout
-                .opacity(isDimmed ? 0.45 : 1)
+                .opacity(isDimmed ? Theme.Dim.held : 1)
             Spacer(minLength: 4)
             doneButton
                 .frame(width: Self.sideWidth, alignment: .trailing)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Theme.edge)
         .frame(height: 44)
         .animation(Theme.snappy, value: isAuto)
         .animation(Theme.snappy, value: isSetByPerson)
@@ -650,32 +650,23 @@ struct DialValueHeader: View {
         VStack(spacing: 1) {
             // Spoken as the value row's label below.
             Text(Self.capitals(title))
-                .font(.system(size: 10, weight: .semibold))
+                .font(Theme.microFont)
                 .tracking(0.8)
                 .foregroundStyle(Theme.secondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .accessibilityHidden(true)
-            HStack(spacing: 5) {
+            // The chips' small A, sized for this bigger value.
+            AutoMarked(isAuto: isAuto, size: 11) {
                 // Not animated per value: a scrub or a live auto reading changes it many times a second, and the digits
                 // would never stop rolling long enough to read. Switching to or from auto still rolls them.
                 Text(value)
                     .font(Theme.bigValueFont)
                     .foregroundStyle(valueInk)
                     .contentTransition(.numericText())
-                if isAuto {
-                    Text("A")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Color.black)
-                        .frame(width: 13, height: 13)
-                        .background(Circle().fill(Theme.primaryText.opacity(0.85)))
-                        .transition(.opacity.combined(with: .scale(scale: 0.5)))
-                }
             }
             .lineLimit(1)
             .minimumScaleFactor(0.7)
-            // At 16:9 the header sits on the picture, so its text carries a shadow.
-            .shadow(color: .black.opacity(0.6), radius: 4)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(title))
             .accessibilityValue(Text(spokenValue))
@@ -691,6 +682,8 @@ struct DialValueHeader: View {
                 }
             }
         }
+        // The header sits on the picture in most layouts, so its title and value carry the shadow bare text has.
+        .legibleShadow()
     }
 
     private var valueInk: Color {
@@ -718,12 +711,16 @@ struct DialValueHeader: View {
         if let onAuto {
             Button(action: onAuto) {
                 Text("AUTO")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(Theme.chipFont.weight(.bold))
                     .tracking(0.6)
                     .foregroundStyle(isAuto ? Theme.onAccent : Theme.primaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .padding(.horizontal, 10)
                     .frame(height: 26)
-                    .background(Capsule().fill(isAuto ? Theme.accent : Color.white.opacity(0.16)))
+                    // Lit, the accent covers the glass; off, the glass reads over a bright picture like every chip.
+                    .background { Capsule().fill(Theme.accent).opacity(isAuto ? 1 : 0) }
+                    .cameraGlass(in: Capsule())
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())
             }
@@ -743,11 +740,13 @@ struct DialValueHeader: View {
         if let onDone {
             Button(action: onDone) {
                 Text("Done")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(Theme.chipFont.weight(.bold))
                     .foregroundStyle(Theme.primaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .padding(.horizontal, 10)
                     .frame(height: 26)
-                    .background(Capsule().fill(Color.white.opacity(0.16)))
+                    .cameraGlass(in: Capsule())
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())
             }
@@ -772,7 +771,7 @@ struct DialValueHeader: View {
 /// NIGHT. The badge says so beside the value, and a tap on it says what that means.
 private struct StackBadge: View {
     /// A fixed width, so the header can keep the same room free on the value's other side.
-    static let width: CGFloat = 50
+    static let width: CGFloat = 32
 
     @State private var showsInfo = false
 
@@ -781,16 +780,14 @@ private struct StackBadge: View {
             Haptics.tap()
             showsInfo = true
         } label: {
-            Text("STACK")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.8)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            // The glyph NIGHT's plan pill wears: one sign for a stacked exposure.
+            Image(systemName: "square.stack.3d.up.fill")
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.accent)
                 .frame(width: Self.width, height: 20)
                 .background(Capsule().fill(Theme.accent.opacity(0.18)))
                 .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.6), lineWidth: 1))
-                .frame(minHeight: 44)
+                .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -801,14 +798,14 @@ private struct StackBadge: View {
 }
 
 extension View {
-    /// The small bubble that says what a stacked exposure is, for the badges that carry the word. With no `arrowEdge`
+    /// The small bubble that says what a stacked exposure is, for the stack badges. With no `arrowEdge`
     /// the system hangs it on the side of the badge that has the room.
     func stackExplanation(isPresented: Binding<Bool>, arrowEdge: Edge? = nil) -> some View {
         popover(isPresented: isPresented, arrowEdge: arrowEdge) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Stacked exposure")
                     .font(.headline)
-                Text("The camera takes a run of shorter frames and merges them into one picture. It comes out like one long exposure. Keep the phone still until it finishes.")
+                Text("Shorter frames merged into one picture, like one long exposure. Keep the phone still until it ends.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

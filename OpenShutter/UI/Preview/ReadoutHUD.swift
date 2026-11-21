@@ -54,8 +54,10 @@ struct ReadoutHUD: View {
     private func isoItem(_ capabilities: CameraCapabilities) -> ReadoutItem {
         // A camera without custom exposure runs auto whatever the settings say, so the readout shows the live value.
         let custom = capabilities.supportsCustomExposure
-        let iso = custom ? model.displayISO : model.readings.iso
         let isAuto = model.isISOAuto || !custom
+        // The camera's own ISO on the third-stop scale, so its digits settle; a value set by hand stays exact.
+        let live = custom ? model.displayISO : model.readings.iso
+        let iso = isAuto ? AutoValues.iso(live) : live
         // The widest label this slot can show, so the line doesn't shuffle as the ISO changes.
         let highest = ISOScale.label(capabilities.exposure.iso.upperBound)
         let template = highest.count > 8 ? highest : "ISO 6400"
@@ -77,8 +79,10 @@ struct ReadoutHUD: View {
 
     private func kelvinItem(_ capabilities: CameraCapabilities) -> ReadoutItem {
         let custom = capabilities.supportsCustomWhiteBalance
-        let kelvin = custom ? model.displayKelvin : model.readings.kelvin
         let isAuto = model.effectiveWhiteBalance.isAuto || !custom
+        // To 100 K while the camera picks it: auto white balance drifts by tens of kelvin from reading to reading.
+        let live = custom ? model.displayKelvin : model.readings.kelvin
+        let kelvin = isAuto ? AutoValues.kelvin(live) : live
         let label = Formatting.kelvin(kelvin)
         return ReadoutItem(kind: .kelvin, text: label, template: "10000K", value: kelvin,
                            isManual: !isAuto, marksAuto: isAuto, reservesMark: true,
@@ -118,7 +122,7 @@ private struct ReadoutItem: Identifiable {
     let value: Double
     /// Yellow: a value set by hand. A fixed iris is neither that nor auto, and stays white without the "A".
     let isManual: Bool
-    /// Auto values carry a small "A", as in the Camera app.
+    /// Auto values carry the small "A", as the chips do.
     let marksAuto: Bool
     /// Room for the "A" is kept even while the value is manual, so switching doesn't shift the line.
     let reservesMark: Bool
@@ -163,15 +167,10 @@ private struct ReadoutValue: View {
     let marked: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 1) {
+        // The chips' small A, so the line and the chips never drift apart.
+        AutoMarked(isAuto: marked) {
             Text(text)
                 .font(Theme.readoutFont)
-            if marked {
-                Text("A")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(Theme.secondaryText)
-                    .baselineOffset(4)
-            }
         }
         .lineLimit(1)
         .fixedSize()

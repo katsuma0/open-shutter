@@ -24,7 +24,7 @@ struct DriftCrosshair: View {
             }
         }
         .frame(width: DriftCrosses.size, height: DriftCrosses.size)
-        .animation(.easeOut(duration: 0.25), value: shows)
+        .animation(Theme.fade, value: shows)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         // The model decides "off target" on the same scale the crosses are drawn at, so the pill's "Line up the
@@ -68,7 +68,7 @@ private struct DriftCrosses: View {
         }
         .frame(width: Self.size, height: Self.size)
         // Keeps thin white and yellow lines visible over a bright sky, like the grid.
-        .shadow(color: .black.opacity(0.45), radius: 1.5)
+        .lineShadow()
     }
 }
 

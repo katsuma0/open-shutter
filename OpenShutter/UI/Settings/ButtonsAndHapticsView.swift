@@ -31,11 +31,7 @@ struct ButtonsAndHapticsView: View {
             } header: {
                 Text("Volume buttons")
             } footer: {
-                SettingsFooter([
-                    hasCameraControl ? Self.cameraControlNote : nil,
-                    "During a countdown, a night or long exposure shot, an intervalometer or a bracket, either button stops it, whatever it is set to.",
-                    "Holding Zoom in, Zoom out, Brighter or Darker keeps going until you let go.",
-                ])
+                SettingsFooter([hasCameraControl ? Self.cameraControlNote : nil])
             }
             .disabled(!controls.volumeShutter)
 
@@ -48,20 +44,14 @@ struct ButtonsAndHapticsView: View {
                     .disabled(!controls.haptics)
             } header: {
                 Text("Haptics")
-            } footer: {
-                SettingsFooter([
-                    "Haptics are the small taps you feel when you use the controls. They pause during night and long exposure shots so they don't shake the phone, and iOS mutes them while a video records sound.",
-                    "Selection ticks are the clicks you feel as a dial turns, the mode changes or you step through choices, and when the phone comes level. With them off, you still feel taps, the shutter and zoom ticks.",
-                    "Touch and hold a zoom button and drag to zoom. Zoom ticks sets whether it ticks at every step or only at the zoom buttons' values.",
-                ])
             }
         }
         .navigationTitle("Buttons and haptics")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private static let switchNote = "The volume buttons and a Camera Control click do what you pick below. When this is off, they go back to iOS: the volume buttons change the volume and a Camera Control click opens the camera app chosen in iOS Settings."
-    private static let volumeOnlySwitchNote = "The volume buttons do what you pick below. When this is off, they change the volume."
+    private static let switchNote = "The volume buttons and the Camera Control click do what you pick below."
+    private static let volumeOnlySwitchNote = "The volume buttons do what you pick below."
 
     /// Off is the old haptics switch and the strength is kept beside it, so a save from before means the same, and
     /// turning haptics back on brings the strength back.

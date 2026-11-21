@@ -1,16 +1,19 @@
 import SwiftUI
 import CameraCore
 
-/// The Camera Control row of the first page, in the short list and the full one alike, and of the Controls page. It
-/// reads the list and the camera itself, so a settings change redraws this row and not the section around it.
+/// The Camera Control row of the first page, in the short list and the full one alike. It reads the list and the
+/// camera itself, so a settings change redraws this row and not the section around it.
 struct CameraControlRow: View {
     let model: CameraModel
 
     var body: some View {
-        NavigationLink {
-            CameraControlItemsView(model: model)
-        } label: {
-            LabeledContent("Camera Control", value: CameraControlItemsView.summary(model))
+        // An iPhone without Camera Control has nothing to set here. The saved list stays for one that has it.
+        if model.capabilities.supportsCameraControls {
+            NavigationLink {
+                CameraControlItemsView(model: model)
+            } label: {
+                LabeledContent("Camera Control", value: CameraControlItemsView.summary(model))
+            }
         }
     }
 }
@@ -58,17 +61,9 @@ struct CameraControlItemsView: View {
                     model.updateSettings { $0.controls.cameraControlItems.remove(atOffsets: offsets) }
                 }
             } header: {
-                // Text only: the explanations sit above the list, where they are read before it is changed.
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(Self.intro(hasCameraControl: caps.supportsCameraControls, manualShutter: manualShutter))
-                        .textCase(nil)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("Included")
-                }
+                Text("Included")
             } footer: {
-                SettingsFooter(Self.includedNotes(count: chosen.count, limit: limit,
-                                                  hasCameraControl: caps.supportsCameraControls))
+                SettingsFooter([Self.includedNote(count: chosen.count, limit: limit)])
             }
 
             if !others.isEmpty {
@@ -101,7 +96,7 @@ struct CameraControlItemsView: View {
                     Text("More controls")
                 } footer: {
                     if chosen.count >= limit {
-                        Text("Camera Control holds \(limit) controls. Remove one to add another.")
+                        Text("Remove a control above to add another.")
                     }
                 }
             }
@@ -129,73 +124,51 @@ struct CameraControlItemsView: View {
         model.updateSettings { $0.controls.cameraControlItems = unique }
     }
 
-    /// How the overlay is used, and why a control can be in the list and still not move: one set serves every mode.
-    private static func intro(hasCameraControl: Bool, manualShutter: Bool) -> String {
-        var sentences: [String] = []
-        if !hasCameraControl {
-            sentences.append("This iPhone has no Camera Control. The list is kept for an iPhone that has one.")
-        }
-        sentences.append("Press Camera Control lightly to show a control over the picture, then slide along it to change the value. Press lightly twice to see every control on this list, and slide to choose one.")
-        // Shutter isn't put on Camera Control without manual shutter speeds, so it has no modes to name there.
-        sentences.append(manualShutter
-            ? "Some controls only work in some modes. Night duration and Night scene work in Night. Shutter works in Photo, Manual and Video. Elsewhere they stay in the list but can't be used."
-            : "Some controls only work in some modes. Night duration and Night scene work in Night. Elsewhere they stay in the list but can't be used.")
-        return sentences.joined(separator: "\n\n")
-    }
-
-    private static func includedNotes(count: Int, limit: Int, hasCameraControl: Bool) -> [String?] {
-        guard count > 0 else { return ["Camera Control shows no app controls. Add some below."] }
-        return [
-            "Drag to change the order. Up to \(limit) controls. Camera Control lists them in this order and opens on the last one you used.",
-            count > limit
-                ? "Camera Control on this iPhone takes \(limit) controls, so the ones after the first \(limit) don't show."
-                : nil,
-            // The click is iOS's button event, set with the volume buttons.
-            hasCameraControl ? ButtonsAndHapticsView.cameraControlNote + " You can change that in Buttons and haptics." : nil,
-        ]
+    /// Only what would otherwise surprise: an empty list, or more controls than this iPhone shows.
+    private static func includedNote(count: Int, limit: Int) -> String? {
+        if count == 0 { return "Add controls from the list below." }
+        return count > limit ? "Only the first \(limit) show on this iPhone." : nil
     }
 
     /// Where the control works, or why it won't show. The camera checks match what the Camera Control bridge leaves
     /// out, and the modes match CameraControlItem.isActive(in:), which sets what the overlay lets through.
     private static func note(for item: CameraControlItem, caps: CameraCapabilities, manualShutter: Bool) -> String? {
-        let missing = "Not on the current camera."
+        let missing = "Not on this camera"
         // MANUAL's values: a pick in PHOTO leads to MANUAL, as the chips do, and NIGHT keeps them to Manual night.
-        let setByHand = "A pick in Photo switches to Manual. In Night, Manual night only."
+        let setByHand = "Photo, Manual, Video and Manual night"
         switch item {
         case .zoom:
-            return caps.zoomRange.upperBound > caps.zoomRange.lowerBound ? "Zooms within the current lens." : missing
+            return caps.zoomRange.upperBound > caps.zoomRange.lowerBound ? "Within the current lens" : missing
         // The bridge leaves the picker out on the selfie camera and on a phone with one back lens.
         case .lens:
-            return caps.lens.isFront ? missing : "Picks a lens button."
+            return caps.lens.isFront ? missing : nil
         case .exposureBias:
-            return caps.biasRange.upperBound > caps.biasRange.lowerBound ? "Exposure compensation." : missing
+            return caps.biasRange.upperBound > caps.biasRange.lowerBound ? nil : missing
         case .shutter:
             // The model leaves Shutter off Camera Control on any other phone.
-            guard manualShutter else { return "Needs an iPhone 18 Pro." }
-            return caps.supportsCustomExposure ? "Photo, Manual and Video. A pick in Photo switches to Manual." : missing
-        case .nightDuration:
-            return "Night. How long the shot runs."
-        case .nightScene:
-            return "Night. The night shot, Manual night or a scene."
+            guard manualShutter else { return "Needs an iPhone 18 Pro" }
+            return caps.supportsCustomExposure ? "Photo, Manual and Video" : missing
+        case .nightDuration, .nightScene:
+            return "Night only"
         case .iso:
             return caps.supportsCustomExposure ? setByHand : missing
         case .aperture:
-            return caps.supportsVariableAperture ? setByHand : "Only on lenses with a variable aperture."
+            return caps.supportsVariableAperture ? setByHand : "Needs a variable aperture"
         case .whiteBalance:
             return caps.supportsCustomWhiteBalance ? setByHand : missing
         case .tint:
-            return caps.supportsCustomWhiteBalance ? "Works once white balance is set." : missing
+            return caps.supportsCustomWhiteBalance ? "With white balance set by hand" : missing
         case .focus:
             return caps.supportsManualFocus ? setByHand : missing
         case .timer:
-            return "Not in Video."
+            return "Not in Video"
         case .flash:
             // Stacks never fire it, so Night and a stacked Manual shutter leave it off.
-            return caps.hasFlash ? "Photo and Manual." : missing
+            return caps.hasFlash ? "Photo and Manual" : missing
         case .histogram:
-            return "Not in Night."
+            return "Not in Night"
         case .mode:
-            return "Night, Photo, Manual and Video."
+            return nil
         }
     }
 }

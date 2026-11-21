@@ -4,7 +4,8 @@ import Photos
 import CameraCore
 
 /// The full-screen viewer: one asset a page, swiped sideways, always on black, as photos are judged in Photos. A tap
-/// shows or hides the bars. The back button and a swipe down lead to the grid.
+/// shows or hides the bars. The back button and a swipe down lead to the grid. Info, or a swipe up on a photo, raises
+/// the info panel under it.
 struct GalleryViewer: View {
     let library: CaptureLibrary
     let startID: String
@@ -19,11 +20,13 @@ struct GalleryViewer: View {
     @State private var isZoomed = false
     /// Favorites as tapped, until the library catches up.
     @State private var favorites: [String: Bool] = [:]
-    /// A stack's duration from its file, by asset.
-    @State private var stackLines: [String: String] = [:]
+    /// Where the info panel is. The body reads only whether it is open; the finger is read by InfoRoom and the
+    /// panel's layer alone.
+    @State private var motion = InfoPanelMotion()
+    @State private var facts = PhotoFactsStore()
     @State private var editing: AssetTarget?
     @State private var inspecting: AssetTarget?
-    @State private var shareURL: URL?
+    @State private var shareURLs: [URL]?
     @State private var isPreparingShare = false
     @State private var failure: String?
     @Environment(\.dismiss) private var dismiss
@@ -40,13 +43,24 @@ struct GalleryViewer: View {
     var body: some View {
         let assets = library.assets
         let current = currentID.flatMap { assets?.asset(id: $0) }
-        // A video's own controls take its taps, and VoiceOver needs the buttons, so the bars stay up for both.
-        let showsChrome = chromeVisible || current?.mediaType == .video || voiceOver
+        // A video's own controls take its taps, and VoiceOver needs the buttons, so the bars stay up for both. The
+        // info panel hides them while it is up, and they come back as they were.
+        let showsChrome = voiceOver || current?.mediaType == .video || (chromeVisible && !motion.isOpen)
         ZStack {
             Color.black
                 .ignoresSafeArea()
             if let assets {
                 pager(assets)
+            }
+        }
+        // Above the pager, under the bars.
+        .overlay(alignment: .bottom) {
+            if let current, current.mediaType == .image {
+                InfoPanelLayer(motion: motion, asset: current,
+                               kind: library.entry(for: current.localIdentifier)?.kind, store: facts,
+                               manager: library.imageManager) {
+                    inspecting = AssetTarget(asset: current)
+                }
             }
         }
         .overlay(alignment: .topLeading) {
@@ -60,7 +74,7 @@ struct GalleryViewer: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                ViewerTitle(library: library, asset: current, stackLine: currentID.flatMap { stackLines[$0] })
+                ViewerTitle(date: current?.creationDate)
             }
             ToolbarItemGroup(placement: .bottomBar) {
                 bottomButtons(for: current)
@@ -73,12 +87,18 @@ struct GalleryViewer: View {
         .toolbarColorScheme(.dark, for: .navigationBar, .bottomBar)
         // The camera hides it too, and over black its text would follow a light list's dark style.
         .statusBarHidden(true)
-        .animation(.easeInOut(duration: 0.2), value: showsChrome)
+        // Keyed on the tap and the page, not on showsChrome: the panel hides the bars inside its own animation, which
+        // this would otherwise replace for the photo and the panel too.
+        .animation(.easeInOut(duration: 0.2), value: chromeVisible)
+        .animation(.easeInOut(duration: 0.2), value: current?.mediaType == .video)
         .environment(\.colorScheme, .dark)
         .galleryZoomTransition(sourceID: currentID ?? startID, in: zoomSpace)
         .background {
-            SharePresenter(url: $shareURL) {
+            SharePresenter(urls: $shareURLs) {
                 GalleryFiles.clearShares()
+            }
+            WindowInsetProbe { [motion] top, bottom in
+                motion.setSafeArea(top: top, bottom: bottom)
             }
         }
         .onAppear {
@@ -91,10 +111,9 @@ struct GalleryViewer: View {
             isZoomed = false
             guard let id else { return }
             if let index = library.assets?.index(of: id) { lastIndex = index }
+            // The panel stays up from photo to photo and shows each; a video has none.
+            if library.assets?.asset(id: id)?.mediaType != .image { motion.close() }
             onShow(id)
-        }
-        .task(id: currentID) {
-            await loadStackLine()
         }
         .fullScreenCover(item: $editing) { target in
             // The editor stays dark, like the viewer, even when the grid behind it is light.
@@ -128,6 +147,8 @@ struct GalleryViewer: View {
 
     private func pager(_ assets: AssetList) -> some View {
         let manager = library.imageManager
+        let motion = motion
+        let isOpen = motion.isOpen
         return ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
@@ -135,8 +156,12 @@ struct GalleryViewer: View {
                         ZStack {
                             Color.black
                             if let asset = assets.asset(id: id) {
-                                GalleryPage(asset: asset, manager: manager, isCurrent: id == currentID,
-                                            isZoomed: $isZoomed, onTap: toggleChrome)
+                                InfoRoom(motion: motion, aspect: Self.aspect(of: asset)) {
+                                    GalleryPage(asset: asset, manager: manager, isCurrent: id == currentID,
+                                                isZoomed: $isZoomed, zoomEnabled: !isOpen,
+                                                infoSwipe: infoSwipe(for: asset), onInfoDrag: motion.track,
+                                                onTap: tapped)
+                                }
                             }
                         }
                         .containerRelativeFrame(.horizontal)
@@ -176,11 +201,12 @@ struct GalleryViewer: View {
         if isPhoto {
             Spacer()
             Button {
-                inspecting = asset.map(AssetTarget.init)
+                motion.toggle()
             } label: {
-                Label("Info", systemImage: "info.circle")
+                // The bars show over an open panel only for VoiceOver, so only VoiceOver hears the other name.
+                Label(motion.isOpen ? "Hide info" : "Info", systemImage: motion.isOpen ? "info.circle.fill" : "info.circle")
             }
-            .accessibilityHint("Shows everything saved inside the photo.")
+            .accessibilityHint("Shows how the photo was taken.")
             // The editor's own rule: a loop or bounce passes canPerform(.content) but can't be edited there.
             if let asset, PhotoEditSession.isEditable(asset) {
                 Spacer()
@@ -203,8 +229,26 @@ struct GalleryViewer: View {
 
     // MARK: - Actions
 
-    private func toggleChrome() {
-        chromeVisible.toggle()
+    /// A tap on the photo lowers the panel when it is up, else shows or hides the bars.
+    private func tapped() {
+        if motion.isOpen {
+            motion.close()
+        } else {
+            chromeVisible.toggle()
+        }
+    }
+
+    /// Which way a drag on this page moves the panel: up to raise it, down to lower it. None for a video, a zoomed
+    /// photo, which pans, or with VoiceOver, which has the Info button and the escape gesture.
+    private func infoSwipe(for asset: PHAsset) -> InfoSwipeDirection? {
+        guard asset.mediaType == .image, !isZoomed, !voiceOver else { return nil }
+        return motion.isOpen ? .down : .up
+    }
+
+    /// Width over height, for the photo's place above the panel. nil for a video or a photo of no known size.
+    private static func aspect(of asset: PHAsset) -> Double? {
+        guard asset.mediaType == .image, asset.pixelWidth > 0, asset.pixelHeight > 0 else { return nil }
+        return Double(asset.pixelWidth) / Double(asset.pixelHeight)
     }
 
     private func share(_ asset: PHAsset?) {
@@ -214,8 +258,8 @@ struct GalleryViewer: View {
         Task {
             defer { isPreparingShare = false }
             do {
-                shareURL = try await AssetRequests.exportCopy(of: asset, into: GalleryFiles.newShareFolder(),
-                                                               manager: manager)
+                shareURLs = [try await AssetRequests.exportCopy(of: asset, into: GalleryFiles.newShareFolder(),
+                                                                 manager: manager)]
             } catch {
                 failure = asset.mediaType == .video ? "This video couldn't be shared." : "This photo couldn't be shared."
             }
@@ -267,110 +311,24 @@ struct GalleryViewer: View {
         }
         currentID = assets.identifiers[min(max(lastIndex, 0), assets.count - 1)]
     }
-
-    /// A stack's EXIF exposure time is one frame's for Blur, Trails and NIGHT, so its duration comes from the app's
-    /// XMP fields in the file.
-    private func loadStackLine() async {
-        guard let id = currentID, stackLines[id] == nil,
-              library.entry(for: id)?.kind == .stack, let asset = library.assets?.asset(id: id) else { return }
-        let values = await AssetRequests.appValues(of: asset)
-        if let line = ShotXMP.stackSummary(values) {
-            stackLines[id] = line
-        }
-    }
 }
 
-/// The date over the picture and how it was shot.
+/// The date over the picture. How it was shot is in the info panel.
 private struct ViewerTitle: View {
-    let library: CaptureLibrary
-    let asset: PHAsset?
-    let stackLine: String?
+    let date: Date?
 
     var body: some View {
-        let entry = asset.flatMap { library.entry(for: $0.localIdentifier) }
-        let detail = stackLine ?? entry?.summary
-        VStack(spacing: 1) {
-            Text(GalleryText.dateLine(asset?.creationDate))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-            if let detail, !detail.isEmpty {
-                Text(detail)
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .lineLimit(1)
-        .minimumScaleFactor(0.75)
-        .accessibilityElement(children: .combine)
+        Text(GalleryText.dateLine(date))
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
     }
 }
 
 private struct AssetTarget: Identifiable {
     let asset: PHAsset
     var id: String { asset.localIdentifier }
-}
-
-/// Copies written for the share sheet. They are personal photos, so they go as soon as the sheet closes, and with
-/// the gallery.
-@MainActor
-enum GalleryFiles {
-    private static var shareRoot: URL {
-        FileManager.default.temporaryDirectory.appendingPathComponent("GalleryShare", isDirectory: true)
-    }
-
-    /// An empty folder of its own for each share, so a file name never collides with an earlier one.
-    static func newShareFolder() -> URL {
-        shareRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    }
-
-    static func clearShares() {
-        try? FileManager.default.removeItem(at: shareRoot)
-    }
-}
-
-/// The system share sheet for a file, presented from a hidden controller: it takes a file known only once the
-/// export is done, which ShareLink can't.
-private struct SharePresenter: UIViewControllerRepresentable {
-    @Binding var url: URL?
-    let onFinish: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeUIViewController(context: Context) -> UIViewController {
-        UIViewController()
-    }
-
-    func updateUIViewController(_ controller: UIViewController, context: Context) {
-        let coordinator = context.coordinator
-        guard let url, !coordinator.isPresenting else { return }
-        coordinator.isPresenting = true
-        let binding = $url
-        let finish = onFinish
-        // UIKit refuses a presentation in the middle of a view update, so it waits for the update to end.
-        Task { @MainActor in
-            let done = {
-                coordinator.isPresenting = false
-                binding.wrappedValue = nil
-                finish()
-            }
-            guard controller.view.window != nil, controller.presentedViewController == nil else {
-                done()
-                return
-            }
-            let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-            sheet.popoverPresentationController?.sourceView = controller.view
-            sheet.completionWithItemsHandler = { _, _, _, _ in
-                done()
-            }
-            controller.present(sheet, animated: true)
-        }
-    }
-
-    final class Coordinator {
-        var isPresenting = false
-    }
 }
 
 extension View {

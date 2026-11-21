@@ -70,7 +70,7 @@ private struct HistogramFade: View {
 }
 
 /// Draws the curves. Equatable, so a redraw of the view around it with the same curves draws nothing new.
-private struct HistogramPlot: View, Equatable {
+struct HistogramPlot: View, Equatable {
     let curves: HistogramCurves
     let style: HistogramStyle
 
@@ -113,7 +113,8 @@ private struct HistogramPlot: View, Equatable {
     }
 
     /// The top edge, flat from each end of the view to the end bucket, and the area under it.
-    private static func paths(_ heights: [Double], size: CGSize) -> (curve: Path, area: Path) {
+    /// Also draws the gallery's info panel histogram, so the two curves read alike.
+    static func paths(_ heights: [Double], size: CGSize) -> (curve: Path, area: Path) {
         var curve = Path()
         let segments = HistogramCurves.segments(heights)
         guard let first = segments.first, let last = segments.last else { return (curve, curve) }
@@ -269,7 +270,7 @@ struct HistogramCurves: Equatable, Sendable {
 }
 
 /// A spoken summary for VoiceOver: where most of the tones sit, and whether highlights clip.
-private enum HistogramSummary {
+enum HistogramSummary {
     static func summary(of histogram: Histogram) -> String {
         var total = 0.0
         var weighted = 0.0

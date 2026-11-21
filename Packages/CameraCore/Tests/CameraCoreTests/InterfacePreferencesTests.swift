@@ -29,7 +29,7 @@ final class InterfacePreferencesTests: XCTestCase {
                        ["flash", "livePhoto", "timer", "aspect", "grid", "level", "location", "quietShutter",
                         "batterySaver", "nightDuration", "raw", "exposureLock", "format", "resolution", "processing",
                         "histogram", "zebras", "peaking", "falseColor", "whiteBalance", "stabilization", "sound",
-                        "nightStability"])
+                        "steadySign"])
         XCTAssertEqual(AppearanceScheme.allCases.map(\.id), AppearanceScheme.allCases.map(\.rawValue))
         XCTAssertEqual(AccentChoice.allCases.map(\.id), AccentChoice.allCases.map(\.rawValue))
         XCTAssertEqual(HapticStrength.allCases.map(\.id), HapticStrength.allCases.map(\.rawValue))
@@ -297,10 +297,10 @@ final class InterfacePreferencesTests: XCTestCase {
             .flash: [.photo, .manual, .video], .livePhoto: [.photo], .timer: stills, .aspect: stills, .grid: every,
             .level: every, .location: every, .quietShutter: single, .batterySaver: [.night, .long],
             .nightDuration: [.night], .raw: single, .exposureLock: every, .format: stills, .resolution: single,
-            // NIGHT has no histogram; its slot holds the night shot's stability, which the scenes don't read.
+            // NIGHT has no histogram; its slot holds the steady sign's switch, for the night shot and the scenes.
             .processing: single, .histogram: [.photo, .manual, .video], .zebras: every, .peaking: every,
             .falseColor: every, .whiteBalance: every, .stabilization: [.video], .sound: [.video],
-            .nightStability: [.night],
+            .steadySign: [.night, .long],
         ]
         XCTAssertEqual(Set(modes.keys), Set(TopBarItem.allCases))
         for item in TopBarItem.allCases {
@@ -311,20 +311,26 @@ final class InterfacePreferencesTests: XCTestCase {
         }
     }
 
-    func testNightTakesStabilityInTheHistogramsPlace() {
-        // The fifth slot never holds two live buttons: the histogram where a mode has one, the night shot's
-        // stability in the night shot, and in the scenes the stability dimmed in place.
+    func testNightTakesTheSteadySignInTheHistogramsPlace() throws {
+        // The fifth slot always holds exactly one live button: the histogram where a mode has one, and across NIGHT,
+        // the night shot and the scenes alike, the steady sign's switch.
         for mode in CaptureMode.allCases {
             XCTAssertEqual(TopBarItem.histogram.applies(in: mode), mode.hasHistogram, mode.rawValue)
-            XCTAssertFalse(TopBarItem.histogram.applies(in: mode) && TopBarItem.nightStability.applies(in: mode),
-                           mode.rawValue)
+            XCTAssertNotEqual(TopBarItem.histogram.applies(in: mode), TopBarItem.steadySign.applies(in: mode),
+                              mode.rawValue)
         }
-        XCTAssertTrue(TopBarItem.nightStability.applies(in: .night))
-        XCTAssertFalse(TopBarItem.nightStability.applies(in: .long))
-        // Added at the end, so the names saves hold keep their places.
-        XCTAssertEqual(TopBarItem.allCases.last, .nightStability)
-        XCTAssertEqual(TopBarItem.nightStability.title, "Stability")
-        XCTAssertEqual(TopBarItem.nightStability.symbolNames, ["hand.raised"])
+        XCTAssertTrue(TopBarItem.steadySign.applies(in: .night))
+        XCTAssertTrue(TopBarItem.steadySign.applies(in: .long))
+        // In the stability menu's place at the end, so the names saves hold keep their places.
+        XCTAssertEqual(TopBarItem.allCases.last, .steadySign)
+        XCTAssertEqual(TopBarItem.steadySign.rawValue, "steadySign")
+        XCTAssertEqual(TopBarItem.steadySign.title, "Steady sign")
+        XCTAssertEqual(TopBarItem.steadySign.symbolNames, ["hand.raised"])
+        // The old name reads as nothing, so a stray one in a save drops out alone.
+        XCTAssertNil(TopBarItem(rawValue: "nightStability"))
+        let stray = try decode(TopBarOptions.self, #"{"leading":["nightStability","flash"],"trailing":["steadySign"]}"#)
+        XCTAssertEqual(stray.leading, [.flash])
+        XCTAssertEqual(stray.trailing, [.steadySign])
     }
 
     func testTopBarTitlesAndSymbols() {
@@ -333,7 +339,7 @@ final class InterfacePreferencesTests: XCTestCase {
                        ["Flash", "Live Photo", "Timer", "Aspect ratio", "Grid", "Level", "Location tags",
                         "Silent shutter", "Battery saver", "Night duration", "RAW", "AE lock", "Format", "Resolution",
                         "Processing", "Histogram", "Zebras", "Focus peaking", "False color", "White balance",
-                        "Stabilization", "Sound", "Stability"])
+                        "Stabilization", "Sound", "Steady sign"])
         // The names tell the buttons apart.
         XCTAssertEqual(Set(titles).count, titles.count)
         for item in TopBarItem.allCases {
@@ -479,6 +485,7 @@ final class InterfacePreferencesTests: XCTestCase {
             settings.appearance, settings.accessibility, settings.topBar, settings.startup,
             settings.controls.volumeUpAction, settings.controls.volumeDownAction, settings.controls.hapticStrength,
             settings.controls.dialTicks, settings.controls.zoomTicks, settings.display.dimDuringLongShots,
+            settings.display.showSteadySign,
             settings.capture.prioritizeSpeed, settings.capture.artist, settings.capture.copyright,
             settings.video.allowAudioPlayback,
         ]
@@ -502,6 +509,7 @@ final class InterfacePreferencesTests: XCTestCase {
         settings.controls.dialTicks = false
         settings.controls.zoomTicks = .lensValues
         settings.display.dimDuringLongShots = true
+        settings.display.showSteadySign = false
         settings.capture.prioritizeSpeed = true
         settings.capture.artist = "Sam"
         settings.capture.copyright = "Sam 2026"

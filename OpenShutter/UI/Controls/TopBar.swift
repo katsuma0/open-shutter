@@ -3,19 +3,19 @@ import CameraCore
 
 /// The row over the top of the picture: flash, shape, timer, format, histogram, AE lock, Live Photo and the gear,
 /// always in the same eight slots, as plain glyphs with nothing behind them, like Apple's Camera. NIGHT has no
-/// histogram, so its slot holds what the night shot plans for: a tripod, a hand or Auto. One that has nothing to do in
-/// a mode dims in its place and never steps aside, so each stays where the thumb expects it. A tap on a button with
-/// choices lists them, the current one checked. Live Photo and AE lock switch on a tap, and the gear opens Settings.
+/// histogram, so its slot holds the steady sign's switch. One that has nothing to do in a mode dims in its place and
+/// never steps aside, so each stays where the thumb expects it. A tap on a button with choices lists them, the current
+/// one checked. Live Photo, AE lock and the steady sign switch on a tap, and the gear opens Settings.
 /// VIDEO's flashlight switches on a tap too, and lists its brightness on touch and hold.
 struct TopBar: View {
     @Bindable var model: CameraModel
     /// Set to show the timer sheet, which the camera screen presents.
     @Binding var timerSheetRequested: Bool
 
-    /// Left to right. The gear takes the eighth slot. NIGHT has no histogram: what the night shot plans for takes its
-    /// place, so the two cross-fade when the mode changes.
+    /// Left to right. The gear takes the eighth slot. NIGHT has no histogram: the steady sign's switch takes its place,
+    /// so the two cross-fade when the mode changes.
     private static func items(in mode: CaptureMode) -> [TopBarItem] {
-        [.flash, .aspect, .timer, .format, mode.hasHistogram ? .histogram : .nightStability, .exposureLock, .livePhoto]
+        [.flash, .aspect, .timer, .format, mode.hasHistogram ? .histogram : .steadySign, .exposureLock, .livePhoto]
     }
 
     var body: some View {
@@ -38,7 +38,7 @@ struct TopBar: View {
                     let stays = item == .flash
                     TopBarItemButton(model: model, item: item, mode: mode, timerSheetRequested: $timerSheetRequested)
                         .disabled(!applies)
-                        .opacity(applies ? 1 : 0.3)
+                        .opacity(applies ? 1 : Theme.Dim.off)
                         .modifier(SlotPlacement(slots: index...index, isHidden: isRecording && !stays, isHeld: isHeld))
                 }
             }
@@ -124,7 +124,7 @@ private struct SlotPlacement: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .opacity(isHidden ? 0 : (isHeld ? 0.35 : 1))
+            .opacity(isHidden ? 0 : (isHeld ? Theme.Dim.held : 1))
             .allowsHitTesting(!isHidden && !isHeld)
             // Hit testing only stops touches: VoiceOver opens a menu without one. Disabled as well, so a held bar
             // opens nothing; the look stays the one set above.
@@ -220,7 +220,7 @@ private struct VideoFormatChip: View {
         .minimumScaleFactor(0.7)
         .foregroundStyle(Theme.primaryText)
         // Bare like the glyphs beside it, with their shadow to read over a bright picture.
-        .shadow(color: .black.opacity(0.5), radius: 3)
+        .legibleShadow()
         .background {
             SolidBacking(shape: Capsule(), height: 28)
         }
@@ -404,7 +404,7 @@ struct BarGlyphLook: ViewModifier {
         content
             .font(.system(size: 18 * Theme.labelScale, weight: .regular))
             .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
-            .shadow(color: .black.opacity(0.5), radius: 3)
+            .legibleShadow()
             .frame(width: 44, height: 44)
             .background {
                 SolidBacking(shape: Circle(), width: Theme.controlSize, height: Theme.controlSize)

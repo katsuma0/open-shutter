@@ -13,7 +13,7 @@ enum Theme {
     @MainActor static var onAccent: Color { AppearanceStore.shared.onAccent }
     static let recording = Color(red: 1.0, green: 0.231, blue: 0.188)
     /// Orange for a warning that is not an error: the steady sign while the phone moves, star trails past the
-    /// sharp limit.
+    /// sharp limit, a warm phone.
     static let warning = Color(red: 1.0, green: 0.62, blue: 0.2)
     static let background = Color.black
     static let primaryText = Color.white
@@ -27,7 +27,44 @@ enum Theme {
         AppearanceStore.shared.increaseContrast ? Palette.strongHairline : Palette.hairline
     }
 
-    @MainActor static var modeFont: Font { larger ? Fonts.largeMode : Fonts.mode }
+    /// The round wells inside glass, behind the quick settings' glyphs.
+    @MainActor static var raisedFill: Color {
+        AppearanceStore.shared.increaseContrast ? Palette.strongRaisedFill : Palette.raisedFill
+    }
+    /// A faint track or an empty well: behind the lens buttons, the thumbnail before the first photo.
+    static let trackFill = Color.white.opacity(0.08)
+    /// A dark backing for a line of numbers over the picture, such as the night plan and the zoom readout. Glass takes
+    /// its tone from the scene; this reads over a white sky and a black one alike. Darker where the person asked for
+    /// more contrast or less transparency.
+    @MainActor static var scrim: Color {
+        let store = AppearanceStore.shared
+        let strong = store.increaseContrast || store.reduceTransparency || store.solidControls
+        return Color.black.opacity(strong ? 0.85 : 0.6)
+    }
+    /// The hairline round a scrim.
+    static let scrimEdge = Color.white.opacity(0.15)
+
+    /// How far a control fades when it can't be used.
+    enum Dim {
+        /// Does nothing here: not in this mode, not on this camera, or blocked by another setting.
+        static let off = 0.35
+        /// Waits for the running shot and comes back by itself. Its value stays readable.
+        static let held = 0.45
+    }
+
+    /// The margin of every row of controls over the shutter, so their outer edges line up.
+    static let edge: CGFloat = 12
+
+    /// Messages and titles: toasts, the modes, the night plan.
+    @MainActor static var labelFont: Font { larger ? Fonts.largeLabel : Fonts.label }
+    @MainActor static var modeFont: Font { labelFont }
+    /// Small capitals and badges: the dial's title, the corner badges, the quick settings' item names.
+    @MainActor static var microFont: Font { larger ? Fonts.largeMicro : Fonts.micro }
+    /// The small A beside a value the camera picks. It grows with Larger labels so it stays level with the top of the
+    /// digits it marks.
+    @MainActor static var markFont: Font { Font.system(size: 7 * labelScale, weight: .bold) }
+    /// Furniture coming and going in place: badges, the level, a status, the lens buttons on a flip.
+    static let fade = Animation.easeInOut(duration: 0.2)
     @MainActor static var chipFont: Font { larger ? Fonts.largeChip : Fonts.chip }
     @MainActor static var valueFont: Font { larger ? Fonts.largeValue : Fonts.value }
     @MainActor static var bigValueFont: Font { larger ? Fonts.largeBigValue : Fonts.bigValue }
@@ -46,14 +83,18 @@ enum Theme {
         static let strongTertiaryText = Color.white.opacity(0.55)
         static let hairline = Color.white.opacity(0.18)
         static let strongHairline = Color.white.opacity(0.35)
+        static let raisedFill = Color.white.opacity(0.12)
+        static let strongRaisedFill = Color.white.opacity(0.2)
     }
 
     /// Camera labels have fixed sizes, because the system text size would push them out of their fixed-height rows.
     /// Larger labels makes each about a fifth bigger, which those rows still hold.
     private enum Fonts {
         static let largerScale: CGFloat = 1.2
-        static let mode = Font.system(size: 13, weight: .semibold).width(.standard)
-        static let largeMode = Font.system(size: 15.5, weight: .semibold).width(.standard)
+        static let label = Font.system(size: 13, weight: .semibold).width(.standard)
+        static let largeLabel = Font.system(size: 15.5, weight: .semibold).width(.standard)
+        static let micro = Font.system(size: 10, weight: .semibold)
+        static let largeMicro = Font.system(size: 12, weight: .semibold)
         static let chip = Font.system(size: 12, weight: .semibold).monospacedDigit()
         static let largeChip = Font.system(size: 14.5, weight: .semibold).monospacedDigit()
         static let value = Font.system(size: 15, weight: .semibold, design: .default).monospacedDigit()
@@ -296,5 +337,28 @@ private struct MenuLayerPressStyle: ButtonStyle {
             .onChange(of: configuration.isPressed) { _, pressed in
                 press.isPressed = pressed
             }
+    }
+}
+
+extension View {
+    /// Bare text and glyphs drawn on the picture: the shadow that keeps white apart from a white sky.
+    func legibleShadow() -> some View {
+        shadow(color: .black.opacity(0.5), radius: 3)
+    }
+
+    /// Thin lines and ticks drawn on the picture.
+    func lineShadow() -> some View {
+        shadow(color: .black.opacity(0.4), radius: 1.5)
+    }
+}
+
+/// The press look of a round control: a short shrink, as the flip button's.
+struct PressScaleStyle: ButtonStyle {
+    var scale: CGFloat = 0.9
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .animation(Theme.snappy, value: configuration.isPressed)
     }
 }

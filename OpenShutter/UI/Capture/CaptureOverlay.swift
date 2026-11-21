@@ -95,6 +95,8 @@ private struct CountdownLayer: View {
 
     var body: some View {
         let remaining = Self.remaining(model.activity)
+        // A stored flag written twice per wait, so reading it here costs nothing between seconds.
+        let waiting = remaining != nil && model.isWaitingForSteady
         // The app's own Reduce motion switch counts as much as the system's.
         let reduceMotion = systemReduceMotion || AppearanceStore.shared.reduceMotion
         ZStack {
@@ -106,12 +108,17 @@ private struct CountdownLayer: View {
                         insertion: .scale(scale: 1.35).combined(with: .opacity),
                         removal: .scale(scale: 0.7).combined(with: .opacity)
                     ))
+            }
+            // Only while the last second is held for a phone that still moves: the number stops there, and nothing
+            // else on screen says why. A plain timer needs no words; the shutter's square stops it.
+            if waiting {
                 CountdownHint(model: model)
                     .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeOut(duration: 0.35), value: remaining)
+        .animation(Theme.fade, value: waiting)
         .allowsHitTesting(false)
     }
 
@@ -141,11 +148,11 @@ private struct CountdownNumber: View {
 /// Sits just under the numerals rather than at the frame's edge, where the controls can cover it, and turns with
 /// them. Kept apart from the numerals so it doesn't replay their per-second transition. Where the open part of the
 /// frame is short, as with a tall dial open on a small phone, it drops less and stays inside, and its words stop
-/// growing at the largest standard size, as the steady status's do, so two sentences can't cover the numerals.
+/// growing at the largest standard size, as the steady status's do, so they can't cover the numerals.
 private struct CountdownHint: View {
     let model: CameraModel
-    /// The hint as laid out, before it turns. Two lines stand in until it is measured.
-    @State private var textHeight: CGFloat = 32
+    /// The hint as laid out, before it turns. One line stands in until it is measured.
+    @State private var textHeight: CGFloat = 18
 
     /// How far under the numerals' middle the hint sits when there is room.
     private static let drop: CGFloat = 96
@@ -158,14 +165,12 @@ private struct CountdownHint: View {
         GeometryReader { proxy in
             let span = (sideways ? proxy.size.width : proxy.size.height) / 2
             let drop = min(Self.drop, max(0, span - textHeight / 2 - Self.margin))
-            // A tripod scene's wait counts down like a self timer nobody set, so it says what it is for, and its last
-            // second holds while the phone still moves, which needs saying too. The break falls between the
-            // sentences rather than wherever the width runs out.
-            Text(Self.text(waiting: model.isWaitingForSteady, settling: model.isSettling))
+            Text(Self.text)
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(Theme.secondaryText)
+                // Full white: grey words over a lit scene with only a shadow behind them were the camera's weakest.
+                .foregroundStyle(Theme.primaryText)
                 .multilineTextAlignment(.center)
-                .shadow(color: .black.opacity(0.6), radius: 4)
+                .legibleShadow()
                 .padding(.horizontal, 24)
                 .onGeometryChange(for: CGFloat.self) { geometry in
                     geometry.size.height
@@ -179,11 +184,7 @@ private struct CountdownHint: View {
         .uprightRotation(motion.iconRotationDegrees)
     }
 
-    private static func text(waiting: Bool, settling: Bool) -> String {
-        if waiting { return "Waiting for the phone to settle.\nTap the shutter to cancel." }
-        if settling { return "Letting the phone settle.\nTap the shutter to cancel." }
-        return "Tap the shutter to cancel."
-    }
+    private static let text = "Waiting for the phone to settle"
 }
 
 // MARK: - Status
@@ -203,7 +204,7 @@ private struct StatusLayer: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeInOut(duration: 0.25), value: isStacking || hasSequence)
+        .animation(Theme.fade, value: isStacking || hasSequence)
     }
 }
 
@@ -213,8 +214,6 @@ private struct StatusBlock: View {
     let crossCenter: CGPoint?
     /// Stop was tapped and the backend is merging what it has; the capsule says so instead of counting on.
     @State private var isFinishing = false
-    /// The block as laid out, before it turns with the phone. A typical size stands in until it is measured.
-    @State private var blockSize = CGSize(width: 190, height: 88)
 
     /// How far the block stays from the crosses' centre: the moving cross's farthest reach (DriftMath.radius and its
     /// 15 pt arm) and a margin.
@@ -226,9 +225,10 @@ private struct StatusBlock: View {
         // The shutter, a hardware button and the end of a bulb hold finish a stack too, and look the same as a tap on
         // Stop. The model's flag lands an update after a tap, and the local one covers that moment.
         let finishing = isFinishing || model.isFinishingStack
-        GeometryReader { proxy in
-            let point = Self.place(in: proxy.size, block: blockSize, degrees: degrees,
-                                   crossCenter: isStacking ? crossCenter : nil)
+        let cross = isStacking ? crossCenter : nil
+        // Placed from its own size in the first layout pass, so it appears where it belongs instead of starting at a
+        // typical size and sliding there once measured.
+        StatusBlockPlacement(degrees: degrees, crossCenter: cross) {
             VStack(spacing: 10) {
                 if let status = model.intervalometer {
                     IntervalStatusLine(status: status)
@@ -254,16 +254,13 @@ private struct StatusBlock: View {
                 )
                 .disabled(finishing)
             }
-            .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
-                blockSize = size
-            }
             .uprightRotation(degrees)
-            .position(point)
-            // Keyed on the place, not on what moved it: a turn, Cancel leaving and each stack of an intervalometer
-            // starting or ending all move the block. Every move glides on the frame's spring, and cuts under Reduce
-            // motion like the turn itself.
-            .frameMotion(value: point)
         }
+        // Keyed on what moves the block: a turn, the crosses, Cancel leaving, Processing taking the count's place, and
+        // each stack of an intervalometer starting or ending. Every move glides on the frame's spring, and cuts under
+        // Reduce motion like the turn itself.
+        .frameMotion(value: PlaceKey(degrees: degrees, crossCenter: cross, interval: model.intervalometer != nil,
+                                     bracket: model.bracketInProgress, stacking: isStacking, finishing: finishing))
         .onChange(of: model.activity) { _, activity in
             if activity != .stacking { isFinishing = false }
         }
@@ -275,7 +272,7 @@ private struct StatusBlock: View {
     /// histogram and the badges keep to the sides of that end, so its middle is free. Where the open area is too short
     /// to clear the crosses' reach, as with the phone turned at the shorter shapes, the block stays on screen and the
     /// camera screen draws the crosses over it.
-    private static func place(in size: CGSize, block: CGSize, degrees: Double, crossCenter: CGPoint?) -> CGPoint {
+    fileprivate static func place(in size: CGSize, block: CGSize, degrees: Double, crossCenter: CGPoint?) -> CGPoint {
         let usual = CGPoint(x: size.width / 2, y: degrees == 0 ? size.height * 0.72 : size.height / 2)
         guard let cross = crossCenter, cross.y.isFinite else { return usual }
         let margin: CGFloat = 8
@@ -289,6 +286,34 @@ private struct StatusBlock: View {
             y = max(min(usual.y, cross.y - crossClearance - block.width / 2), block.width / 2 + margin)
         }
         return CGPoint(x: usual.x, y: y)
+    }
+}
+
+private struct PlaceKey: Equatable {
+    var degrees: Double
+    var crossCenter: CGPoint?
+    var interval: Bool
+    var bracket: Bool
+    var stacking: Bool
+    var finishing: Bool
+}
+
+/// Fills what it is offered and puts the status block where StatusBlock.place says, from the block's size before it
+/// turns: the rotation leaves the laid-out size alone, so on its side the block runs along its width.
+private struct StatusBlockPlacement: Layout {
+    let degrees: Double
+    let crossCenter: CGPoint?
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let block = subviews.first else { return }
+        let size = block.sizeThatFits(.unspecified)
+        let point = StatusBlock.place(in: bounds.size, block: size, degrees: degrees, crossCenter: crossCenter)
+        block.place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y), anchor: .center,
+                    proposal: ProposedViewSize(size))
     }
 }
 
@@ -488,7 +513,7 @@ private struct StatusButtons: View {
             if canDiscard {
                 Button(action: onDiscard) {
                     Text("Cancel")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(Theme.valueFont)
                         .foregroundStyle(Theme.primaryText)
                         .padding(.horizontal, 18)
                         .frame(height: 36)
@@ -506,7 +531,7 @@ private struct StatusButtons: View {
                     Image(systemName: "stop.fill")
                     Text("Stop")
                 }
-                .font(.system(size: 15, weight: .semibold))
+                .font(Theme.valueFont)
                 .foregroundStyle(Theme.onAccent)
                 .padding(.horizontal, 18)
                 .frame(height: 36)
@@ -524,6 +549,37 @@ private struct StatusButtons: View {
 
 // MARK: - Saving
 
+/// "Saving" where the stack's status line was, upright with the phone like it, in the status capsules' type. Reads
+/// the turn only while saving.
+private struct SavingCapsule: View {
+    let model: CameraModel
+
+    /// Half the stack's status block as it usually stands (88 pt) less half this capsule: the block's top row.
+    private static let rise: CGFloat = 27
+
+    var body: some View {
+        let degrees = model.motion.iconRotationDegrees
+        GeometryReader { proxy in
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(Theme.primaryText)
+                Text("Saving")
+            }
+            .font(Theme.valueFont)
+            .foregroundStyle(Theme.primaryText)
+            .padding(.horizontal, 14)
+            .frame(height: 34)
+            .cameraGlass(in: Capsule())
+            .uprightRotation(degrees)
+            // 0.72 down when upright, the middle when turned, as the status block places itself.
+            .position(x: proxy.size.width / 2,
+                      y: degrees == 0 ? proxy.size.height * 0.72 - Self.rise : proxy.size.height / 2)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 private struct SavingLayer: View {
     let model: CameraModel
 
@@ -531,23 +587,12 @@ private struct SavingLayer: View {
         let isSaving = model.activity == .saving
         ZStack {
             if isSaving {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(Theme.primaryText)
-                    Text("Saving")
-                }
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.primaryText)
-                .padding(.horizontal, 14)
-                .frame(height: 34)
-                .cameraGlass(in: Capsule())
-                .transition(.opacity)
-                .accessibilityElement(children: .combine)
+                SavingCapsule(model: model)
+                    .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeInOut(duration: 0.2), value: isSaving)
+        .animation(Theme.fade, value: isSaving)
         .allowsHitTesting(false)
     }
 }

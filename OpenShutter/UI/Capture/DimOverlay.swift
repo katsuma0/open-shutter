@@ -34,7 +34,9 @@ private struct DimScreen: View {
     @State private var clock: DimClock?
     @AccessibilityFocusState private var isFocused: Bool
 
-    private static let title = "Screen dimmed to save battery"
+    /// Short on the black, where a glance must take it in; VoiceOver has room for the whole sentence.
+    private static let shownTitle = "Saving battery"
+    private static let spokenTitle = "Screen dimmed to save battery"
 
     var body: some View {
         // Once a second for the time left; nothing else here changes on its own.
@@ -42,12 +44,12 @@ private struct DimScreen: View {
             let time = DimTime(clock: clock, now: context.date)
             ZStack {
                 Color.black
-                DimLines(title: Self.title, time: time?.shown)
+                DimLines(title: Self.shownTitle, time: time?.shown)
                     .offset(Self.shift(at: context.date))
                     .modifier(DimUpright(model: model))
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(Self.title + "." + (time.map { " " + $0.spoken } ?? "")))
+            .accessibilityLabel(Text(Self.spokenTitle + "." + (time.map { " " + $0.spoken } ?? "")))
             .accessibilityHint(Text("Double tap to light the screen."))
             // Nothing under the black can be seen, so VoiceOver stays on it until it lights up.
             .accessibilityAddTraits(.isModal)
@@ -118,7 +120,7 @@ private struct DimLines: View {
                     .font(.footnote.monospacedDigit())
                     .foregroundStyle(Color.white.opacity(0.3))
             }
-            Text("Touch the screen to see the shot.")
+            Text("Touch to see the shot")
                 .font(.caption)
                 .foregroundStyle(Color.white.opacity(0.3))
         }

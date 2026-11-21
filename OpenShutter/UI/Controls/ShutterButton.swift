@@ -72,7 +72,7 @@ struct ShutterButton: View {
         .frame(width: Theme.shutterSize, height: Theme.shutterSize)
         .animation(Theme.spring, value: kind)
         .animation(Theme.spring, value: showsBulbGlyph)
-        .opacity(isEnabled || press != nil ? 1 : 0.4)
+        .opacity(isEnabled || press != nil ? 1 : Theme.Dim.off)
         .animation(Theme.snappy, value: isEnabled)
         .contentShape(Circle())
         .gesture(pressGesture)

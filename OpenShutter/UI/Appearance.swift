@@ -33,6 +33,8 @@ final class AppearanceStore {
     private(set) var increaseContrast: Bool
     /// The system's Reduce Motion on its own, for the Settings page that explains the in-app switch.
     private(set) var systemReducesMotion: Bool
+    /// The system's Reduce Transparency. The dark backing behind numbers on the picture goes nearly solid with it.
+    private(set) var reduceTransparency: Bool
 
     @ObservationIgnored private var appearance = AppearanceOptions()
     @ObservationIgnored private var accessibility = AccessibilityOptions()
@@ -48,6 +50,7 @@ final class AppearanceStore {
         systemReducesMotion = systemReduce
         reduceMotion = systemReduce
         increaseContrast = UIAccessibility.isDarkerSystemColorsEnabled
+        reduceTransparency = UIAccessibility.isReduceTransparencyEnabled
         let center = NotificationCenter.default
         observers.append(center.addObserver(
             forName: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil, queue: .main
@@ -56,6 +59,11 @@ final class AppearanceStore {
         })
         observers.append(center.addObserver(
             forName: UIAccessibility.darkerSystemColorsStatusDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.apply() }
+        })
+        observers.append(center.addObserver(
+            forName: UIAccessibility.reduceTransparencyStatusDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.apply() }
         })
@@ -98,6 +106,8 @@ final class AppearanceStore {
         if reduceMotion != reduce { reduceMotion = reduce }
         let contrast = UIAccessibility.isDarkerSystemColorsEnabled
         if increaseContrast != contrast { increaseContrast = contrast }
+        let transparencyReduced = UIAccessibility.isReduceTransparencyEnabled
+        if reduceTransparency != transparencyReduced { reduceTransparency = transparencyReduced }
         if largerLabels != accessibility.largerLabels { largerLabels = accessibility.largerLabels }
         if solidControls != accessibility.solidControls { solidControls = accessibility.solidControls }
         if leftHanded != accessibility.leftHanded { leftHanded = accessibility.leftHanded }

@@ -256,7 +256,7 @@ private struct LevelIndicator: View {
             // A new shape moves the frame's middle; the level glides there with the grid, and rises with a turn.
             .frameMotion(value: place)
             .opacity(isVisible ? 1 : 0)
-            .animation(.easeInOut(duration: 0.2), value: isVisible)
+            .animation(Theme.fade, value: isVisible)
             .accessibilityHidden(true)
             .onChange(of: motion) { _, new in
                 // Attitude updates arrive up to 30 times a second; the flag is written only when it flips.
@@ -321,7 +321,7 @@ private struct LevelGraphic: View {
                 .rotationEffect(.degrees(tilt))
         }
         .frame(width: Self.middle + 2 * (Self.wing + 8), height: Self.middle)
-        .shadow(color: .black.opacity(0.35), radius: 1)
+        .lineShadow()
         .animation(Theme.snappy, value: isLevel)
     }
 }
@@ -498,7 +498,7 @@ private struct FocusReticle: View {
             if isLocked {
                 SideClamp(room: labelRoom) {
                     Text(lock.badgeLabel)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(Theme.readoutFont.weight(.semibold))
                         .foregroundStyle(Theme.onAccent)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
@@ -512,7 +512,7 @@ private struct FocusReticle: View {
                 .transition(.opacity)
             }
         }
-        .shadow(color: .black.opacity(0.3), radius: 1)
+        .lineShadow()
         .uprightRotation(Upright.degrees(quarterTurns))
         .animation(Theme.snappy, value: isLocked)
         .task {
@@ -575,8 +575,9 @@ private struct StatusBadges: View {
 
     var body: some View {
         let topShift = furniture.badgeShift(histogramShown: model.histogramOnScreen)
-        // NIGHT's plan pill carries the stack symbol beside its frames, so the corner badge is MANUAL's alone.
-        let stacked = model.settings.mode == .manual && model.shutterIsStacked
+        // NIGHT's plan pill carries the stack symbol beside its frames, so the corner badge is MANUAL's alone, and
+        // the shutter dial's header carries it while that dial is open.
+        let stacked = model.settings.mode == .manual && model.shutterIsStacked && model.activeDial != .shutter
         let lock = LockWording(focus: model.focusLocked, exposure: model.aeLocked)
         let turns = model.motion.quarterTurns
         // Stands in for the square's label when the square is gone (a zoom moved the picture under it, or the AE-L
@@ -606,10 +607,12 @@ private struct StatusBadges: View {
                 } label: {
                     StatusBadge(symbol: "square.stack.3d.up.fill", text: "STACKED", tint: Theme.accent,
                                 quarterTurns: turns)
-                        .frame(minWidth: 44, minHeight: 34)
+                        .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // A 44 pt touch in the column's 34 pt row, so neither the column nor a toast under it moves.
+                .padding(.vertical, -5)
                 // Below the badge, over the picture: no other side of the corner fits the bubble on every phone.
                 .stackExplanation(isPresented: $showsStackInfo, arrowEdge: .bottom)
                 .accessibilityHint("Explains what a stacked exposure is.")
@@ -690,11 +693,12 @@ private struct StatusBadge: View {
                 Text(text)
                     .foregroundStyle(Theme.primaryText)
             }
-            .font(.system(size: 10, weight: .semibold))
+            .font(Theme.microFont)
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, 8)
-            .frame(height: 22)
+            // Grows with Larger labels, as its words do.
+            .frame(height: 22 * Theme.labelScale)
             .cameraGlass(in: Capsule())
             .uprightRotation(Upright.degrees(quarterTurns))
         }
@@ -734,7 +738,7 @@ private struct SensorBadges: View {
                 StatusBadge(
                     symbol: readings.pressure == .serious ? "thermometer.medium" : "thermometer.high",
                     text: Self.thermalText(readings.pressure),
-                    tint: readings.pressure == .serious ? Theme.accent : Theme.recording,
+                    tint: readings.pressure == .serious ? Theme.warning : Theme.recording,
                     quarterTurns: quarterTurns
                 )
                 .padding(.bottom, 6)

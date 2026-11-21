@@ -211,7 +211,7 @@ private struct CameraLayout: View {
         }
         .ignoresSafeArea()
         }
-        .animation(.easeInOut(duration: 0.25), value: fullscreen)
+        .animation(Theme.fade, value: fullscreen)
         .modifier(HardwareButtons(model: model, isEnabled: hardwareButtonsEnabled))
         .sheet(isPresented: $timerSheetShown) {
             TimerControls(model: model)
@@ -754,7 +754,7 @@ private struct ToastCapsule: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(lineLimit)
         }
-        .font(.system(size: 13, weight: .semibold))
+        .font(Theme.labelFont)
         .foregroundStyle(Theme.primaryText)
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -782,7 +782,7 @@ private struct SessionStatusLayer: View {
                 EmptyView()
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: model.sessionState)
+        .animation(Theme.fade, value: model.sessionState)
         .allowsHitTesting(false)
     }
 }
@@ -934,7 +934,7 @@ private struct ControlsZone: View {
             // chip on the other.
             LensRow(model: model, wheel: wheel)
                 .disabled(isStacking)
-                .opacity(isStacking ? 0.35 : 1)
+                .opacity(isStacking ? Theme.Dim.held : 1)
 
             // Without a band for the mode row the carousel sits here. It stays while a dial is open, as it does in
             // the band, so the lens row and the chips above it keep their place under the finger.
@@ -1036,7 +1036,7 @@ private struct ModePanels: View {
                     // A format change mid-recording would reconfigure the session under the movie file.
                     VideoControls(model: model)
                         .disabled(isRecording)
-                        .opacity(isRecording ? 0.35 : 1)
+                        .opacity(isRecording ? Theme.Dim.held : 1)
                 }
                 ManualControlStrip(model: model)
             case .photo:
@@ -1063,7 +1063,10 @@ private struct NightReadout: View {
                     model.activeDial = model.activeDial == .focus ? nil : .focus
                 }
             } label: {
+                // The line is shorter than a finger: the button takes 44 pt round it.
                 ReadoutHUD(model: model, opensFocusDial: true)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityHint("Opens the focus dial.")
@@ -1093,7 +1096,7 @@ private struct SceneFocusChip: View {
             // Locked with the dial it opens, its touch and hold menu included, as the strip's chips are while a shot
             // runs or saves.
             .disabled(activity == .capturing || activity == .stacking || activity == .saving)
-            .opacity(activity == .saving ? 0.45 : 1)
+            .opacity(activity == .saving ? Theme.Dim.held : 1)
     }
 }
 
@@ -1117,12 +1120,13 @@ private struct CarouselSlot: View {
             modes: model.availableModes
         )
         // Hidden but still laid out, so the controls around it don't jump when recording starts.
-        .opacity(isHidden ? 0 : (activity.isCountdown || sequenceRunning ? 0.35 : 1))
+        .opacity(isHidden ? 0 : (activity.isCountdown || sequenceRunning ? Theme.Dim.held : 1))
+        .animation(Theme.snappy, value: activity.isCountdown || sequenceRunning)
         // Photos still being saved keep the session as it is. Not dimmed for them, which would blink after each shot.
         .disabled(activity.isBusy || sequenceRunning || model.photosInFlight > 0)
         .accessibilityHidden(isHidden)
         // Fades with the thumbnail and the flip button beside it.
-        .animation(.easeInOut(duration: 0.2), value: isHidden)
+        .animation(Theme.fade, value: isHidden)
     }
 }
 
@@ -1172,14 +1176,17 @@ private struct ShutterRow: View {
                 if model.settings.mode.usesStacking {
                     SceneSideButton(model: model)
                         .disabled(busy)
-                        .opacity(busy ? 0.4 : 1)
+                        .opacity(busy ? Theme.Dim.held : 1)
+                        // On each button, not the row: the shutter between them has its own spring.
+                        .animation(Theme.snappy, value: busy)
                 } else if model.macroOffered {
                     ShutterSideButton(symbol: "camera.macro", isActive: model.isMacro,
                                       label: model.isMacro ? "Macro, on" : "Macro") {
                         model.toggleMacro()
                     }
                     .disabled(busy)
-                    .opacity(busy ? 0.4 : 1)
+                    .opacity(busy ? Theme.Dim.held : 1)
+                    .animation(Theme.snappy, value: busy)
                 } else {
                     Color.clear.frame(width: ShutterSideButton.standardSize)
                 }
@@ -1189,7 +1196,8 @@ private struct ShutterRow: View {
                     withAnimation(Theme.spring) { model.isDrawerOpen.toggle() }
                 }
                 .disabled(drawerHeld)
-                .opacity(drawerHeld ? 0.4 : 1)
+                .opacity(drawerHeld ? Theme.Dim.held : 1)
+                .animation(Theme.snappy, value: drawerHeld)
             }
             .padding(.horizontal, 36)
             ShutterSlot(model: model)
@@ -1216,7 +1224,7 @@ private struct ShutterSideButton: View {
         } label: {
             ShutterSideFace(image: Image(systemName: symbol), isActive: isActive, size: size)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleStyle())
         .accessibilityLabel(Text(label))
     }
 }
@@ -1240,27 +1248,54 @@ private struct ShutterSideFace: View {
 }
 
 /// NIGHT's button left of the shutter, in the place macro has in PHOTO and MANUAL: the scene the shot uses, by its
-/// symbol, and a tap lists them all. Lit like macro when it is on, since a scene is always in force here.
+/// symbol, and a tap lists them all. Lit like macro when it is on, since a scene is always in force here. The menu is
+/// a layer over the face, as the bar's are: NIGHT's dial writes the settings while this shows, and a menu built here
+/// would rebuild the system's menu button with each write.
 private struct SceneSideButton: View {
     let model: CameraModel
     var size: CGFloat = ShutterSideButton.standardSize
+
+    @State private var press = PressTracker()
 
     var body: some View {
         // nil is the night shot.
         let scene: LongExposureScene? = model.settings.mode == .long ? model.settings.longExposure.scene : nil
         let symbol: Image = scene.map { SceneSymbols.image(for: $0) } ?? Image(systemName: NightText.nightSymbol)
-        Menu {
-            NightSceneMenuItems(model: model, scene: scene)
-        } label: {
-            ShutterSideFace(image: symbol, isActive: true, size: size)
+        ShutterSideFace(image: symbol, isActive: true, size: size)
+            .scaleEffect(press.isPressed ? 0.9 : 1)
+            .animation(Theme.snappy, value: press.isPressed)
+            // The menu over the face is what VoiceOver reads and opens.
+            .accessibilityHidden(true)
+            .overlay {
+                SceneMenuLayer(model: model, press: press, value: NightText.title(scene),
+                               hint: (scene?.tip ?? NightText.nightDetail) + " Shows the other scenes.")
+            }
+    }
+}
+
+/// The scene menu over the button. Its inputs compare equal until the scene changes, so a dial's writes leave the
+/// system's menu button alone.
+private struct SceneMenuLayer: View {
+    let model: CameraModel
+    let press: PressTracker
+    let value: String
+    let hint: String
+
+    var body: some View {
+        // In the list's order whichever way the menu opens (the layer keeps it fixed): the night shot first.
+        MenuOnTapLayer(press: press, label: "Scene", value: value, hint: hint) {
+            SceneMenuRows(model: model)
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        // In the list's order whichever way the menu opens: the night shot first.
-        .menuOrder(.fixed)
-        .accessibilityLabel(Text("Scene"))
-        .accessibilityValue(Text(NightText.title(scene)))
-        .accessibilityHint(Text((scene?.tip ?? NightText.nightDetail) + " Shows the other scenes."))
+    }
+}
+
+/// Reads the scene in its own body, so the rows follow it and the menu button doesn't.
+private struct SceneMenuRows: View {
+    let model: CameraModel
+
+    var body: some View {
+        NightSceneMenuItems(model: model,
+                            scene: model.settings.mode == .long ? model.settings.longExposure.scene : nil)
     }
 }
 
@@ -1284,14 +1319,17 @@ private struct BottomRow: View {
                 if model.settings.mode.usesStacking {
                     SceneSideButton(model: model, size: 44)
                         .disabled(busy)
-                        .opacity(busy ? 0.4 : 1)
+                        .opacity(busy ? Theme.Dim.held : 1)
+                        // On each button, not the row: the shutter between them has its own spring.
+                        .animation(Theme.snappy, value: busy)
                 } else if model.macroOffered {
                     ShutterSideButton(symbol: "camera.macro", isActive: model.isMacro,
                                       label: model.isMacro ? "Macro, on" : "Macro", size: 44) {
                         model.toggleMacro()
                     }
                     .disabled(busy)
-                    .opacity(busy ? 0.4 : 1)
+                    .opacity(busy ? Theme.Dim.held : 1)
+                    .animation(Theme.snappy, value: busy)
                 }
                 Spacer(minLength: 0)
                 ShutterSideButton(symbol: "circle.grid.3x3.fill", isActive: model.isDrawerOpen,
@@ -1299,7 +1337,8 @@ private struct BottomRow: View {
                     withAnimation(Theme.spring) { model.isDrawerOpen.toggle() }
                 }
                 .disabled(drawerHeld)
-                .opacity(drawerHeld ? 0.4 : 1)
+                .opacity(drawerHeld ? Theme.Dim.held : 1)
+                .animation(Theme.snappy, value: drawerHeld)
                 if leftHanded {
                     ThumbnailButton(model: model)
                 } else {
@@ -1390,9 +1429,9 @@ private struct FlipButton: View {
         .buttonStyle(GlassCircleButtonStyle(size: 48))
         // A flip reconfigures the session, which waits for photos still being saved.
         .disabled(!hasFront || activity.isBusy || model.photosInFlight > 0)
-        .opacity(isHidden ? 0 : (hasFront ? 1 : 0.35))
+        .opacity(isHidden ? 0 : (hasFront ? 1 : Theme.Dim.off))
         .allowsHitTesting(!isHidden)
-        .animation(.easeInOut(duration: 0.2), value: isHidden)
+        .animation(Theme.fade, value: isHidden)
         .accessibilityLabel("Switch camera")
     }
 }
