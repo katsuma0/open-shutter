@@ -155,7 +155,7 @@ struct ShutterButton: View {
         // NIGHT's shutter is the plain white disc: the mode is already named in the carousel and on the scene button.
         if showsBulbGlyph {
             Image(systemName: "lightbulb.fill")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(Color.black.opacity(0.55))
                 .transition(.opacity.combined(with: .scale(scale: 0.6)))
         }

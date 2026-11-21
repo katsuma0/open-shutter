@@ -11,6 +11,8 @@ struct TopBar: View {
     @Bindable var model: CameraModel
     /// Set to show the timer sheet, which the camera screen presents.
     @Binding var timerSheetRequested: Bool
+    /// Where Settings zooms out of, the gear, with the camera screen's namespace; nil leaves the plain sheet.
+    var settingsZoom: Namespace.ID? = nil
 
     /// Left to right. The gear takes the eighth slot. NIGHT has no histogram: the steady sign's switch takes its place,
     /// so the two cross-fade when the mode changes.
@@ -48,7 +50,7 @@ struct TopBar: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     .layoutValue(key: BarSlot.self, value: BarSlots.recording)
             }
-            SettingsButton(model: model)
+            SettingsButton(model: model, zoom: settingsZoom)
                 .modifier(SlotPlacement(slots: BarSlots.gear...BarSlots.gear, isHidden: isRecording, isHeld: isHeld))
         }
         .frame(maxWidth: .infinity)
@@ -222,7 +224,7 @@ private struct VideoFormatChip: View {
         // Bare like the glyphs beside it, with their shadow to read over a bright picture.
         .legibleShadow()
         .background {
-            SolidBacking(shape: Capsule(), height: 28)
+            SolidBacking(shape: Capsule(), height: Theme.chipHeight)
         }
         .contentTransition(.numericText())
         // One unit for the bar's reading order, so both its menus come before the gear.
@@ -317,6 +319,7 @@ private struct VideoFrameRateOptions: View {
 
 private struct SettingsButton: View {
     let model: CameraModel
+    let zoom: Namespace.ID?
 
     var body: some View {
         Button {
@@ -330,6 +333,36 @@ private struct SettingsButton: View {
         }
         .buttonStyle(BarCircleStyle())
         .accessibilityLabel("Settings")
+        .settingsZoomSource(zoom)
+    }
+}
+
+/// The id Settings' zoom transition and the gear share.
+enum SettingsZoom {
+    static let id = "settings"
+}
+
+extension View {
+    /// Marks the gear as where Settings zooms from. Not with Reduce Motion, where the sheet slides up as usual.
+    @MainActor
+    @ViewBuilder
+    func settingsZoomSource(_ namespace: Namespace.ID?) -> some View {
+        if let namespace, !AppearanceStore.shared.reduceMotion {
+            matchedTransitionSource(id: SettingsZoom.id, in: namespace)
+        } else {
+            self
+        }
+    }
+
+    /// Settings grows out of the gear and back into it. Reduce Motion keeps the plain sheet.
+    @MainActor
+    @ViewBuilder
+    func settingsZoomTransition(_ namespace: Namespace.ID?) -> some View {
+        if let namespace, !AppearanceStore.shared.reduceMotion {
+            navigationTransition(.zoom(sourceID: SettingsZoom.id, in: namespace))
+        } else {
+            self
+        }
     }
 }
 
@@ -405,6 +438,7 @@ struct BarGlyphLook: ViewModifier {
             .font(.system(size: 18 * Theme.labelScale, weight: .regular))
             .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
             .legibleShadow()
+            .accentGlow(isActive)
             .frame(width: 44, height: 44)
             .background {
                 SolidBacking(shape: Circle(), width: Theme.controlSize, height: Theme.controlSize)

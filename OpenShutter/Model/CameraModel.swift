@@ -2196,7 +2196,12 @@ final class CameraModel {
             }
             activity = .saving
             handle([result])
-            if result.savedToLibrary { speak("Done.") }
+            if result.savedToLibrary {
+                // The frames are all in by now and the haptics hold has lifted with .saving, so the one tap that
+                // says the picture is developed can't shake a frame.
+                Haptics.success()
+                speak("Done.")
+            }
         } catch let error as CameraError where error == .cancelled {
             cancelled = true
         } catch {
