@@ -11,24 +11,29 @@ final class PhotoFactsTests: XCTestCase {
         return PhotoFacts(input)
     }
 
-    /// The night line for a shot with these XMP fields.
-    private func night(_ app: [ShotXMP.Field: String]) -> PhotoFacts.NightLine? {
-        facts { $0.app = app }.night
+    /// The stack for a shot with these XMP fields.
+    private func stack(_ app: [ShotXMP.Field: String]) -> PhotoFacts.Stack? {
+        facts { $0.app = app }.stack
     }
 
-    // MARK: - The reference photo
+    // MARK: - Whole photos
 
-    func testTheOwnersReferencePhotoReadsAsItsPanel() {
+    func testAnotherAppsPhotoReadsPlain() {
         let facts = facts {
             $0.format = .jpeg
             $0.make = "Apple"
             $0.model = "iPhone 15 Pro Max"
             $0.lensModel = "iPhone 15 Pro Max back triple camera 15.66mm f/2.8"
+            $0.focalLength = 15.66
             $0.focalLength35 = 120
             $0.fNumber = 2.8
             $0.iso = 250
             $0.exposureSeconds = 1.0 / 83
+            $0.exposureBias = 0
+            $0.meteringMode = 5
+            $0.flash = 16
             $0.exifWhiteBalance = 0
+            $0.offsetTime = "-05:00"
             $0.profileName = "Display P3"
             $0.pixelWidth = 4032
             $0.pixelHeight = 3024
@@ -37,40 +42,81 @@ final class PhotoFactsTests: XCTestCase {
             $0.altitudeRef = 0
         }
         XCTAssertEqual(facts.marks, [.format("JPEG")])
+        XCTAssertNil(facts.mode)
         XCTAssertEqual(facts.device, "iPhone 15 Pro Max")
         // Never Apple's long lens model: the camera by the name its picker uses.
         XCTAssertEqual(facts.lens, "Telephoto camera")
-        XCTAssertNil(facts.night)
         XCTAssertEqual(facts.focal, Measure(value: "120", unit: "mm"))
+        XCTAssertEqual(facts.focalActual, Measure(value: "15.7", unit: "mm"))
+        // Another app's file doesn't say what was set by hand, so every value is plain.
+        XCTAssertEqual(facts.shutter, PhotoFacts.Reading("1/83"))
+        XCTAssertFalse(facts.shutterIsPerFrame)
         XCTAssertEqual(facts.aperture, "\u{0192}/2.8")
-        XCTAssertEqual(facts.iso, Measure(value: "250", unit: "ISO", unitFirst: true))
-        XCTAssertEqual(facts.shutter, Measure(value: "1/83", unit: "SEC"))
-        XCTAssertEqual(facts.whiteBalance, "AWB")
+        XCTAssertEqual(facts.iso, PhotoFacts.Reading("250"))
+        XCTAssertEqual(facts.bias, PhotoFacts.Reading("0"))
+        XCTAssertEqual(facts.whiteBalance, PhotoFacts.Reading("Auto"))
+        XCTAssertNil(facts.whiteBalanceDetail)
+        XCTAssertEqual(facts.metering, "Pattern")
+        XCTAssertNil(facts.focus)
+        XCTAssertNil(facts.flash)
+        XCTAssertNil(facts.stack)
         XCTAssertEqual(facts.colorSpace, .displayP3)
-        XCTAssertEqual(facts.colorSpace?.title, "P3")
         XCTAssertEqual(facts.dimensions, "4,032 \u{00D7} 3,024")
         XCTAssertEqual(facts.megapixels, Measure(value: "12.2", unit: "MP"))
         XCTAssertEqual(facts.fileSize, Measure(value: "6.83", unit: "MB"))
+        XCTAssertEqual(facts.zoneSeconds, -5 * 3600)
+        XCTAssertEqual(facts.zone, "UTC-5")
         XCTAssertEqual(facts.altitude, PhotoFacts.Altitude(metres: Measure(value: "5.56", unit: "m"),
                                                            feet: Measure(value: "18.2", unit: "ft")))
         XCTAssertNil(facts.heading)
+        XCTAssertNil(facts.headingText)
+    }
+
+    func testTheAppsOwnPhotoMarksAutoAndManualAsTheChipsDo() {
+        let facts = facts {
+            $0.format = .heif
+            $0.exposureSeconds = 1.0 / 30
+            $0.iso = 800
+            $0.exposureBias = 0.7
+            $0.app = [.mode: "manual", .exposureControl: "shutterPriority", .lens: "wide", .whiteBalance: "auto",
+                      .kelvin: "5180", .focus: "manual", .lensPosition: "0.85", .meteringArea: "spot"]
+        }
+        XCTAssertEqual(facts.mode, "MANUAL")
+        XCTAssertEqual(facts.lens, "Main camera")
+        XCTAssertEqual(facts.shutter, PhotoFacts.Reading("1/30", .manual))
+        XCTAssertEqual(facts.iso, PhotoFacts.Reading("800", .auto))
+        XCTAssertEqual(facts.bias, PhotoFacts.Reading("+0.7", .manual))
+        // Under auto the kelvin is the one the camera ran at, with the A, as the white balance chip shows it.
+        XCTAssertEqual(facts.whiteBalance, PhotoFacts.Reading("5180K", .auto))
+        XCTAssertEqual(facts.focus, PhotoFacts.Reading("MF 85%", .manual))
+        XCTAssertEqual(facts.metering, "Spot")
     }
 
     func testAnEmptyInputSaysNothing() {
         let facts = PhotoFacts(PhotoFacts.Input())
         XCTAssertEqual(facts.marks, [])
+        XCTAssertNil(facts.mode)
         XCTAssertNil(facts.device)
         XCTAssertNil(facts.lens)
-        XCTAssertNil(facts.night)
+        XCTAssertNil(facts.stack)
         XCTAssertNil(facts.focal)
+        XCTAssertNil(facts.focalActual)
         XCTAssertNil(facts.aperture)
         XCTAssertNil(facts.iso)
         XCTAssertNil(facts.shutter)
+        XCTAssertFalse(facts.shutterIsPerFrame)
+        XCTAssertNil(facts.bias)
         XCTAssertNil(facts.whiteBalance)
+        XCTAssertNil(facts.whiteBalanceDetail)
+        XCTAssertNil(facts.metering)
+        XCTAssertNil(facts.focus)
+        XCTAssertNil(facts.flash)
         XCTAssertNil(facts.colorSpace)
         XCTAssertNil(facts.dimensions)
         XCTAssertNil(facts.megapixels)
         XCTAssertNil(facts.fileSize)
+        XCTAssertNil(facts.zone)
+        XCTAssertNil(facts.zoneSeconds)
         XCTAssertNil(facts.altitude)
         XCTAssertNil(facts.heading)
         XCTAssertEqual(PhotoFacts.Input().format, .other)
@@ -124,98 +170,120 @@ final class PhotoFactsTests: XCTestCase {
         XCTAssertNil(PhotoFacts(PhotoFacts.Input()).lens)
     }
 
-    // MARK: - Night line
-
-    func testANightShotSaysItsFramesAndTheirTime() {
-        let line = night([.mode: "night", .frameCount: "30", .frameSeconds: "1"])
-        XCTAssertEqual(line?.text, "Night \u{00B7} 30 frames \u{00D7} 1 s")
-        // The night shot draws the moon, so it names no scene.
-        XCTAssertNotNil(line)
-        XCTAssertNil(line?.scene)
-        XCTAssertEqual(night([.mode: "night", .frameCount: "12"]),
-                       PhotoFacts.NightLine(text: "Night \u{00B7} 12 frames", scene: nil))
-        XCTAssertEqual(night([.mode: "night", .frameCount: "8", .frameSeconds: "0.25"])?.text,
-                       "Night \u{00B7} 8 frames \u{00D7} 1/4 s")
-        // A bulb shot adds nothing: the count says how long it ran.
-        XCTAssertEqual(night([.mode: "night", .frameCount: "30", .frameSeconds: "1", .bulb: "True"])?.text,
-                       "Night \u{00B7} 30 frames \u{00D7} 1 s")
+    func testTheFocalLengthsAreTheEquivalentAndTheLensesOwn() {
+        XCTAssertEqual(facts { $0.focalLength = 6.86 }.focalActual, Measure(value: "6.86", unit: "mm"))
+        XCTAssertEqual(facts { $0.focalLength = 2.22 }.focalActual, Measure(value: "2.22", unit: "mm"))
+        XCTAssertEqual(facts { $0.focalLength = 50 }.focalActual, Measure(value: "50", unit: "mm"))
+        XCTAssertEqual(facts { $0.focalLength35 = 24.4 }.focal, Measure(value: "24", unit: "mm"))
+        for bad in [0.0, -1, .nan, .infinity] {
+            XCTAssertNil(facts { $0.focalLength = bad }.focalActual, "\(bad)")
+        }
     }
 
-    func testALongExposureSaysItsScene() {
-        XCTAssertEqual(night([.mode: "long", .scene: "lightTrails", .frameCount: "120", .frameSeconds: "0.25"]),
-                       PhotoFacts.NightLine(text: "Light trails \u{00B7} 120 frames \u{00D7} 1/4 s", scene: .lightTrails))
+    // MARK: - Stacks
+
+    func testANightShotSaysItsFramesAndTotal() {
+        XCTAssertEqual(stack([.mode: "night", .frameCount: "30", .frameSeconds: "1", .lightSeconds: "30",
+                              .blend: "average"]),
+                       PhotoFacts.Stack(title: "Night", frames: "30", total: "30s"))
+        // Frames left out show beside the frames taken.
+        XCTAssertEqual(stack([.mode: "night", .frameCount: "28", .framesCaptured: "30", .frameSeconds: "0.5"]),
+                       PhotoFacts.Stack(title: "Night", frames: "28 of 30", total: "14s"))
+        XCTAssertEqual(stack([.mode: "night", .frameCount: "12"]), PhotoFacts.Stack(title: "Night", frames: "12"))
+        // The grid's shutter is one frame's, from the XMP, whatever EXIF holds.
+        let night = facts {
+            $0.exposureSeconds = 30
+            $0.app = [.mode: "night", .frameCount: "30", .frameSeconds: "1", .exposureControl: "auto"]
+        }
+        XCTAssertEqual(night.shutter, PhotoFacts.Reading("1s", .auto))
+        XCTAssertTrue(night.shutterIsPerFrame)
+    }
+
+    func testALongExposureSaysItsSceneAndBlend() {
+        XCTAssertEqual(stack([.mode: "long", .scene: "lightTrails", .frameCount: "120", .frameSeconds: "0.25",
+                              .lightSeconds: "30", .blend: "lighten"]),
+                       PhotoFacts.Stack(title: "Light trails", scene: .lightTrails, frames: "120", total: "30s",
+                                        blend: "Trails"))
         for scene in LongExposureScene.allCases where scene != .custom {
-            let line = night([.mode: "long", .scene: scene.rawValue, .frameCount: "40", .frameSeconds: "2.5"])
-            XCTAssertEqual(line?.text, scene.title + " \u{00B7} 40 frames \u{00D7} 2.5 s", scene.rawValue)
-            XCTAssertEqual(line?.scene, scene, scene.rawValue)
+            let made = stack([.mode: "long", .scene: scene.rawValue, .frameCount: "40", .frameSeconds: "2.5"])
+            XCTAssertEqual(made?.title, scene.title, scene.rawValue)
+            XCTAssertEqual(made?.scene, scene, scene.rawValue)
+            XCTAssertEqual(made?.total, "1m 40s", scene.rawValue)
         }
         // The person's own setup, or a scene this version doesn't know, is a long exposure, with Custom's symbol.
-        XCTAssertEqual(night([.mode: "long", .scene: "custom", .frameCount: "1", .frameSeconds: "8"]),
-                       PhotoFacts.NightLine(text: "Long exposure", scene: .custom))
-        XCTAssertEqual(night([.mode: "long", .scene: "custom", .frameCount: "60", .frameSeconds: "30"])?.text,
-                       "Long exposure \u{00B7} 60 frames \u{00D7} 30 s")
-        XCTAssertEqual(night([.mode: "long", .scene: "aurora", .frameCount: "6"]),
-                       PhotoFacts.NightLine(text: "Long exposure \u{00B7} 6 frames", scene: .custom))
-        XCTAssertEqual(night([.mode: "long"]), PhotoFacts.NightLine(text: "Long exposure", scene: .custom))
-        // Star trails runs long enough for a count in the thousands.
-        XCTAssertEqual(night([.mode: "long", .scene: "starTrails", .frameCount: "1800", .frameSeconds: "1"])?.text,
-                       "Star trails \u{00B7} 1,800 frames \u{00D7} 1 s")
-        XCTAssertEqual(night([.mode: "long", .scene: "stars", .frameCount: "3", .frameSeconds: "125"])?.text,
-                       "Stars \u{00B7} 3 frames \u{00D7} 2m 5s")
+        XCTAssertEqual(stack([.mode: "long", .scene: "custom", .frameCount: "1", .frameSeconds: "8"]),
+                       PhotoFacts.Stack(title: "Long exposure", scene: .custom))
+        XCTAssertEqual(stack([.mode: "long", .scene: "aurora", .frameCount: "6", .blend: "additive"]),
+                       PhotoFacts.Stack(title: "Long exposure", scene: .custom, frames: "6", blend: "Real"))
+        XCTAssertEqual(stack([.mode: "long"]), PhotoFacts.Stack(title: "Long exposure", scene: .custom))
+        XCTAssertEqual(stack([.mode: "long", .scene: "starTrails", .frameCount: "1800", .frameSeconds: "1"])?.frames,
+                       "1,800")
+        // A blend this version can't read says nothing.
+        XCTAssertNil(stack([.mode: "long", .frameCount: "6", .blend: "median"])?.blend)
     }
 
-    func testOnlyStackedShotsHaveANightLine() {
+    func testOnlyStackedShotsHaveAStack() {
         for mode in ["photo", "manual", "video", "selfie", ""] {
-            XCTAssertNil(night([.mode: mode, .frameCount: "30", .frameSeconds: "1"]), mode)
+            XCTAssertNil(stack([.mode: mode, .frameCount: "30", .frameSeconds: "1"]), mode)
+            let single = facts { $0.exposureSeconds = 0.5; $0.app = [.mode: mode, .frameSeconds: "1"] }
+            XCTAssertEqual(single.shutter?.value, "0.5s", mode)
+            XCTAssertFalse(single.shutterIsPerFrame, mode)
         }
-        XCTAssertNil(night([.frameCount: "30", .frameSeconds: "1"]))
+        XCTAssertNil(stack([.frameCount: "30", .frameSeconds: "1"]))
     }
 
-    func testANightLineWithoutAReadableCountIsItsTitle() {
+    func testAStackWithoutAReadableCountIsItsTitle() {
         for count in ["1", "0", "-4", "many", "12.5", ""] {
-            XCTAssertEqual(night([.mode: "night", .frameCount: count, .frameSeconds: "1"])?.text, "Night", count)
+            XCTAssertEqual(stack([.mode: "night", .frameCount: count, .frameSeconds: "1"]),
+                           PhotoFacts.Stack(title: "Night"), count)
         }
-        XCTAssertEqual(night([.mode: "night"])?.text, "Night")
-        // A frame time that is no time leaves the count alone.
+        // A frame time that is no time leaves the total out.
         for frame in ["0", "-1", "nan", "inf", "fast"] {
-            XCTAssertEqual(night([.mode: "night", .frameCount: "9", .frameSeconds: frame])?.text,
-                           "Night \u{00B7} 9 frames", frame)
+            XCTAssertEqual(stack([.mode: "night", .frameCount: "9", .frameSeconds: frame]),
+                           PhotoFacts.Stack(title: "Night", frames: "9"), frame)
         }
     }
 
-    // MARK: - Card
+    // MARK: - Exposure
 
-    func testTheShutterReadsAsCamerasWriteIt() {
-        func shutter(_ seconds: Double) -> Measure? {
-            facts { $0.exposureSeconds = seconds }.shutter
+    func testTheShutterReadsAsTheChipWritesIt() {
+        func shutter(_ seconds: Double) -> String? {
+            facts { $0.exposureSeconds = seconds }.shutter?.value
         }
-        XCTAssertEqual(shutter(1.0 / 8000), Measure(value: "1/8000", unit: "SEC"))
-        XCTAssertEqual(shutter(1.0 / 83), Measure(value: "1/83", unit: "SEC"))
-        XCTAssertEqual(shutter(0.399), Measure(value: "1/3", unit: "SEC"))
-        XCTAssertEqual(shutter(0.4), Measure(value: "0.4", unit: "SEC"))
-        XCTAssertEqual(shutter(1), Measure(value: "1", unit: "SEC"))
-        XCTAssertEqual(shutter(2.5), Measure(value: "2.5", unit: "SEC"))
-        // One decimal below 10 s, however many the file holds.
-        XCTAssertEqual(shutter(3.14), Measure(value: "3.1", unit: "SEC"))
-        XCTAssertEqual(shutter(30), Measure(value: "30", unit: "SEC"))
-        // Whole seconds below 99.5 s; past that minutes and seconds, which name their own units.
-        XCTAssertEqual(shutter(10.4), Measure(value: "10", unit: "SEC"))
-        XCTAssertEqual(shutter(99.4), Measure(value: "99", unit: "SEC"))
-        XCTAssertEqual(shutter(99.6), Measure(value: "1m 40s", unit: ""))
-        XCTAssertEqual(shutter(125), Measure(value: "2m 5s", unit: ""))
+        XCTAssertEqual(shutter(1.0 / 8000), "1/8000")
+        XCTAssertEqual(shutter(1.0 / 83), "1/83")
+        XCTAssertEqual(shutter(0.399), "1/3")
+        XCTAssertEqual(shutter(0.4), "0.4s")
+        XCTAssertEqual(shutter(1), "1s")
+        XCTAssertEqual(shutter(2.5), "2.5s")
+        XCTAssertEqual(shutter(30), "30s")
+        XCTAssertEqual(shutter(125), "2m5s")
         for bad in [0.0, .nan, -0.5, .infinity] {
             XCTAssertNil(shutter(bad), "\(bad)")
         }
     }
 
-    func testFocalApertureAndISO() {
-        let card = facts { $0.focalLength35 = 26; $0.fNumber = 1.78; $0.iso = 12800 }
-        XCTAssertEqual(card.focal, Measure(value: "26", unit: "mm"))
+    func testTheToneFollowsWhatTheExposureControlLeftToTheCamera() {
+        func tones(_ control: String) -> (PhotoFacts.Tone?, PhotoFacts.Tone?) {
+            let made = facts { $0.exposureSeconds = 0.01; $0.iso = 100; $0.app = [.exposureControl: control] }
+            return (made.shutter?.tone, made.iso?.tone)
+        }
+        XCTAssertTrue(tones("auto") == (.auto, .auto))
+        XCTAssertTrue(tones("shutterPriority") == (.manual, .auto))
+        XCTAssertTrue(tones("isoPriority") == (.auto, .manual))
+        XCTAssertTrue(tones("aperturePriority") == (.auto, .auto))
+        XCTAssertTrue(tones("manual") == (.manual, .manual))
+        // A control this version can't read says nothing either way.
+        XCTAssertTrue(tones("program") == (.plain, .plain))
+    }
+
+    func testApertureAndISO() {
+        let card = facts { $0.fNumber = 1.78; $0.iso = 12800 }
         XCTAssertEqual(card.aperture, "\u{0192}/1.78")
-        // The ISO is written as cameras write it, ungrouped and unit first.
-        XCTAssertEqual(card.iso, Measure(value: "12800", unit: "ISO", unitFirst: true))
+        // The ISO is written as cameras write it, ungrouped.
+        XCTAssertEqual(card.iso?.value, "12800")
         XCTAssertEqual(facts { $0.iso = 64.4 }.iso?.value, "64")
-        // EXIF stores 0 for what it doesn't know, so 0 drops the cell.
+        // EXIF stores 0 for what it doesn't know, so 0 drops the value.
         let unknown = facts { $0.focalLength35 = 0; $0.fNumber = 0; $0.iso = 0 }
         XCTAssertNil(unknown.focal)
         XCTAssertNil(unknown.aperture)
@@ -223,26 +291,77 @@ final class PhotoFactsTests: XCTestCase {
         XCTAssertNil(facts { $0.fNumber = .nan; $0.iso = -3; $0.focalLength35 = .infinity }.aperture)
     }
 
-    func testWhiteBalanceSaysAutoAPresetOrTheKelvin() {
-        XCTAssertEqual(facts { $0.app = [.whiteBalance: "auto"] }.whiteBalance, "AWB")
-        XCTAssertEqual(facts { $0.app = [.whiteBalance: "kelvin", .kelvin: "5600"] }.whiteBalance, "5600K")
-        XCTAssertEqual(facts { $0.app = [.whiteBalance: "daylight"] }.whiteBalance, "Daylight")
-        for preset in WhiteBalancePreset.allCases where preset != .auto {
-            XCTAssertEqual(facts { $0.app = [.whiteBalance: preset.rawValue] }.whiteBalance, preset.title)
-        }
-        XCTAssertEqual(facts { $0.exifWhiteBalance = 0 }.whiteBalance, "AWB")
-        XCTAssertEqual(facts { $0.exifWhiteBalance = 1 }.whiteBalance, "Manual")
-        XCTAssertNil(PhotoFacts(PhotoFacts.Input()).whiteBalance)
-        XCTAssertNil(facts { $0.exifWhiteBalance = 7 }.whiteBalance)
-        // The XMP knows more than EXIF's manual, so it wins; what it can't say falls back to EXIF.
-        XCTAssertEqual(facts { $0.app = [.whiteBalance: "tungsten"]; $0.exifWhiteBalance = 1 }.whiteBalance, "Tungsten")
-        XCTAssertEqual(facts { $0.app = [.whiteBalance: "kelvin"]; $0.exifWhiteBalance = 1 }.whiteBalance, "Manual")
-        XCTAssertEqual(facts { $0.app = [.whiteBalance: "kelvin", .kelvin: "warm"]; $0.exifWhiteBalance = 1 }
-            .whiteBalance, "Manual")
-        XCTAssertEqual(facts { $0.app = [.whiteBalance: "sodium"]; $0.exifWhiteBalance = 0 }.whiteBalance, "AWB")
+    func testTheCompensationIsSignedAndAccentedWhereItWasSet() {
+        XCTAssertEqual(facts { $0.exposureBias = -1.33 }.bias, PhotoFacts.Reading("-1.3"))
+        XCTAssertEqual(facts { $0.exposureBias = 0.02 }.bias, PhotoFacts.Reading("0"))
+        XCTAssertEqual(facts { $0.exposureBias = 1; $0.app = [.exposureControl: "auto"] }.bias,
+                       PhotoFacts.Reading("+1", .manual))
+        XCTAssertEqual(facts { $0.exposureBias = 0; $0.app = [.exposureControl: "auto"] }.bias,
+                       PhotoFacts.Reading("0"))
+        // EXIF first; the XMP where EXIF has none.
+        XCTAssertEqual(facts { $0.app = [.bias: "-0.7"] }.bias?.value, "-0.7")
+        XCTAssertEqual(facts { $0.exposureBias = 0.3; $0.app = [.bias: "-0.7"] }.bias?.value, "+0.3")
+        XCTAssertNil(facts { $0.exposureBias = .nan }.bias)
     }
 
-    func testTheColorBadgeNamesTheSpace() {
+    func testWhiteBalanceSaysAutoAPresetOrTheKelvin() {
+        typealias Reading = PhotoFacts.Reading
+        func balance(_ configure: (inout PhotoFacts.Input) -> Void) -> (Reading?, String?) {
+            let made = facts(configure)
+            return (made.whiteBalance, made.whiteBalanceDetail)
+        }
+        XCTAssertTrue(balance { $0.app = [.whiteBalance: "auto"] } == (Reading("Auto"), nil))
+        XCTAssertTrue(balance { $0.app = [.whiteBalance: "auto", .kelvin: "5180", .tint: "3"] }
+                        == (Reading("5180K", .auto), nil))
+        XCTAssertTrue(balance { $0.app = [.whiteBalance: "kelvin", .kelvin: "5600"] }
+                        == (Reading("5600K", .manual), nil))
+        XCTAssertTrue(balance { $0.app = [.whiteBalance: "kelvin", .kelvin: "5600", .tint: "12"] }
+                        == (Reading("5600K", .manual), "Tint +12"))
+        XCTAssertTrue(balance { $0.app = [.whiteBalance: "daylight", .kelvin: "5500"] }
+                        == (Reading("Daylight", .manual), "5500K"))
+        XCTAssertTrue(balance { $0.app = [.whiteBalance: "daylight", .kelvin: "5500", .tint: "-4"] }
+                        == (Reading("Daylight", .manual), "5500K, Tint -4"))
+        // A white balance a LONG scene fixed is the camera's resting value, not the person's.
+        XCTAssertTrue(balance { $0.app = [.whiteBalance: "kelvin", .kelvin: "4000", .whiteBalanceFromScene: "True"] }
+                        == (Reading("4000K"), nil))
+        for preset in WhiteBalancePreset.allCases where preset != .auto {
+            XCTAssertEqual(facts { $0.app = [.whiteBalance: preset.rawValue] }.whiteBalance,
+                           Reading(preset.title, .manual))
+        }
+        XCTAssertEqual(facts { $0.exifWhiteBalance = 0 }.whiteBalance, Reading("Auto"))
+        XCTAssertEqual(facts { $0.exifWhiteBalance = 1 }.whiteBalance, Reading("Manual"))
+        XCTAssertNil(PhotoFacts(PhotoFacts.Input()).whiteBalance)
+        XCTAssertNil(facts { $0.exifWhiteBalance = 7 }.whiteBalance)
+        // What the XMP can't say falls back to EXIF.
+        XCTAssertEqual(facts { $0.app = [.whiteBalance: "kelvin"]; $0.exifWhiteBalance = 1 }.whiteBalance,
+                       Reading("Manual"))
+        XCTAssertEqual(facts { $0.app = [.whiteBalance: "sodium"]; $0.exifWhiteBalance = 0 }.whiteBalance,
+                       Reading("Auto"))
+    }
+
+    func testMeteringFocusAndFlash() {
+        XCTAssertEqual(facts { $0.app = [.meteringArea: "wholeFrame"]; $0.meteringMode = 3 }.metering, "Whole frame")
+        XCTAssertEqual(facts { $0.meteringMode = 3 }.metering, "Spot")
+        XCTAssertEqual(facts { $0.meteringMode = 2 }.metering, "Center-weighted")
+        XCTAssertNil(facts { $0.meteringMode = 0 }.metering)
+        XCTAssertNil(facts { $0.meteringMode = 255 }.metering)
+
+        XCTAssertEqual(facts { $0.app = [.focus: "auto"] }.focus, PhotoFacts.Reading("AF"))
+        XCTAssertEqual(facts { $0.app = [.focus: "held"] }.focus, PhotoFacts.Reading("AF lock"))
+        XCTAssertEqual(facts { $0.app = [.focus: "infinity", .lensPosition: "1"] }.focus,
+                       PhotoFacts.Reading("Infinity"))
+        XCTAssertEqual(facts { $0.app = [.focus: "manual"] }.focus, PhotoFacts.Reading("MF", .manual))
+        XCTAssertNil(facts { $0.app = [.focus: "macro"] }.focus)
+
+        // Only a flash that fired is worth a line.
+        XCTAssertEqual(facts { $0.flash = 0x19 }.flash, "Fired")
+        XCTAssertEqual(facts { $0.flash = 0x01 }.flash, "Fired")
+        for quiet in [0x10, 0x18, 0x20, 0x00] {
+            XCTAssertNil(facts { $0.flash = quiet }.flash, "\(quiet)")
+        }
+    }
+
+    func testTheColorTagNamesTheSpace() {
         func space(_ name: String?, exif: Int? = nil) -> PhotoFacts.ColorSpace? {
             facts { $0.profileName = name; $0.exifColorSpace = exif }.colorSpace
         }
@@ -265,7 +384,7 @@ final class PhotoFactsTests: XCTestCase {
 
     // MARK: - Marks
 
-    func testTheFormatBadgesNameTheFiles() {
+    func testTheFormatTagsNameTheFiles() {
         func marks(_ format: PhotoFacts.FileFormat, linear: Bool? = nil, companion: Bool = false) -> [PhotoFacts.Mark] {
             facts { $0.format = format; $0.linearRAW = linear; $0.hasRAWCompanion = companion }.marks
         }
@@ -283,7 +402,7 @@ final class PhotoFactsTests: XCTestCase {
         XCTAssertEqual(marks(.other, companion: true), [.format("RAW")])
     }
 
-    func testTheMarksReadDepthLiveHDREditedThenTheFiles() {
+    func testTheMarksReadTheFilesThenLiveHDRDepthEdited() {
         let all = facts {
             $0.format = .heif
             $0.hasRAWCompanion = true
@@ -292,10 +411,28 @@ final class PhotoFactsTests: XCTestCase {
             $0.isLive = true
             $0.hasDepth = true
         }
-        XCTAssertEqual(all.marks, [.depth, .live, .hdr, .edited, .format("HEIF"), .format("RAW")])
+        XCTAssertEqual(all.marks, [.format("HEIF"), .format("RAW"), .live, .hdr, .depth, .edited])
         XCTAssertEqual(facts { $0.format = .jpeg; $0.isLive = true; $0.isEdited = true }.marks,
-                       [.live, .edited, .format("JPEG")])
+                       [.format("JPEG"), .live, .edited])
         XCTAssertEqual(facts { $0.hasGainMap = true }.marks, [.hdr])
+    }
+
+    // MARK: - Time
+
+    func testTheZoneIsTheOffsetFromUTC() {
+        func zone(_ offset: String) -> String? {
+            facts { $0.offsetTime = offset }.zone
+        }
+        XCTAssertEqual(zone("+01:00"), "UTC+1")
+        XCTAssertEqual(zone("-03:30"), "UTC-3:30")
+        XCTAssertEqual(zone("+05:45"), "UTC+5:45")
+        XCTAssertEqual(zone("+00:00"), "UTC")
+        XCTAssertEqual(zone("Z"), "UTC")
+        XCTAssertEqual(zone("+1000"), "UTC+10")
+        XCTAssertEqual(facts { $0.offsetTime = "+05:30" }.zoneSeconds, 5 * 3600 + 30 * 60)
+        for bad in ["", "01:00", "+1:00", "+25:00", "+01:75", "local"] {
+            XCTAssertNil(zone(bad), bad)
+        }
     }
 
     // MARK: - Size
@@ -402,6 +539,23 @@ final class PhotoFactsTests: XCTestCase {
         let tiny = heading(-1e-15)
         XCTAssertNotNil(tiny)
         XCTAssertTrue(tiny.map { $0 >= 0 && $0 < 360 } ?? false)
+    }
+
+    func testTheHeadingReadsAsACompass() {
+        func compass(_ degrees: Double) -> String? {
+            facts { $0.heading = degrees }.headingText
+        }
+        XCTAssertEqual(compass(0), "N 0\u{00B0}")
+        XCTAssertEqual(compass(42), "NE 42\u{00B0}")
+        XCTAssertEqual(compass(22.4), "N 22\u{00B0}")
+        XCTAssertEqual(compass(23), "NE 23\u{00B0}")
+        XCTAssertEqual(compass(190), "S 190\u{00B0}")
+        XCTAssertEqual(compass(270), "W 270\u{00B0}")
+        XCTAssertEqual(compass(337), "NW 337\u{00B0}")
+        XCTAssertEqual(compass(338), "N 338\u{00B0}")
+        // Rounding up to a whole turn is north again.
+        XCTAssertEqual(compass(359.7), "N 0\u{00B0}")
+        XCTAssertNil(facts { $0.heading = .nan }.headingText)
     }
 
     func testPlaceLinesBeforeIOS26() {

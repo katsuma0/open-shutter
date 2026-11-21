@@ -168,8 +168,9 @@ final class PhotoFactsStore {
         var factsRead = false
         var curves: HistogramCurves?
         var histogramSummary = ""
+        /// Which ends of the histogram pile up, for the marks under it.
+        var clipping = HistogramClipping()
         var pictureRead = false
-        var backdrop: UIImage?
         /// The place name's lines; nil until asked, empty when there was no answer.
         var place: [String]?
     }
@@ -226,16 +227,14 @@ final class PhotoFactsStore {
             entries[version]?.pictureRead = true
             return
         }
-        let made = await Self.offMain {
-            (PhotoFactsReader.histogram(of: picture), PhotoFactsReader.backdrop(of: picture))
-        }
+        let histogram = await Self.offMain { PhotoFactsReader.histogram(of: picture) }
         guard !Task.isCancelled else { return }
-        if let histogram = made.0 {
+        if let histogram {
             let curves = HistogramCurves(histogram, channels: [.red, .green, .blue])
             entries[version]?.curves = curves.channels.isEmpty ? nil : curves
             entries[version]?.histogramSummary = HistogramSummary.summary(of: histogram)
+            entries[version]?.clipping = HistogramClipping(histogram)
         }
-        entries[version]?.backdrop = made.1.map { UIImage(cgImage: $0) }
         entries[version]?.pictureRead = true
     }
 
@@ -256,5 +255,29 @@ final class PhotoFactsStore {
         } onCancel: {
             task.cancel()
         }
+    }
+}
+
+/// Whether a photo's tones pile up against black or white, as a camera's clipping warning says it.
+struct HistogramClipping: Equatable, Sendable {
+    var shadows = false
+    var highlights = false
+
+    /// Half a percent of the picture at the very end: less is a speck of black or a small light, more is detail
+    /// lost there.
+    private static let share = 0.005
+
+    init() {}
+
+    init(_ histogram: Histogram) {
+        let total = Double(histogram.luma.reduce(0) { $0 + UInt64($1) })
+        guard total > 0 else { return }
+        func atEnd(_ bins: [UInt32], dark: Bool) -> Bool {
+            guard let bin = dark ? bins.first : bins.last else { return false }
+            return Double(bin) / total > Self.share
+        }
+        shadows = atEnd(histogram.luma, dark: true)
+        // A channel alone at white is a colour clipped, which the luma would hide.
+        highlights = [histogram.red, histogram.green, histogram.blue].contains { atEnd($0, dark: false) }
     }
 }

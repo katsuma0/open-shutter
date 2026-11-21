@@ -3,22 +3,43 @@ import Foundation
 /// What the gallery's info panel says about one photo, as finished text. The app reads PhotoKit and ImageIO into an
 /// `Input` of plain values; every rule for how a value reads lives here, where it is tested.
 ///
-/// The panel describes the file the camera saved: its type, exposure, size and bytes. Numbers are written the app's
-/// way whatever the phone's region, "." before decimals and "," between thousands, as `Formatting` writes them.
+/// The panel reads like the camera's own controls: a value the camera picked carries the small A, one the person
+/// set is in the accent, the rest are plain. Only the app's own photos say which is which; for any other photo every
+/// value is plain. Numbers are written the app's way whatever the phone's region, "." before decimals and ","
+/// between thousands, as `Formatting` writes them.
 public struct PhotoFacts: Equatable, Sendable {
-    /// A number and its unit, drawn apart so the unit can be set in small capitals.
+    /// A number and its unit, drawn apart so the unit can be set smaller.
     public struct Measure: Equatable, Sendable {
-        /// "1/83", "250", "6.83".
+        /// "24", "6.83", "5.56".
         public var value: String
-        /// "SEC", "ISO", "MB", "mm", "m", "ft". Empty for a time that names its own units ("2m 5s").
+        /// "mm", "MP", "MB", "m", "ft".
         public var unit: String
-        /// The unit goes before the number, as cameras write "ISO 250".
-        public var unitFirst = false
 
-        public init(value: String, unit: String, unitFirst: Bool = false) {
+        public init(value: String, unit: String) {
             self.value = value
             self.unit = unit
-            self.unitFirst = unitFirst
+        }
+    }
+
+    /// How the camera's chips colour a value.
+    public enum Tone: Equatable, Sendable {
+        /// The camera picked it: white with the small A.
+        case auto
+        /// The person set it: the accent.
+        case manual
+        /// Neither, or not known: white.
+        case plain
+    }
+
+    /// A value as a chip shows it.
+    public struct Reading: Equatable, Sendable {
+        /// "1/83", "250", "+0.7", "5200K", "MF 85%".
+        public var value: String
+        public var tone: Tone
+
+        public init(_ value: String, _ tone: Tone = .plain) {
+            self.value = value
+            self.tone = tone
         }
     }
 
@@ -27,17 +48,17 @@ public struct PhotoFacts: Equatable, Sendable {
         case heif, jpeg, png, tiff, raw, other
     }
 
-    /// The header's marks, left to right.
+    /// The file's tags, left to right.
     public enum Mark: Equatable, Sendable {
-        case depth, live, hdr, edited
-        /// A file type's badge: "HEIF", "JPEG", "PNG", "TIFF", "RAW", "ProRAW".
+        /// A file type: "HEIF", "JPEG", "PNG", "TIFF", "RAW", "ProRAW".
         case format(String)
+        case live, hdr, depth, edited
     }
 
-    /// The colour space a photo was saved in, as its badge names it.
+    /// The colour space a photo was saved in, as its tag names it.
     public enum ColorSpace: Equatable, Sendable {
         case displayP3, sRGB
-        /// One the badge spells out: "Rec. 2020", "Adobe RGB".
+        /// One the tag spells out: "Rec. 2020", "Adobe RGB".
         case named(String)
 
         /// "P3", "sRGB", "Rec. 2020", "Adobe RGB".
@@ -50,21 +71,31 @@ public struct PhotoFacts: Equatable, Sendable {
         }
     }
 
-    /// How a stacked shot was made, under the device: NIGHT's frames or a long exposure's scene.
-    public struct NightLine: Equatable, Sendable {
-        /// "Night · 30 frames × 1 s", "Light trails · 120 frames × 1/4 s", "Long exposure".
-        public var text: String
-        /// The scene, for its symbol: Custom for a long exposure without one of the presets, and nil only for the
-        /// night shot, which draws the moon.
+    /// How one of NIGHT's or LONG's stacked shots was made.
+    public struct Stack: Equatable, Sendable {
+        /// "Night", "Light trails", "Long exposure".
+        public var title: String
+        /// The scene, for its symbol: Custom for a long exposure without one of the presets, nil for NIGHT, which
+        /// draws the moon.
         public var scene: LongExposureScene?
+        /// Frames kept, with the frames taken when some were left out: "30", "28 of 30".
+        public var frames: String?
+        /// The light all the frames gathered together: "30s", "2m 5s".
+        public var total: String?
+        /// LONG's blend: "Real", "Blur", "Trails". NIGHT has none to choose.
+        public var blend: String?
 
-        public init(text: String, scene: LongExposureScene? = nil) {
-            self.text = text
+        public init(title: String, scene: LongExposureScene? = nil, frames: String? = nil, total: String? = nil,
+                    blend: String? = nil) {
+            self.title = title
             self.scene = scene
+            self.frames = frames
+            self.total = total
+            self.blend = blend
         }
     }
 
-    /// The height of the place, in metres with feet beside, as the panel shows both.
+    /// The height of the place, in metres with feet beside.
     public struct Altitude: Equatable, Sendable {
         public var metres: Measure
         public var feet: Measure
@@ -95,6 +126,8 @@ public struct PhotoFacts: Equatable, Sendable {
         public var model: String? = nil
         /// EXIF LensModel, "iPhone 15 Pro Max back triple camera 15.66mm f/2.8".
         public var lensModel: String? = nil
+        /// EXIF FocalLength, the lens's own.
+        public var focalLength: Double? = nil
         /// EXIF FocalLenIn35mmFilm.
         public var focalLength35: Double? = nil
         /// EXIF FNumber.
@@ -102,10 +135,17 @@ public struct PhotoFacts: Equatable, Sendable {
         /// EXIF ISOSpeedRatings, the first.
         public var iso: Double? = nil
         /// EXIF ExposureTime, the light time: one frame's for NIGHT, Blur and Trails, every frame's together for Real.
-        /// The night line gives the frames.
         public var exposureSeconds: Double? = nil
+        /// EXIF ExposureBiasValue, in EV.
+        public var exposureBias: Double? = nil
+        /// EXIF MeteringMode.
+        public var meteringMode: Int? = nil
+        /// EXIF Flash, its bits as the tag stores them.
+        public var flash: Int? = nil
         /// EXIF WhiteBalance: 0 auto, 1 manual.
         public var exifWhiteBalance: Int? = nil
+        /// EXIF OffsetTimeOriginal, "+01:00": the zone the clock was in when the photo was taken.
+        public var offsetTime: String? = nil
         /// The embedded colour profile's name, "Display P3".
         public var profileName: String? = nil
         /// EXIF ColorSpace: 1 sRGB, 65535 uncalibrated (what a Display P3 photo says).
@@ -128,23 +168,39 @@ public struct PhotoFacts: Equatable, Sendable {
         public init() {}
     }
 
-    /// The header's marks: depth, Live, HDR, Edited, then the file type and a RAW saved beside it.
+    /// The file's tags: its type and a RAW saved beside it, then Live, HDR, depth and Edited.
     public var marks: [Mark]
+    /// The app's mode as its carousel names it, "NIGHT"; nil for a photo another app took.
+    public var mode: String?
     /// "iPhone 15 Pro Max", "Canon EOS R5".
     public var device: String?
     /// "Telephoto camera": which of the phone's cameras, never Apple's long lens model.
     public var lens: String?
-    public var night: NightLine?
     /// The 35 mm equivalent: "120" "mm".
     public var focal: Measure?
+    /// The lens's own focal length: "15.7" "mm".
+    public var focalActual: Measure?
+    /// "1/83", "2.5s", "2m 5s", as the shutter chip writes it. A stack's is one frame's.
+    public var shutter: Reading?
+    /// The shutter is one frame of a stack, whose whole time is in `stack`.
+    public var shutterIsPerFrame: Bool
     /// "ƒ/2.8".
     public var aperture: String?
-    /// "ISO" "250", unit first.
-    public var iso: Measure?
-    /// "1/83" "SEC", "2.5" "SEC", "2m 5s" with no unit.
-    public var shutter: Measure?
-    /// "AWB", "5600K", "Daylight", "Manual".
-    public var whiteBalance: String?
+    /// "250".
+    public var iso: Reading?
+    /// The exposure compensation: "0", "+0.7", "-1.3".
+    public var bias: Reading?
+    /// "5200K", "Daylight", "Auto", "Manual".
+    public var whiteBalance: Reading?
+    /// What the white balance's name leaves out: a preset's kelvin, a tint. "5500K", "Tint +12".
+    public var whiteBalanceDetail: String?
+    /// "Spot", "Pattern", "Whole frame".
+    public var metering: String?
+    /// The app's focus: "AF", "MF 85%", "Infinity".
+    public var focus: Reading?
+    /// "Fired" when the flash fired; nil otherwise, which is nearly every photo.
+    public var flash: String?
+    public var stack: Stack?
     public var colorSpace: ColorSpace?
     /// "4,032 × 3,024", turned as the photo shows.
     public var dimensions: String?
@@ -152,30 +208,51 @@ public struct PhotoFacts: Equatable, Sendable {
     public var megapixels: Measure?
     /// "6.83" "MB".
     public var fileSize: Measure?
+    /// The capture's offset from UTC in seconds, and the same as text: "UTC+1", "UTC-3:30".
+    public var zoneSeconds: Int?
+    public var zone: String?
     public var altitude: Altitude?
     /// Where the camera faced, 0..<360 degrees; nil when unknown.
     public var heading: Double?
+    /// The same as a compass reads it: "NE 42°".
+    public var headingText: String?
 
     public init(_ input: Input) {
+        let app = input.app
+        let control = app[.exposureControl].flatMap(Self.cleaned).flatMap(ExposureControl.init(rawValue:))
         marks = Self.marks(input)
+        mode = Self.captureMode(app).map(\.title)
         device = Self.device(make: input.make, model: input.model)
         lens = Self.lens(input)
-        night = Self.nightLine(input.app)
         focal = Self.positive(input.focalLength35).map { Measure(value: FactNumbers.whole($0), unit: "mm") }
-        aperture = Self.positive(input.fNumber).map(ApertureScale.label)
-        iso = Self.positive(input.iso).map { Measure(value: FactNumbers.whole($0), unit: "ISO", unitFirst: true) }
-        shutter = Self.positive(input.exposureSeconds).map { seconds in
-            let written = Self.time(seconds)
-            return Measure(value: written.value, unit: written.namesItsUnits ? "" : "SEC")
+        focalActual = Self.positive(input.focalLength).map {
+            Measure(value: FactNumbers.significant($0, digits: 3, maxPlaces: 2), unit: "mm")
         }
-        whiteBalance = Self.whiteBalance(input)
+        stack = Self.stack(app)
+        let frame = stack == nil ? nil : Self.frameSeconds(app)
+        shutterIsPerFrame = frame != nil
+        shutter = (frame ?? Self.positive(input.exposureSeconds)).map {
+            Reading(ShutterSpeed(seconds: $0).label, Self.shutterTone(control))
+        }
+        aperture = Self.positive(input.fNumber).map(ApertureScale.label)
+        iso = Self.positive(input.iso).map { Reading(FactNumbers.whole($0), Self.isoTone(control)) }
+        bias = Self.bias(input, isOurs: control != nil)
+        let balance = Self.whiteBalance(input)
+        whiteBalance = balance?.reading
+        whiteBalanceDetail = balance?.detail
+        metering = Self.metering(input)
+        focus = Self.focus(app)
+        flash = input.flash.flatMap { $0 & 0x20 == 0 && $0 & 0x1 != 0 ? "Fired" : nil }
         colorSpace = Self.colorSpace(profileName: input.profileName, exif: input.exifColorSpace)
         let size = Self.shownSize(input)
         dimensions = size.map { FactNumbers.grouped($0.width) + " \u{00D7} " + FactNumbers.grouped($0.height) }
         megapixels = size.map { Self.megapixels(width: $0.width, height: $0.height) }
         fileSize = input.fileBytes.flatMap(Self.fileSize)
+        zoneSeconds = input.offsetTime.flatMap(ExifFormat.offsetSeconds)
+        zone = zoneSeconds.map(Self.zone)
         altitude = Self.altitude(input.altitude, ref: input.altitudeRef)
         heading = Self.heading(input.heading)
+        headingText = heading.map(Self.compass)
     }
 
     // MARK: - Library and place
@@ -227,16 +304,13 @@ public struct PhotoFacts: Equatable, Sendable {
         return kept
     }
 
+
     // MARK: - Rules
 
-    /// Depth, Live, HDR and Edited first, as the icons and badges read left to right, then the file type and a RAW
-    /// file saved beside it.
+    /// The file type first, as the thing a photographer looks for, then a RAW saved beside it, then Live, HDR,
+    /// depth and Edited.
     private static func marks(_ input: Input) -> [Mark] {
         var marks: [Mark] = []
-        if input.hasDepth { marks.append(.depth) }
-        if input.isLive { marks.append(.live) }
-        if input.hasGainMap { marks.append(.hdr) }
-        if input.isEdited { marks.append(.edited) }
         switch input.format {
         case .heif: marks.append(.format("HEIF"))
         case .jpeg: marks.append(.format("JPEG"))
@@ -251,7 +325,15 @@ public struct PhotoFacts: Equatable, Sendable {
         if input.hasRAWCompanion, input.format != .raw {
             marks.append(.format("RAW"))
         }
+        if input.isLive { marks.append(.live) }
+        if input.hasGainMap { marks.append(.hdr) }
+        if input.hasDepth { marks.append(.depth) }
+        if input.isEdited { marks.append(.edited) }
         return marks
+    }
+
+    private static func captureMode(_ app: [ShotXMP.Field: String]) -> CaptureMode? {
+        app[.mode].flatMap(cleaned).flatMap(CaptureMode.init(rawValue:))
     }
 
     /// The model alone when it names the phone or carries the make already ("iPhone 17 Pro", "Canon EOS R5"), else
@@ -299,71 +381,115 @@ public struct PhotoFacts: Equatable, Sendable {
         }
     }
 
-    /// NIGHT's and the long exposure's shots: what they were and how many frames of what time made them. EXIF's
-    /// time is one frame's for NIGHT, Blur and Trails, so this is where the length shows. One frame, or a count that
-    /// can't be read, leaves the title alone. A bulb shot adds nothing: its frame count says how long it ran.
-    private static func nightLine(_ app: [ShotXMP.Field: String]) -> NightLine? {
-        guard let mode = app[.mode].flatMap(cleaned).flatMap(CaptureMode.init(rawValue:)), mode.usesStacking else {
-            return nil
-        }
-        let title: String
-        let scene: LongExposureScene?
+    /// NIGHT's and LONG's shots. A single frame, or a count that can't be read, leaves the title alone: there is no
+    /// stack to describe. NIGHT averages its frames, but calling that Blur would name a LONG blend it never offered.
+    private static func stack(_ app: [ShotXMP.Field: String]) -> Stack? {
+        guard let mode = captureMode(app), mode.usesStacking else { return nil }
+        var stack: Stack
         if mode == .night {
-            title = "Night"
-            scene = nil
+            stack = Stack(title: "Night")
         } else {
             // A scene this version can't read, or none, was the person's own setup.
-            let picked = app[.scene].flatMap(cleaned).flatMap(LongExposureScene.init(rawValue:)) ?? .custom
-            title = picked == .custom ? "Long exposure" : picked.title
-            scene = picked
+            let scene = app[.scene].flatMap(cleaned).flatMap(LongExposureScene.init(rawValue:)) ?? .custom
+            stack = Stack(title: scene == .custom ? "Long exposure" : scene.title, scene: scene)
         }
-        guard let count = app[.frameCount].flatMap(cleaned).flatMap({ Int($0) }), count > 1 else {
-            return NightLine(text: title, scene: scene)
+        guard let count = app[.frameCount].flatMap(cleaned).flatMap({ Int($0) }), count > 1 else { return stack }
+        let taken = app[.framesCaptured].flatMap(cleaned).flatMap { Int($0) } ?? count
+        stack.frames = taken > count ? FactNumbers.grouped(count) + " of " + FactNumbers.grouped(taken)
+            : FactNumbers.grouped(count)
+        let light = app[.lightSeconds].flatMap(cleaned).flatMap { Double($0) }.flatMap(positive)
+            ?? frameSeconds(app).map { $0 * Double(count) }
+        stack.total = light.map(Formatting.compactDuration)
+        if mode != .night {
+            stack.blend = app[.blend].flatMap(cleaned).flatMap(StackBlend.init(rawValue:))?.title
         }
-        var text = title + " \u{00B7} " + FactNumbers.grouped(count) + " frames"
-        if let frame = app[.frameSeconds].flatMap(cleaned).flatMap({ Double($0) }), let seconds = positive(frame) {
-            let frameTime = Self.time(seconds)
-            text += " \u{00D7} " + frameTime.value + (frameTime.namesItsUnits ? "" : " s")
-        }
-        return NightLine(text: text, scene: scene)
+        return stack
     }
 
-    /// An exposure time as cameras write it: "1/83" below 0.4 s, one decimal below 10 s ("2.5"), whole seconds below
-    /// 99.5 s ("30"), and past that minutes and seconds ("2m 5s"), which name their own units.
-    private static func time(_ seconds: Double) -> (value: String, namesItsUnits: Bool) {
-        if seconds < 0.4 {
-            return ("1/" + FactNumbers.whole(1 / seconds), false)
-        }
-        if seconds < 10 {
-            return (FactNumbers.fixed(seconds, places: 1, trimsZeros: true), false)
-        }
-        if seconds < 99.5 {
-            return (FactNumbers.whole(seconds), false)
-        }
-        return (Formatting.compactDuration(seconds), true)
+    /// One frame's time, from the app's XMP.
+    private static func frameSeconds(_ app: [ShotXMP.Field: String]) -> Double? {
+        app[.frameSeconds].flatMap(cleaned).flatMap { Double($0) }.flatMap(positive)
     }
 
-    /// The app's XMP first, which knows a preset from a Kelvin value; EXIF only tells auto from manual.
-    private static func whiteBalance(_ input: Input) -> String? {
-        if let written = input.app[.whiteBalance].flatMap(cleaned) {
-            if written == "auto" { return "AWB" }
-            if written == "kelvin",
-               let kelvin = input.app[.kelvin].flatMap(cleaned).flatMap({ Double($0) }).flatMap(positive) {
-                return Formatting.kelvin(kelvin)
+    /// What the exposure control left to the camera. Only the app's own photos say; another's is plain.
+    private static func shutterTone(_ control: ExposureControl?) -> Tone {
+        switch control {
+        case nil: return .plain
+        case .shutterPriority, .manual: return .manual
+        case .auto, .isoPriority, .aperturePriority: return .auto
+        }
+    }
+
+    private static func isoTone(_ control: ExposureControl?) -> Tone {
+        switch control {
+        case nil: return .plain
+        case .isoPriority, .manual: return .manual
+        case .auto, .shutterPriority, .aperturePriority: return .auto
+        }
+    }
+
+    /// EXIF first, which every camera writes, then the app's XMP. Any compensation in the app's photo was dialled
+    /// in by hand.
+    private static func bias(_ input: Input, isOurs: Bool) -> Reading? {
+        let written = input.app[.bias].flatMap(cleaned).flatMap { Double($0) }
+        guard let ev = [input.exposureBias, written].compactMap({ $0 }).first(where: \.isFinite) else { return nil }
+        let label = EVFormat.label(ev)
+        return Reading(label, isOurs && label != "0" ? .manual : .plain)
+    }
+
+    /// The app's XMP first: it knows the kelvin the camera ran at, even under auto, a preset from a kelvin value, and
+    /// a white balance a LONG scene fixed. EXIF only tells auto from manual.
+    private static func whiteBalance(_ input: Input) -> (reading: Reading, detail: String?)? {
+        let app = input.app
+        let kelvin = app[.kelvin].flatMap(cleaned).flatMap { Double($0) }.flatMap(positive).map(Formatting.kelvin)
+        let fromScene = app[.whiteBalanceFromScene].flatMap(cleaned) == "True"
+        let set: Tone = fromScene ? .plain : .manual
+        // A tint only matters where it was set: under auto it is the camera's own small correction.
+        let tint = app[.tint].flatMap(cleaned).flatMap { Double($0) }.flatMap { $0.isFinite ? $0 : nil }
+            .map(Formatting.tint).flatMap { $0 == "0" ? nil : "Tint " + $0 }
+        if let written = app[.whiteBalance].flatMap(cleaned) {
+            if written == "auto" || written == WhiteBalancePreset.auto.rawValue {
+                return (kelvin.map { Reading($0, .auto) } ?? Reading("Auto"), nil)
+            }
+            if written == "kelvin", let kelvin {
+                return (Reading(kelvin, set), tint)
             }
             if let preset = WhiteBalancePreset(rawValue: written) {
-                return preset == .auto ? "AWB" : preset.title
+                let detail = [kelvin, tint].compactMap { $0 }.joined(separator: ", ")
+                return (Reading(preset.title, set), detail.isEmpty ? nil : detail)
             }
         }
         switch input.exifWhiteBalance {
-        case 0: return "AWB"
-        case 1: return "Manual"
+        case 0: return (Reading("Auto"), nil)
+        case 1: return (Reading("Manual"), nil)
+        default: return nil
+        }
+    }
+
+    /// The app's metering area by the name its settings use, else EXIF's. Unknown and other say nothing.
+    private static func metering(_ input: Input) -> String? {
+        if let area = input.app[.meteringArea].flatMap(cleaned).flatMap(MeteringArea.init(rawValue:)) {
+            return area.title
+        }
+        guard let mode = input.meteringMode, (1...6).contains(mode) else { return nil }
+        return mode == 2 ? "Center-weighted" : MetadataFormat.meteringMode(mode)
+    }
+
+    /// The app's focus as the focus chip writes it. Other cameras' files don't say it in a way worth showing.
+    private static func focus(_ app: [ShotXMP.Field: String]) -> Reading? {
+        switch app[.focus].flatMap(cleaned) {
+        case "manual":
+            let position = app[.lensPosition].flatMap(cleaned).flatMap { Double($0) }.flatMap { $0.isFinite ? $0 : nil }
+            return Reading(position.map(Formatting.lensPosition) ?? "MF", .manual)
+        case "infinity": return Reading("Infinity")
+        case "held": return Reading("AF lock")
+        case "auto": return Reading("AF")
         default: return nil
         }
     }
 
     /// The embedded profile's name says the most; EXIF ColorSpace only knows sRGB (and Adobe RGB, as some cameras
-    /// write it). A space with no short name, or none known, leaves the badge out.
+    /// write it). A space with no short name, or none known, leaves the tag out.
     private static func colorSpace(profileName: String?, exif: Int?) -> ColorSpace? {
         if let name = cleaned(profileName)?.lowercased() {
             if name.contains("p3") { return .displayP3 }
@@ -421,6 +547,18 @@ public struct PhotoFacts: Equatable, Sendable {
         return Measure(value: FactNumbers.decimal((count + unit / 2) / unit, places: 0), unit: names[index])
     }
 
+    /// "UTC", "UTC+1", "UTC-3:30": short, and the same in every region, unlike a zone's local abbreviation.
+    private static func zone(_ seconds: Int) -> String {
+        guard seconds != 0 else { return "UTC" }
+        let minutes = abs(seconds) / 60
+        var text = "UTC" + (seconds < 0 ? "-" : "+") + String(minutes / 60)
+        if minutes % 60 != 0 {
+            let rest = String(minutes % 60)
+            text += ":" + (rest.count < 2 ? "0" + rest : rest)
+        }
+        return text
+    }
+
     /// Metres with feet beside, three significant figures below 1000 ("5.56", "563") and whole above ("1,235").
     /// Nothing for a height no phone was at, which is a file's error.
     private static func altitude(_ value: Double?, ref: Int?) -> Altitude? {
@@ -443,6 +581,13 @@ public struct PhotoFacts: Equatable, Sendable {
         if value < 0 { value += 360 }
         // A tiny negative remainder plus 360 rounds to 360, which is north again, as is -720's remainder of -0.
         return value >= 360 || value == 0 ? 0 : value
+    }
+
+    /// Eight points and the whole degree: "N 0°", "NE 42°", "W 270°".
+    private static func compass(_ degrees: Double) -> String {
+        let whole = Int(degrees.rounded()) % 360
+        let points = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        return points[((whole * 2 + 45) / 90) % 8] + " " + String(whole) + "\u{00B0}"
     }
 
     // MARK: - Helpers

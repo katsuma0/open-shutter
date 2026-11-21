@@ -25,7 +25,6 @@ struct GalleryViewer: View {
     @State private var motion = InfoPanelMotion()
     @State private var facts = PhotoFactsStore()
     @State private var editing: AssetTarget?
-    @State private var inspecting: AssetTarget?
     @State private var shareURLs: [URL]?
     @State private var isPreparingShare = false
     @State private var failure: String?
@@ -58,9 +57,7 @@ struct GalleryViewer: View {
             if let current, current.mediaType == .image {
                 InfoPanelLayer(motion: motion, asset: current,
                                kind: library.entry(for: current.localIdentifier)?.kind, store: facts,
-                               manager: library.imageManager) {
-                    inspecting = AssetTarget(asset: current)
-                }
+                               manager: library.imageManager)
             }
         }
         .overlay(alignment: .topLeading) {
@@ -119,19 +116,6 @@ struct GalleryViewer: View {
             // The editor stays dark, like the viewer, even when the grid behind it is light.
             PhotoEditorView(asset: target.asset, library: library)
                 .preferredColorScheme(.dark)
-        }
-        .sheet(item: $inspecting) { target in
-            NavigationStack {
-                PhotoInfoView(source: .asset(target.asset))
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") {
-                                inspecting = nil
-                            }
-                        }
-                    }
-            }
-            .sheetAppearance()
         }
         .alert(failureTitle, isPresented: failureShown) {
             Button("OK", role: .cancel) {}

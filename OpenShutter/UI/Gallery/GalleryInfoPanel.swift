@@ -5,81 +5,47 @@ import MapKit
 import _MapKit_SwiftUI
 import CameraCore
 
-/// The info panel's look, measured from the owner's reference: white text at three strengths on dark glass made of
-/// the photo itself, units in small capitals, thin lines between groups.
+/// The info panel's look: the camera's own instruments on near black. Labels in small spaced capitals over values in
+/// monospaced digits, the accent for a value set by hand and the small A for one the camera picked, as the chips and
+/// the dial write them. Text follows Dynamic Type, unlike the camera's fixed rows, because the panel scrolls.
 enum InfoPanelStyle {
-    // Text: Dynamic Type styles, white at three strengths.
-    /// Card values.
-    static let primary = Color.white.opacity(0.88)
-    /// Device, lens, night line, size, place, altitude.
-    @MainActor static var secondary: Color {
-        Color.white.opacity(AppearanceStore.shared.increaseContrast ? 0.75 : 0.55)
-    }
-    /// The date.
+    static let primary = Color.white
+    @MainActor static var secondary: Color { Theme.secondaryText }
     @MainActor static var tertiary: Color {
-        Color.white.opacity(AppearanceStore.shared.increaseContrast ? 0.6 : 0.42)
+        AppearanceStore.shared.increaseContrast ? Color.white.opacity(0.6) : Color.white.opacity(0.42)
     }
-    /// Every text row.
-    static let body = Font.subheadline
+
+    /// "SHUTTER", "LENS": the dial header's capitals.
+    static let label = Font.caption2.weight(.semibold)
+    static let labelTracking: CGFloat = 0.8
+    /// The exposure values, the biggest numbers in the panel.
+    static let reading = Font.title3.weight(.semibold).monospacedDigit()
+    /// Spec values and the file line.
     static let value = Font.subheadline.weight(.medium).monospacedDigit()
-    /// "ISO", "SEC", "MP", "MB".
-    static let unit = Font.subheadline.weight(.medium).uppercaseSmallCaps()
-    /// "JPEG", "AWB", "P3", "HDR".
-    static let badge = Font.caption2.weight(.semibold)
+    static let detail = Font.footnote.monospacedDigit()
+    static let tag = Font.caption2.weight(.semibold)
 
-    // Shapes and fills.
-    /// The panel floats this far in from the screen's sides.
-    static let sideMargin: CGFloat = 8
-    static let cornerRadius: CGFloat = 16
-    /// Over the blurred photo.
-    @MainActor static var scrim: Color {
-        Color.black.opacity(AppearanceStore.shared.increaseContrast ? 0.75 : 0.62)
+    /// Solid, so the numbers read the same over any photo; the camera's dark backing, a step lighter than the black
+    /// the photo sits on.
+    static let fill = Color(white: 0.07)
+    static let wellFill = Color.white.opacity(0.05)
+    @MainActor static var edge: Color {
+        AppearanceStore.shared.increaseContrast ? Color.white.opacity(0.3) : Theme.scrimEdge
     }
-    /// Reduce Transparency or Solid buttons.
-    static let solidFill = Color(white: 0.11)
-    static let cardFill = Color.white.opacity(0.07)
-    static let cardRadius: CGFloat = 12
     @MainActor static var hairline: Color {
-        Color.white.opacity(AppearanceStore.shared.increaseContrast ? 0.2 : 0.1)
+        AppearanceStore.shared.increaseContrast ? Color.white.opacity(0.22) : Color.white.opacity(0.1)
     }
-    static let grabber = Color.white.opacity(0.30)
-    /// The file type's badge; its text is dark.
-    static let filledBadgeFill = Color.white.opacity(0.48)
-    static let filledBadgeText = Color.black.opacity(0.85)
-    /// "AWB", "P3", "HDR", "Edited".
-    @MainActor static var outlineBadgeStroke: Color {
-        Color.white.opacity(AppearanceStore.shared.increaseContrast ? 0.5 : 0.3)
-    }
-    static let outlineBadgeText = Color.white.opacity(0.82)
-    static let badgeRadius: CGFloat = 4
-    static let mapHeight: CGFloat = 150
-    static let histogramHeight: CGFloat = 96
+    static let grabber = Color.white.opacity(0.3)
 
-    // Spacing.
-    /// The date row, lines, card, histogram and map.
-    static let contentInset: CGFloat = 14
-    /// Text rows, so they line up with the card's text.
-    static let textInset: CGFloat = contentInset + cardPadding
-    static let cardPadding: CGFloat = 10
-    static let cardRowHeight: CGFloat = 32
-    static let grabberTop: CGFloat = 6
-    static let headerHeight: CGFloat = 30
-    /// After a line.
-    static let groupTop: CGFloat = 18
-    /// Device block, card, size row.
-    static let blockGap: CGFloat = 10
-    /// Before a line.
-    static let groupBottom: CGFloat = 22
-    /// Between the lines of one block.
-    static let lineSpacing: CGFloat = 2
+    static let sideMargin: CGFloat = 8
+    static let cornerRadius: CGFloat = 22
+    static let wellRadius: CGFloat = 14
+    static let inset: CGFloat = 16
+    static let sectionGap: CGFloat = 18
+    static let mapHeight: CGFloat = 132
+    static let histogramHeight: CGFloat = 76
     /// The photo always keeps this much height above the panel.
     static let minimumPhotoRoom: CGFloat = 220
-
-    /// Sampled from the reference. Normal blending, not the viewfinder's additive one, so the channels lie over one
-    /// another as they do there.
-    static let histogramRed = Color(red: 0.88, green: 0.06, blue: 0.03)
-    static let histogramGreen = Color(red: 0.02, green: 0.80, blue: 0.02)
-    static let histogramBlue = Color(red: 0.03, green: 0.66, blue: 0.85)
 }
 
 // MARK: - Layer
@@ -89,17 +55,16 @@ enum InfoPanelStyle {
 struct InfoPanelLayer: View {
     let motion: InfoPanelMotion
     let asset: PHAsset
-    /// The app's own record of the shot, if it took it: a stack reserves its night line while the file loads.
+    /// The app's own record of the shot, if it took it: a stack reserves its strip while the file loads.
     let kind: CapturedAssetKind?
     let store: PhotoFactsStore
     let manager: PHImageManager
-    let onAllDetails: () -> Void
 
     var body: some View {
         GeometryReader { proxy in
             let progress = motion.progress
             InfoPanelSurface(motion: motion, asset: asset, kind: kind, store: store, manager: manager,
-                             screenHeight: proxy.size.height, isShowing: progress > 0, onAllDetails: onAllDetails)
+                             screenHeight: proxy.size.height, isShowing: progress > 0)
                 .equatable()
                 .frame(height: motion.openHeight)
                 .offset(y: (1 - progress) * (motion.openHeight + 20) + (motion.isOpen ? min(motion.drag, 0) : 0))
@@ -116,7 +81,7 @@ struct InfoPanelLayer: View {
     }
 }
 
-/// The panel's glass, its grip and its content. Equatable on what it shows, so the finger moving the layer above
+/// The panel's backing, its grip and its content. Equatable on what it shows, so the finger moving the layer above
 /// doesn't redraw it.
 private struct InfoPanelSurface: View, Equatable {
     let motion: InfoPanelMotion
@@ -127,13 +92,11 @@ private struct InfoPanelSurface: View, Equatable {
     let screenHeight: CGFloat
     /// Up or on its way: the panel builds and reads only then.
     let isShowing: Bool
-    let onAllDetails: () -> Void
 
     @State private var hasShown = false
     @State private var headerHeight: CGFloat = 0
     @State private var contentHeight: CGFloat = 0
     @State private var pull = PullTracker()
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
     nonisolated static func == (lhs: InfoPanelSurface, rhs: InfoPanelSurface) -> Bool {
@@ -157,8 +120,10 @@ private struct InfoPanelSurface: View, Equatable {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background {
-            backing(entry?.backdrop)
+        .background(InfoPanelStyle.fill, in: shape)
+        .overlay {
+            shape.strokeBorder(InfoPanelStyle.edge, lineWidth: 0.5)
+                .accessibilityHidden(true)
         }
         .clipShape(shape)
         .contentShape(shape)
@@ -189,17 +154,18 @@ private struct InfoPanelSurface: View, Equatable {
         return max(min(headerHeight + contentHeight, room), headerHeight)
     }
 
-    /// The grip and the date row: a drag here moves the panel, with a little give upward, as a sheet has.
+    /// The grip and the time: a drag here moves the panel, with a little give upward, as a sheet has.
     private func header(_ entry: PhotoFactsStore.Entry?) -> some View {
         VStack(spacing: 0) {
             Capsule()
                 .fill(InfoPanelStyle.grabber)
                 .frame(width: 36, height: 5)
-                .padding(.top, InfoPanelStyle.grabberTop)
+                .padding(.top, 6)
                 .accessibilityHidden(true)
-            InfoHeaderRow(date: asset.creationDate, marks: entry?.facts?.marks ?? [])
-                .padding(.horizontal, InfoPanelStyle.contentInset)
-                .padding(.top, 5)
+            InfoHeader(date: asset.creationDate, facts: entry?.factsRead == true ? entry?.facts : nil)
+                .padding(.horizontal, InfoPanelStyle.inset)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
@@ -218,7 +184,7 @@ private struct InfoPanelSurface: View, Equatable {
 
     private func scroller(_ entry: PhotoFactsStore.Entry?) -> some View {
         ScrollView(.vertical) {
-            InfoPanelContent(asset: asset, kind: kind, entry: entry, onAllDetails: onAllDetails)
+            InfoPanelContent(asset: asset, kind: kind, entry: entry)
                 .padding(.bottom, motion.safeBottom + 12 + (voiceOver ? 49 : 0))
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         }
@@ -237,26 +203,6 @@ private struct InfoPanelSurface: View, Equatable {
             }
         }
     }
-
-    @ViewBuilder
-    private func backing(_ backdrop: UIImage?) -> some View {
-        if reduceTransparency || AppearanceStore.shared.reduceTransparency || AppearanceStore.shared.solidControls {
-            InfoPanelStyle.solidFill
-        } else {
-            ZStack {
-                InfoPanelStyle.solidFill
-                if let backdrop {
-                    Image(uiImage: backdrop)
-                        .resizable()
-                        .scaledToFill()
-                        .transition(.opacity)
-                }
-                InfoPanelStyle.scrim
-            }
-            .animation(.easeInOut(duration: 0.25), value: backdrop)
-            .accessibilityHidden(true)
-        }
-    }
 }
 
 /// What the panel's loads are for: the photo, and whether the panel is up for it.
@@ -272,446 +218,541 @@ private final class PullTracker {
 
 // MARK: - Content
 
-/// Everything under the date, top to bottom.
+/// Everything under the header: how it was exposed, how it was made, the file, its tones and where.
 private struct InfoPanelContent: View {
     let asset: PHAsset
     let kind: CapturedAssetKind?
     let entry: PhotoFactsStore.Entry?
-    let onAllDetails: () -> Void
 
     var body: some View {
         let facts = entry?.facts
         let isRead = entry?.factsRead ?? false
-        let coordinate = asset.location?.coordinate
-        VStack(alignment: .leading, spacing: 0) {
-            InfoHairline()
-                .padding(.top, 2)
-            VStack(alignment: .leading, spacing: InfoPanelStyle.blockGap) {
-                InfoDeviceBlock(facts: facts, isRead: isRead, isStack: kind == .stack)
-                InfoCard(facts: facts, isRead: isRead)
-                InfoSizeRow(facts: facts, isRead: isRead)
+        VStack(alignment: .leading, spacing: InfoPanelStyle.sectionGap) {
+            Group {
+                if isRead {
+                    if let facts {
+                        ExposureDeck(facts: facts)
+                        if let stack = facts.stack { StackStrip(stack: stack) }
+                        SpecList(facts: facts)
+                        FileBlock(facts: facts)
+                    }
+                } else {
+                    // Held in the shape of a typical photo while the file is read.
+                    ExposureDeck(facts: Self.sample)
+                        .redacted(reason: .placeholder)
+                        .accessibilityHidden(true)
+                    if kind == .stack {
+                        StackStrip(stack: PhotoFacts.Stack(title: "Night", frames: "30", total: "30s"))
+                            .redacted(reason: .placeholder)
+                            .accessibilityHidden(true)
+                    }
+                }
             }
-            .padding(.top, InfoPanelStyle.groupTop)
-            .padding(.bottom, InfoPanelStyle.groupBottom)
             .id(AssetVersion(asset))
             .transition(.opacity)
             if !(entry?.pictureRead ?? false) || entry?.curves != nil {
-                InfoHairline()
-                InfoHistogram(curves: entry?.curves ?? HistogramCurves())
-                    .equatable()
-                    .frame(height: InfoPanelStyle.histogramHeight)
-                    .padding(.horizontal, InfoPanelStyle.contentInset)
-                    .padding(.vertical, InfoPanelStyle.groupTop)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("RGB histogram")
-                    .accessibilityValue(entry?.histogramSummary ?? "")
+                InfoHistogram(curves: entry?.curves ?? HistogramCurves(),
+                              clipping: entry?.clipping ?? HistogramClipping(), summary: entry?.histogramSummary ?? "")
             }
-            InfoHairline()
-            if let coordinate {
-                InfoMap(spot: MapSpot(latitude: coordinate.latitude, longitude: coordinate.longitude),
-                        heading: facts?.heading)
-                    .padding(.horizontal, InfoPanelStyle.contentInset)
-                    .padding(.top, InfoPanelStyle.groupTop)
-                InfoPlaceRow(lines: entry?.place, coordinate: coordinate, altitude: facts?.altitude)
-                    .padding(.horizontal, InfoPanelStyle.textInset)
-                    .padding(.top, InfoPanelStyle.blockGap)
+            if let coordinate = asset.location?.coordinate {
+                LocationBlock(coordinate: coordinate, place: entry?.place, facts: isRead ? facts : nil)
             }
-            Button {
-                onAllDetails()
-            } label: {
-                Text("All details")
-                    .font(InfoPanelStyle.body)
-                    .foregroundStyle(InfoPanelStyle.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, InfoPanelStyle.textInset)
-            .padding(.top, coordinate == nil ? 4 : InfoPanelStyle.blockGap)
-            .accessibilityHint("Shows everything saved in the photo.")
         }
+        .padding(.horizontal, InfoPanelStyle.inset)
+        .padding(.top, 2)
         .animation(.easeInOut(duration: 0.2), value: AssetVersion(asset))
         .animation(.easeInOut(duration: 0.2), value: isRead)
     }
+
+    private static let sample: PhotoFacts = {
+        var input = PhotoFacts.Input()
+        input.exposureSeconds = 1.0 / 120
+        input.fNumber = 1.78
+        input.iso = 400
+        input.exposureBias = 0
+        return PhotoFacts(input)
+    }()
 }
 
-/// The date on the left, the marks on the right: depth, Live, HDR, Edited, then the file type.
-private struct InfoHeaderRow: View {
+/// The day on top, the time and its zone under it, and the app's mode on the right as the mode dial names it.
+private struct InfoHeader: View {
     let date: Date?
-    let marks: [PhotoFacts.Mark]
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(date.map { $0.formatted(.dateTime.month(.abbreviated).day().year().hour().minute()) } ?? "")
-                .font(InfoPanelStyle.body)
-                .foregroundStyle(InfoPanelStyle.tertiary)
-                .lineLimit(2)
-            Spacer(minLength: 8)
-            ForEach(Array(marks.enumerated()), id: \.offset) { _, mark in
-                markView(mark)
-            }
-        }
-        .frame(minHeight: InfoPanelStyle.headerHeight)
-        .accessibilityElement(children: .combine)
-    }
-
-    @ViewBuilder
-    private func markView(_ mark: PhotoFacts.Mark) -> some View {
-        switch mark {
-        case .depth:
-            Image(systemName: "cube")
-                .font(.footnote)
-                .foregroundStyle(InfoPanelStyle.secondary)
-                .accessibilityLabel("Depth")
-        case .live:
-            Image(systemName: "livephoto")
-                .font(.footnote)
-                .foregroundStyle(InfoPanelStyle.secondary)
-                .accessibilityLabel("Live Photo")
-        case .hdr:
-            InfoBadge(text: "HDR")
-        case .edited:
-            InfoBadge(text: "Edited")
-        case .format(let name):
-            InfoBadge(text: name, isFilled: true)
-        }
-    }
-}
-
-/// Device, lens, and how a stacked shot was made. Each line is left out when unknown; while the file loads, lines
-/// of the same height hold the place.
-private struct InfoDeviceBlock: View {
+    /// nil until the file is read; until then the time is the phone's.
     let facts: PhotoFacts?
-    let isRead: Bool
-    let isStack: Bool
 
     var body: some View {
-        let device = isRead ? facts?.device : "iPhone 17 Pro"
-        let lens = isRead ? facts?.lens : "Main camera"
-        let night = isRead ? facts?.night.map(nightText) : (isStack ? Text("Night · 30 frames × 1 s") : nil)
-        if device != nil || lens != nil || night != nil {
-            VStack(alignment: .leading, spacing: InfoPanelStyle.lineSpacing) {
-                if let device { Text(device) }
-                if let lens { Text(lens) }
-                if let night { night }
+        let zone = facts?.zoneSeconds.flatMap { TimeZone(secondsFromGMT: $0) } ?? .current
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(day(zone))
+                    .font(.headline)
+                    .foregroundStyle(InfoPanelStyle.primary)
+                Text(time(zone))
+                    .font(InfoPanelStyle.detail)
+                    .foregroundStyle(InfoPanelStyle.secondary)
             }
-            .font(InfoPanelStyle.body)
-            .foregroundStyle(InfoPanelStyle.secondary)
-            .redacted(reason: isRead ? [] : .placeholder)
-            .padding(.horizontal, InfoPanelStyle.textInset)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .accessibilityElement(children: .combine)
+            Spacer(minLength: 8)
+            if let mode = facts?.mode {
+                Text(mode)
+                    .font(InfoPanelStyle.tag)
+                    .tracking(InfoPanelStyle.labelTracking)
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.6), lineWidth: 1))
+                    .fixedSize()
+                    .accessibilityLabel(mode.capitalized + " mode")
+            }
         }
     }
 
-    private func nightText(_ line: PhotoFacts.NightLine) -> Text {
-        let symbol = line.scene.map { Image(firstAvailableSystemName: $0.symbolNames) }
-            ?? Image(systemName: "moon.stars.fill")
-        return Text("\(symbol) \(line.text)")
+    private func day(_ zone: TimeZone) -> String {
+        guard let date else { return "" }
+        var style = Date.FormatStyle.dateTime.weekday(.abbreviated).day().month(.abbreviated).year()
+        style.timeZone = zone
+        return date.formatted(style)
+    }
+
+    private func time(_ zone: TimeZone) -> String {
+        guard let date else { return "" }
+        var style = Date.FormatStyle.dateTime.hour().minute().second()
+        style.timeZone = zone
+        let clock = date.formatted(style)
+        return facts?.zone.map { clock + "  " + $0 } ?? clock
     }
 }
 
-/// The exposure in one rounded card: focal length, aperture, ISO and shutter, then white balance and colour space.
-private struct InfoCard: View {
-    let facts: PhotoFacts?
-    let isRead: Bool
+// MARK: - Exposure
+
+/// The exposure triangle and its compensation in one well, a cell each, as the camera's readout lines them up.
+private struct ExposureDeck: View {
+    let facts: PhotoFacts
 
     var body: some View {
-        if !isRead {
-            card(cells: Self.sampleCells, whiteBalance: "AWB", colorSpace: .displayP3)
-                .redacted(reason: .placeholder)
-                .accessibilityHidden(true)
-        } else if let facts {
-            let cells = Self.cells(facts)
-            if !cells.isEmpty || facts.whiteBalance != nil || facts.colorSpace != nil {
-                card(cells: cells, whiteBalance: facts.whiteBalance, colorSpace: facts.colorSpace)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(InfoSpoken.card(facts))
+        let cells = Self.cells(facts)
+        if !cells.isEmpty {
+            ViewThatFits(in: .horizontal) {
+                row(cells)
+                grid(cells)
             }
+            .padding(.vertical, 12)
+            .background(InfoPanelStyle.wellFill,
+                        in: RoundedRectangle(cornerRadius: InfoPanelStyle.wellRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: InfoPanelStyle.wellRadius, style: .continuous)
+                    .strokeBorder(InfoPanelStyle.edge, lineWidth: 0.5)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Exposure")
+            .accessibilityValue(cells.map(\.spoken).joined(separator: ". "))
         }
     }
 
-    private struct Cell: Identifiable {
+    struct Cell: Identifiable {
         let id: Int
-        let text: Text
+        let label: String
+        let reading: PhotoFacts.Reading
+        let spoken: String
     }
 
-    private static let sampleCells = [
-        Cell(id: 0, text: InfoMeasure.text(PhotoFacts.Measure(value: "120", unit: "mm"))),
-        Cell(id: 1, text: Text("ƒ/2.8")),
-        Cell(id: 2, text: InfoMeasure.text(PhotoFacts.Measure(value: "250", unit: "ISO", unitFirst: true))),
-        Cell(id: 3, text: InfoMeasure.text(PhotoFacts.Measure(value: "1/83", unit: "SEC"))),
-    ]
-
-    private static func cells(_ facts: PhotoFacts) -> [Cell] {
-        var texts: [Text] = []
-        if let focal = facts.focal { texts.append(InfoMeasure.text(focal)) }
-        if let aperture = facts.aperture { texts.append(Text(aperture)) }
-        if let iso = facts.iso { texts.append(InfoMeasure.text(iso)) }
-        if let shutter = facts.shutter { texts.append(InfoMeasure.text(shutter)) }
-        return texts.enumerated().map { Cell(id: $0.offset, text: $0.element) }
-    }
-
-    private func card(cells: [Cell], whiteBalance: String?, colorSpace: PhotoFacts.ColorSpace?) -> some View {
-        VStack(spacing: 0) {
-            if !cells.isEmpty {
-                ViewThatFits(in: .horizontal) {
-                    spread(cells)
-                    stacked(cells)
-                }
-                .font(InfoPanelStyle.value)
-                .foregroundStyle(InfoPanelStyle.primary)
-                .frame(minHeight: InfoPanelStyle.cardRowHeight)
-            }
-            if !cells.isEmpty, whiteBalance != nil || colorSpace != nil {
-                InfoHairline(inset: 0)
-            }
-            if whiteBalance != nil || colorSpace != nil {
-                HStack {
-                    if let whiteBalance { InfoBadge(text: whiteBalance) }
-                    Spacer(minLength: 8)
-                    if let colorSpace { InfoBadge(text: colorSpace.title, showsWheel: colorSpace == .displayP3) }
-                }
-                .frame(minHeight: InfoPanelStyle.cardRowHeight)
-            }
+    static func cells(_ facts: PhotoFacts) -> [Cell] {
+        var made: [(String, PhotoFacts.Reading, String)] = []
+        if let shutter = facts.shutter {
+            let label = facts.shutterIsPerFrame ? "Per frame" : "Shutter"
+            made.append((label, shutter, label + " " + InfoSpoken.shutter(shutter.value)))
         }
-        .padding(.horizontal, InfoPanelStyle.cardPadding)
-        .background(InfoPanelStyle.cardFill,
-                    in: RoundedRectangle(cornerRadius: InfoPanelStyle.cardRadius, style: .continuous))
-        .padding(.horizontal, InfoPanelStyle.contentInset)
+        if let aperture = facts.aperture {
+            made.append(("Aperture", PhotoFacts.Reading(aperture),
+                         "Aperture " + aperture.replacingOccurrences(of: "\u{0192}/", with: "f ")))
+        }
+        if let iso = facts.iso { made.append(("ISO", iso, "ISO " + iso.value)) }
+        if let bias = facts.bias { made.append(("EV", bias, "Exposure compensation " + bias.value)) }
+        return made.enumerated().map { index, cell in
+            Cell(id: index, label: cell.0, reading: cell.1, spoken: cell.2 + InfoSpoken.tone(cell.1.tone))
+        }
     }
 
-    /// Spread across the width, as in the reference.
-    private func spread(_ cells: [Cell]) -> some View {
+    /// One line, split evenly by hairlines.
+    private func row(_ cells: [Cell]) -> some View {
         HStack(spacing: 0) {
             ForEach(cells) { cell in
-                if cell.id > 0 { Spacer(minLength: 12) }
-                cell.text.lineLimit(1).fixedSize()
+                if cell.id > 0 {
+                    InfoPanelStyle.hairline
+                        .frame(width: 0.5)
+                        .padding(.vertical, 2)
+                }
+                ExposureCell(cell: cell)
+                    .frame(maxWidth: .infinity)
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// Two by two, at text sizes too large for one row.
-    private func stacked(_ cells: [Cell]) -> some View {
-        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+    /// Two by two, at text sizes too large for one line.
+    private func grid(_ cells: [Cell]) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
             ForEach(Array(stride(from: 0, to: cells.count, by: 2)), id: \.self) { start in
                 GridRow {
-                    cells[start].text
-                    if start + 1 < cells.count { cells[start + 1].text }
+                    ExposureCell(cell: cells[start])
+                    if start + 1 < cells.count { ExposureCell(cell: cells[start + 1]) }
                 }
             }
         }
-        .padding(.vertical, 6)
+        .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// Pixel size and megapixels on the left, file size on the right.
-private struct InfoSizeRow: View {
-    let facts: PhotoFacts?
-    let isRead: Bool
+private struct ExposureCell: View {
+    let cell: ExposureDeck.Cell
 
     var body: some View {
-        if !isRead {
-            row(dimensions: "4,032 × 3,024", megapixels: PhotoFacts.Measure(value: "12.2", unit: "MP"),
-                fileSize: PhotoFacts.Measure(value: "6.83", unit: "MB"))
-                .redacted(reason: .placeholder)
-                .accessibilityHidden(true)
-        } else if let facts, facts.dimensions != nil || facts.fileSize != nil {
-            row(dimensions: facts.dimensions, megapixels: facts.megapixels, fileSize: facts.fileSize)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(InfoSpoken.size(facts))
+        VStack(spacing: 4) {
+            InfoLabel(text: cell.label)
+            ToneValue(reading: cell.reading, font: InfoPanelStyle.reading)
+                .lineLimit(1)
+                .fixedSize()
         }
-    }
-
-    private func row(dimensions: String?, megapixels: PhotoFacts.Measure?,
-                     fileSize: PhotoFacts.Measure?) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            if let dimensions {
-                if let megapixels {
-                    Text("\(Text(dimensions)) · \(InfoMeasure.text(megapixels))")
-                } else {
-                    Text(dimensions)
-                }
-            }
-            Spacer(minLength: 8)
-            if let fileSize { InfoMeasure.text(fileSize) }
-        }
-        .font(InfoPanelStyle.body.monospacedDigit())
-        .foregroundStyle(InfoPanelStyle.secondary)
-        .lineLimit(1)
-        .minimumScaleFactor(0.8)
-        .padding(.horizontal, InfoPanelStyle.textInset)
     }
 }
 
-/// The place's name on the left, up to three lines, and its height on the right.
-private struct InfoPlaceRow: View {
-    /// nil while the name is asked for; empty when there was none, and the coordinates stand in.
-    let lines: [String]?
-    let coordinate: CLLocationCoordinate2D
-    let altitude: PhotoFacts.Altitude?
+// MARK: - Stack
+
+/// How a NIGHT or LONG shot was made: its frames, the light they add up to, and LONG's blend.
+private struct StackStrip: View {
+    let stack: PhotoFacts.Stack
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            VStack(alignment: .leading, spacing: InfoPanelStyle.lineSpacing) {
-                if let lines {
-                    if lines.isEmpty {
-                        Text(MetadataFormat.coordinates(latitude: coordinate.latitude, latitudeRef: nil,
-                                                        longitude: coordinate.longitude, longitudeRef: nil) ?? "")
-                    } else {
-                        ForEach(Array(lines.prefix(3).enumerated()), id: \.offset) { _, line in
-                            Text(line)
+        let symbol = stack.scene.map { Image(firstAvailableSystemName: $0.symbolNames) }
+            ?? Image(systemName: "moon.stars.fill")
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                symbol
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                    .accessibilityHidden(true)
+                Text(stack.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(InfoPanelStyle.primary)
+            }
+            let stats = self.stats
+            if !stats.isEmpty {
+                TagFlow(spacing: 22) {
+                    ForEach(stats) { stat in
+                        VStack(alignment: .leading, spacing: 3) {
+                            InfoLabel(text: stat.label)
+                            Text(stat.value)
+                                .font(InfoPanelStyle.value)
+                                .foregroundStyle(InfoPanelStyle.primary)
+                                .lineLimit(1)
                         }
                     }
-                } else {
-                    // Held in place while the name is asked for.
-                    Text("Grant Park")
-                    Text("South Loop, Chicago")
                 }
             }
-            .redacted(reason: lines == nil ? .placeholder : [])
-            .accessibilityElement(children: .combine)
-            Spacer(minLength: 8)
-            if let altitude {
-                VStack(alignment: .trailing, spacing: InfoPanelStyle.lineSpacing) {
-                    Image(systemName: "arrowtriangle.up.fill")
-                        .font(.caption2)
-                    InfoMeasure.text(altitude.metres)
-                    InfoMeasure.text(altitude.feet)
-                }
-                .monospacedDigit()
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Altitude")
-                .accessibilityValue(InfoSpoken.measure(altitude.metres))
-            }
         }
-        .font(InfoPanelStyle.body)
-        .foregroundStyle(InfoPanelStyle.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(InfoPanelStyle.wellFill,
+                    in: RoundedRectangle(cornerRadius: InfoPanelStyle.wellRadius, style: .continuous))
+        .overlay(alignment: .leading) {
+            // The accent along the edge: a shot the app stacked, as the night plan's pill marks it.
+            Theme.accent
+                .frame(width: 2.5)
+                .padding(.vertical, 12)
+                .accessibilityHidden(true)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: InfoPanelStyle.wellRadius, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    private struct Stat: Identifiable {
+        var id: String { label }
+        let label: String
+        let value: String
+    }
+
+    private var stats: [Stat] {
+        var stats: [Stat] = []
+        if let frames = stack.frames { stats.append(Stat(label: "Frames", value: frames)) }
+        if let total = stack.total { stats.append(Stat(label: "Total", value: total)) }
+        if let blend = stack.blend { stats.append(Stat(label: "Blend", value: blend)) }
+        return stats
     }
 }
 
-// MARK: - Pieces
+// MARK: - Specs
 
-/// A number with its unit: capitals set small ("1/83 SEC", "ISO 250"), lowercase units as they are ("120 mm").
-private enum InfoMeasure {
-    static func text(_ measure: PhotoFacts.Measure) -> Text {
-        guard !measure.unit.isEmpty else { return Text(measure.value) }
-        let isCapitals = measure.unit == measure.unit.uppercased()
-        let unit = isCapitals ? Text(measure.unit).font(InfoPanelStyle.unit) : Text(measure.unit)
-        // A thin space, as the reference sets it. Interpolation, not Text + Text, which iOS 26 deprecates.
-        return measure.unitFirst
-            ? Text("\(unit)\u{2009}\(Text(measure.value))")
-            : Text("\(Text(measure.value))\u{2009}\(unit)")
-    }
-}
-
-/// The words VoiceOver reads for the panel's numbers.
-private enum InfoSpoken {
-    static func card(_ facts: PhotoFacts) -> String {
-        var parts: [String] = []
-        if let focal = facts.focal { parts.append(measure(focal)) }
-        if let aperture = facts.aperture { parts.append(aperture.replacingOccurrences(of: "ƒ/", with: "f ")) }
-        if let iso = facts.iso { parts.append("ISO " + iso.value) }
-        if let shutter = facts.shutter { parts.append(measure(shutter)) }
-        if let whiteBalance = facts.whiteBalance {
-            parts.append(whiteBalance == "AWB" ? "auto white balance" : whiteBalance + " white balance")
-        }
-        if let colorSpace = facts.colorSpace {
-            parts.append(colorSpace == .displayP3 ? "Display P3" : colorSpace.title)
-        }
-        return parts.joined(separator: ", ")
-    }
-
-    static func size(_ facts: PhotoFacts) -> String {
-        var parts: [String] = []
-        if let dimensions = facts.dimensions { parts.append(dimensions.replacingOccurrences(of: "×", with: "by")) }
-        if let megapixels = facts.megapixels { parts.append(measure(megapixels)) }
-        if let fileSize = facts.fileSize { parts.append(measure(fileSize)) }
-        return parts.joined(separator: ", ")
-    }
-
-    static func measure(_ measure: PhotoFacts.Measure) -> String {
-        let one = measure.value == "1"
-        switch measure.unit {
-        case "SEC":
-            if measure.value.contains("/") { return measure.value + " of a second" }
-            return measure.value + (one ? " second" : " seconds")
-        case "mm": return measure.value + (one ? " millimetre" : " millimetres")
-        case "m": return measure.value + (one ? " metre" : " metres")
-        case "ft": return measure.value + (one ? " foot" : " feet")
-        case "MP": return measure.value + (one ? " megapixel" : " megapixels")
-        case "KB": return measure.value + (one ? " kilobyte" : " kilobytes")
-        case "MB": return measure.value + (one ? " megabyte" : " megabytes")
-        case "GB": return measure.value + (one ? " gigabyte" : " gigabytes")
-        case "": return measure.value
-        default: return measure.unitFirst ? measure.unit + " " + measure.value : measure.value + " " + measure.unit
-        }
-    }
-}
-
-/// A small badge: outlined for "AWB", "P3", "HDR"; filled for the file type.
-private struct InfoBadge: View {
-    let text: String
-    var isFilled = false
-    /// The colour wheel beside "P3".
-    var showsWheel = false
+/// The rest of the shot, a label and a value a line: the camera and lens, then how colour, focus and light were
+/// read. A line the file doesn't fill is left out.
+private struct SpecList: View {
+    let facts: PhotoFacts
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: InfoPanelStyle.badgeRadius, style: .continuous)
-        HStack(spacing: 3) {
-            if showsWheel {
-                Circle()
-                    .fill(AngularGradient(colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red],
-                                          center: .center))
-                    .frame(width: 9, height: 9)
-                    .accessibilityHidden(true)
+        let rows = Self.rows(facts)
+        if !rows.isEmpty {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 14, verticalSpacing: 9) {
+                ForEach(rows) { row in
+                    GridRow {
+                        InfoLabel(text: row.label)
+                            .gridColumnAlignment(.leading)
+                            .accessibilityHidden(true)
+                        SpecValue(row: row)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(row.label)
+                            .accessibilityValue(row.spoken)
+                    }
+                }
             }
+        }
+    }
+
+    struct Row: Identifiable {
+        var id: String { label }
+        let label: String
+        let reading: PhotoFacts.Reading
+        /// The small "eq" beside a 35 mm equivalent.
+        var marksEquivalent = false
+        var detail: String?
+
+        var spoken: String {
+            var text = reading.value + InfoSpoken.tone(reading.tone)
+            if marksEquivalent { text += ", 35 mm equivalent" }
+            if let detail { text += ", " + (marksEquivalent ? detail + " lens" : detail) }
+            return text
+        }
+    }
+
+    static func rows(_ facts: PhotoFacts) -> [Row] {
+        var rows: [Row] = []
+        if let device = facts.device { rows.append(Row(label: "Camera", reading: .init(device))) }
+        if let lens = facts.lens { rows.append(Row(label: "Lens", reading: .init(lens))) }
+        if let focal = facts.focal {
+            rows.append(Row(label: "Focal", reading: .init(focal.value + " " + focal.unit), marksEquivalent: true,
+                            detail: facts.focalActual.map { $0.value + " " + $0.unit }))
+        } else if let actual = facts.focalActual {
+            rows.append(Row(label: "Focal", reading: .init(actual.value + " " + actual.unit)))
+        }
+        if let balance = facts.whiteBalance {
+            rows.append(Row(label: "White balance", reading: balance, detail: facts.whiteBalanceDetail))
+        }
+        if let focus = facts.focus { rows.append(Row(label: "Focus", reading: focus)) }
+        if let metering = facts.metering { rows.append(Row(label: "Metering", reading: .init(metering))) }
+        if let flash = facts.flash { rows.append(Row(label: "Flash", reading: .init(flash))) }
+        return rows
+    }
+}
+
+private struct SpecValue: View {
+    let row: SpecList.Row
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                ToneValue(reading: row.reading, font: InfoPanelStyle.value)
+                if row.marksEquivalent {
+                    Text("eq")
+                        .font(InfoPanelStyle.label)
+                        .foregroundStyle(InfoPanelStyle.tertiary)
+                }
+            }
+            if let detail = row.detail {
+                Text(detail)
+                    .font(InfoPanelStyle.detail)
+                    .foregroundStyle(InfoPanelStyle.secondary)
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+    }
+}
+
+// MARK: - File
+
+/// The file's tags, then its size: pixels, megapixels and bytes on one line.
+private struct FileBlock: View {
+    let facts: PhotoFacts
+
+    var body: some View {
+        let tags = Self.tags(facts)
+        let size = [facts.dimensions, facts.megapixels.map(Self.text), facts.fileSize.map(Self.text)]
+            .compactMap { $0 }
+        if !tags.isEmpty || !size.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                if !tags.isEmpty {
+                    TagFlow(spacing: 6) {
+                        ForEach(Array(tags.enumerated()), id: \.offset) { index, tag in
+                            InfoTag(text: tag.text, spoken: tag.spoken, isLead: index == 0 && tag.isFormat)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("File")
+                }
+                if !size.isEmpty {
+                    Text(size.joined(separator: "   "))
+                        .font(InfoPanelStyle.value)
+                        .foregroundStyle(InfoPanelStyle.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .accessibilityLabel(InfoSpoken.size(facts))
+                }
+            }
+        }
+    }
+
+    private static func text(_ measure: PhotoFacts.Measure) -> String {
+        measure.value + " " + measure.unit
+    }
+
+    struct Tag {
+        let text: String
+        let spoken: String
+        var isFormat = false
+    }
+
+    private static func tags(_ facts: PhotoFacts) -> [Tag] {
+        var tags: [Tag] = facts.marks.map { mark in
+            switch mark {
+            case .format(let name): return Tag(text: name, spoken: name, isFormat: true)
+            case .live: return Tag(text: "Live", spoken: "Live Photo")
+            case .hdr: return Tag(text: "HDR", spoken: "HDR")
+            case .depth: return Tag(text: "Depth", spoken: "Depth")
+            case .edited: return Tag(text: "Edited", spoken: "Edited")
+            }
+        }
+        if let space = facts.colorSpace {
+            // After the file types, which say the most.
+            let index = tags.firstIndex { !$0.isFormat } ?? tags.count
+            tags.insert(Tag(text: space.title, spoken: space == .displayP3 ? "Display P3" : space.title), at: index)
+        }
+        return tags
+    }
+}
+
+// MARK: - Histogram
+
+/// The photo's RGB histogram as the viewfinder draws it, framed like a meter with quarter lines, and a mark at an
+/// end where the tones pile up against black or white.
+private struct InfoHistogram: View {
+    let curves: HistogramCurves
+    let clipping: HistogramClipping
+    let summary: String
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                HistogramGrid()
+                HistogramPlot(curves: curves, style: .rgb)
+                    .equatable()
+            }
+            .frame(height: InfoPanelStyle.histogramHeight)
+            .background(InfoPanelStyle.wellFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(InfoPanelStyle.edge, lineWidth: 0.5)
+            }
+            if clipping.shadows || clipping.highlights {
+                HStack {
+                    if clipping.shadows { ClipMark(text: "Shadows clip") }
+                    Spacer(minLength: 8)
+                    if clipping.highlights { ClipMark(text: "Highlights clip") }
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("RGB histogram")
+        .accessibilityValue(summary)
+    }
+}
+
+/// Lines at the quarter tones, where the curve's buckets fall, so a peak's place reads at a glance.
+private struct HistogramGrid: View {
+    var body: some View {
+        let color = InfoPanelStyle.hairline
+        Canvas { context, size in
+            let inset = HistogramCurves.inset
+            var path = Path()
+            for quarter in 1...3 {
+                let x = (inset + Double(quarter) / 4 * (1 - 2 * inset)) * size.width
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            context.stroke(path, with: .color(color), lineWidth: 0.5)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ClipMark: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .accessibilityHidden(true)
             Text(text)
         }
-        .font(InfoPanelStyle.badge)
-        .foregroundStyle(isFilled ? InfoPanelStyle.filledBadgeText : InfoPanelStyle.outlineBadgeText)
-        .lineLimit(1)
-        .fixedSize()
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .background {
-            if isFilled {
-                shape.fill(InfoPanelStyle.filledBadgeFill)
-            } else {
-                shape.strokeBorder(InfoPanelStyle.outlineBadgeStroke, lineWidth: 1)
+        .font(InfoPanelStyle.label)
+        .foregroundStyle(Theme.warning)
+    }
+}
+
+// MARK: - Location
+
+/// The map, then the place's name, its coordinates, height and the way the camera faced.
+private struct LocationBlock: View {
+    let coordinate: CLLocationCoordinate2D
+    /// nil while the name is asked for; empty when there was none.
+    let place: [String]?
+    let facts: PhotoFacts?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            InfoMap(spot: MapSpot(latitude: coordinate.latitude, longitude: coordinate.longitude),
+                    heading: facts?.heading)
+            placeName
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                Text(MetadataFormat.coordinates(latitude: coordinate.latitude, latitudeRef: nil,
+                                                longitude: coordinate.longitude, longitudeRef: nil) ?? "")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Spacer(minLength: 0)
+                if let altitude = facts?.altitude {
+                    let height = altitude.metres.value + " " + altitude.metres.unit
+                    Text("\(Image(systemName: "arrowtriangle.up.fill")) \(height)")
+                        .fixedSize()
+                        .accessibilityLabel("Altitude " + InfoSpoken.measure(altitude.metres))
+                }
+                if let heading = facts?.headingText {
+                    Text(heading)
+                        .fixedSize()
+                        .accessibilityLabel("Facing " + heading.replacingOccurrences(of: "\u{00B0}", with: " degrees"))
+                }
             }
+            .font(InfoPanelStyle.detail)
+            .foregroundStyle(InfoPanelStyle.secondary)
         }
     }
-}
 
-/// A one-pixel line between groups.
-private struct InfoHairline: View {
-    var inset: CGFloat = InfoPanelStyle.contentInset
-    @Environment(\.displayScale) private var displayScale
-
-    var body: some View {
-        InfoPanelStyle.hairline
-            .frame(height: 1 / max(displayScale, 1))
-            .padding(.horizontal, inset)
-            .accessibilityHidden(true)
-    }
-}
-
-/// The photo's RGB histogram, edge to edge with no frame: soft fills with the green on top, as in the reference.
-private struct InfoHistogram: View, Equatable {
-    let curves: HistogramCurves
-
-    var body: some View {
-        Canvas { context, size in
-            guard size.width > 1, size.height > 1, curves.channels.count == 3 else { return }
-            // Red, green, blue as made; drawn blue, red, green.
-            let drawn = [(2, InfoPanelStyle.histogramBlue), (0, InfoPanelStyle.histogramRed),
-                         (1, InfoPanelStyle.histogramGreen)]
-            for (index, color) in drawn {
-                let paths = HistogramPlot.paths(curves.channels[index], size: size)
-                context.fill(paths.area, with: .color(color.opacity(0.5)))
-                context.stroke(paths.curve, with: .color(color), lineWidth: 1.25)
+    @ViewBuilder
+    private var placeName: some View {
+        let lines = place ?? ["Grant Park", "South Loop, Chicago"]
+        if !lines.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(lines.prefix(3).enumerated()), id: \.offset) { index, line in
+                    Text(line)
+                        .font(index == 0 ? .subheadline.weight(.semibold) : .subheadline)
+                        .foregroundStyle(index == 0 ? InfoPanelStyle.primary : InfoPanelStyle.secondary)
+                }
             }
+            // Held in place while the name is asked for.
+            .redacted(reason: place == nil ? .placeholder : [])
+            .accessibilityElement(children: .combine)
+            .accessibilityHidden(place == nil)
         }
     }
 }
@@ -728,8 +769,8 @@ private struct MapSpot: Equatable {
     }
 }
 
-/// A still map of the spot, with the dot and the way the camera faced. A tap opens Apple Maps there. One map for
-/// the panel: a new photo pans it rather than building another.
+/// A still, muted map of the spot, with the accent's dot and the way the camera faced. A tap opens Apple Maps
+/// there. One map for the panel: a new photo pans it rather than building another.
 private struct InfoMap: View {
     let spot: MapSpot
     /// Degrees clockwise from north; nil when the file doesn't say.
@@ -751,10 +792,14 @@ private struct InfoMap: View {
             }
             .annotationTitles(.hidden)
         }
-        .mapStyle(.standard(elevation: .flat, pointsOfInterest: .all))
+        .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
         .mapControlVisibility(.hidden)
         .frame(height: InfoPanelStyle.mapHeight)
-        .clipShape(RoundedRectangle(cornerRadius: InfoPanelStyle.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: InfoPanelStyle.wellRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: InfoPanelStyle.wellRadius, style: .continuous)
+                .strokeBorder(InfoPanelStyle.edge, lineWidth: 0.5)
+        }
         .overlay {
             Button {
                 openMaps()
@@ -771,7 +816,8 @@ private struct InfoMap: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Map")
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction(named: "Open in Maps") {
+        .accessibilityHint("Opens Maps.")
+        .accessibilityAction {
             openMaps()
         }
     }
@@ -782,25 +828,26 @@ private struct InfoMap: View {
     }
 }
 
-/// Maps' blue dot, with a cone the way the camera faced when that is known.
+/// The spot in the accent, with a cone the way the camera faced when that is known.
 private struct LocationDot: View {
     let heading: Double?
 
     var body: some View {
+        let accent = Theme.accent
         ZStack {
             if let heading {
                 ViewCone()
-                    .fill(RadialGradient(colors: [Color.blue.opacity(0.55), Color.blue.opacity(0)], center: .center,
-                                         startRadius: 0, endRadius: 44))
-                    .frame(width: 88, height: 88)
+                    .fill(RadialGradient(colors: [accent.opacity(0.5), accent.opacity(0)], center: .center,
+                                         startRadius: 0, endRadius: 40))
+                    .frame(width: 80, height: 80)
                     .rotationEffect(.degrees(heading))
             }
             Circle()
-                .fill(Color.white)
-                .frame(width: 16, height: 16)
+                .fill(Color.black)
+                .frame(width: 15, height: 15)
             Circle()
-                .fill(Color.blue)
-                .frame(width: 11, height: 11)
+                .fill(accent)
+                .frame(width: 10, height: 10)
         }
         .accessibilityHidden(true)
     }
@@ -816,5 +863,166 @@ private struct ViewCone: Shape {
                     clockwise: false)
         path.closeSubpath()
         return path
+    }
+}
+
+// MARK: - Pieces
+
+/// A label in the dial header's spaced capitals.
+private struct InfoLabel: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(InfoPanelStyle.label)
+            .tracking(InfoPanelStyle.labelTracking)
+            .textCase(.uppercase)
+            .foregroundStyle(InfoPanelStyle.tertiary)
+            .lineLimit(1)
+            .fixedSize()
+    }
+}
+
+/// A value coloured as the chips colour it: the accent when set by hand, white with the small A when the camera
+/// picked it, plain white otherwise.
+private struct ToneValue: View {
+    let reading: PhotoFacts.Reading
+    let font: Font
+    /// The chips' A is 7 pt beside 12 pt digits; this keeps the same proportion as Dynamic Type scales the value.
+    @ScaledMetric(relativeTo: .title3) private var markSize: CGFloat = 9
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 1.5) {
+            Text(reading.value)
+                .font(font)
+                .foregroundStyle(reading.tone == .manual ? Theme.accent : InfoPanelStyle.primary)
+            if reading.tone == .auto {
+                Text("A")
+                    .font(.system(size: markSize, weight: .bold))
+                    .foregroundStyle(InfoPanelStyle.secondary)
+                    .baselineOffset(markSize * 4 / 7)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+/// A file tag, outlined like a chip; the file type leads, filled.
+private struct InfoTag: View {
+    let text: String
+    let spoken: String
+    var isLead = false
+
+    var body: some View {
+        Text(text)
+            .font(InfoPanelStyle.tag)
+            .tracking(0.4)
+            .foregroundStyle(isLead ? Color.black : InfoPanelStyle.primary.opacity(0.85))
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background {
+                if isLead {
+                    Capsule().fill(Color.white.opacity(0.85))
+                } else {
+                    Capsule().strokeBorder(InfoPanelStyle.edge, lineWidth: 1)
+                }
+            }
+            .accessibilityLabel(spoken)
+    }
+}
+
+/// Tags left to right, onto a new line where the width runs out, so large text never pushes one off the panel.
+private struct TagFlow: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let places = arrange(subviews, width: proposal.width ?? .infinity)
+        let width = places.map(\.frame.maxX).max() ?? 0
+        let height = places.map(\.frame.maxY).max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for place in arrange(subviews, width: bounds.width) {
+            let origin = CGPoint(x: bounds.minX + place.frame.minX, y: bounds.minY + place.frame.minY)
+            subviews[place.index].place(at: origin, proposal: ProposedViewSize(place.frame.size))
+        }
+    }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [(index: Int, frame: CGRect)] {
+        var places: [(index: Int, frame: CGRect)] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += lineHeight + spacing
+                lineHeight = 0
+            }
+            places.append((index, CGRect(origin: CGPoint(x: x, y: y), size: size)))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+        return places
+    }
+}
+
+/// The words VoiceOver reads for the panel's numbers.
+private enum InfoSpoken {
+    static func tone(_ tone: PhotoFacts.Tone) -> String {
+        switch tone {
+        case .auto: return ", auto"
+        case .manual: return ", set by hand"
+        case .plain: return ""
+        }
+    }
+
+    /// "1/83" of a second, "2.5s" as seconds, "2m5s" as minutes and seconds.
+    static func shutter(_ value: String) -> String {
+        if value.contains("/") { return value + " of a second" }
+        if value == "1s" { return "1 second" }
+        var words = ""
+        var number = ""
+        for character in value {
+            if character.isNumber || character == "." {
+                number.append(character)
+                continue
+            }
+            let unit: String
+            switch character {
+            case "h": unit = number == "1" ? " hour" : " hours"
+            case "m": unit = number == "1" ? " minute" : " minutes"
+            default: unit = number == "1" ? " second" : " seconds"
+            }
+            words += (words.isEmpty ? "" : " ") + number + unit
+            number = ""
+        }
+        return words.isEmpty ? value : words
+    }
+
+    static func size(_ facts: PhotoFacts) -> String {
+        var parts: [String] = []
+        if let dimensions = facts.dimensions {
+            parts.append(dimensions.replacingOccurrences(of: "\u{00D7}", with: "by"))
+        }
+        if let megapixels = facts.megapixels { parts.append(measure(megapixels)) }
+        if let fileSize = facts.fileSize { parts.append(measure(fileSize)) }
+        return parts.joined(separator: ", ")
+    }
+
+    static func measure(_ measure: PhotoFacts.Measure) -> String {
+        let one = measure.value == "1"
+        switch measure.unit {
+        case "m": return measure.value + (one ? " metre" : " metres")
+        case "MP": return measure.value + (one ? " megapixel" : " megapixels")
+        case "KB": return measure.value + (one ? " kilobyte" : " kilobytes")
+        case "MB": return measure.value + (one ? " megabyte" : " megabytes")
+        case "GB": return measure.value + (one ? " gigabyte" : " gigabytes")
+        default: return measure.value + " " + measure.unit
+        }
     }
 }

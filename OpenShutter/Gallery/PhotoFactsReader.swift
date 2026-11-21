@@ -3,18 +3,16 @@ import Photos
 import ImageIO
 import UniformTypeIdentifiers
 import CoreGraphics
-import CoreImage
-import CoreImage.CIFilterBuiltins
 import CoreLocation
 import MapKit
 import UIKit
 import CameraCore
 
 /// Reads what the gallery's info panel shows about one photo: the camera's original file through ImageIO, and a small
-/// picture of the photo for its histogram and the panel's blurred backing. Everything here runs off the main actor;
+/// picture of the photo for its histogram. Everything here runs off the main actor;
 /// CameraCore's `PhotoFacts` turns the values into text.
 enum PhotoFactsReader {
-    /// The side of the small picture the histogram and the backing are made from.
+    /// The side of the small picture the histogram is made from.
     static let picturePixels: CGFloat = 160
 
     /// What PhotoKit knows already, with no file read: enough for the header's marks while the file loads.
@@ -118,11 +116,17 @@ enum PhotoFactsReader {
             if photometric == 32803 { input.linearRAW = false }
         }
         input.lensModel = text(exif, kCGImagePropertyExifLensModel)
+        input.focalLength = number(exif, kCGImagePropertyExifFocalLength)
         input.focalLength35 = number(exif, kCGImagePropertyExifFocalLenIn35mmFilm)
         input.fNumber = number(exif, kCGImagePropertyExifFNumber)
         input.iso = exif[kCGImagePropertyExifISOSpeedRatings as String].flatMap { PhotoInfoNames.numbers($0).first }
         input.exposureSeconds = number(exif, kCGImagePropertyExifExposureTime)
+        input.exposureBias = number(exif, kCGImagePropertyExifExposureBiasValue)
+        input.meteringMode = int(exif, kCGImagePropertyExifMeteringMode)
+        input.flash = int(exif, kCGImagePropertyExifFlash)
         input.exifWhiteBalance = int(exif, kCGImagePropertyExifWhiteBalance)
+        input.offsetTime = text(exif, kCGImagePropertyExifOffsetTimeOriginal)
+            ?? text(exif, kCGImagePropertyExifOffsetTime)
         input.exifColorSpace = int(exif, kCGImagePropertyExifColorSpace)
         input.profileName = PhotoInfoNames.text(properties[kCGImagePropertyProfileName as String])
         input.pixelWidth = properties[kCGImagePropertyPixelWidth as String].flatMap(PhotoInfoNames.int)
@@ -177,22 +181,6 @@ enum PhotoFactsReader {
             return HistogramComputer.compute(bgra: plane, step: 1).0
         }
     }
-
-    /// The panel's backing: the photo blurred to colour alone and a little richer, made once rather than blurred
-    /// live under a panel that moves with the finger.
-    static func backdrop(of image: CGImage) -> CGImage? {
-        let extent = CGRect(x: 0, y: 0, width: image.width, height: image.height)
-        let blur = CIFilter.gaussianBlur()
-        blur.inputImage = CIImage(cgImage: image).clampedToExtent()
-        blur.radius = 10
-        let color = CIFilter.colorControls()
-        color.inputImage = blur.outputImage
-        color.saturation = 1.3
-        guard let output = color.outputImage?.cropped(to: extent) else { return nil }
-        return backdropContext.createCGImage(output, from: extent)
-    }
-
-    private static let backdropContext = CIContext(options: [.cacheIntermediates: false])
 }
 
 /// The name of the place a photo was taken, from Apple's servers, as Photos shows it. They limit how often an app
