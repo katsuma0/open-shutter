@@ -101,6 +101,8 @@ final class CameraModel {
     }
     var isDrawerOpen = false
     /// The gallery is up (the editor opens inside it). The camera stops under it (updateGalleryPause).
+    /// Shown when the shutter is pressed while the app may not add to Photos.
+    var isPhotosAccessAlertShown = false
     var isReviewPresented = false {
         didSet {
             guard oldValue != isReviewPresented else { return }
@@ -1775,6 +1777,13 @@ final class CameraModel {
             if !settings.capture.isValid {
                 showToast("Pick a photo format in Settings.", symbol: "exclamationmark.triangle")
             }
+            return
+        }
+        // With adding to Photos turned off a shot has nowhere to go, and a long night stack would be lost at the
+        // end. Asking before the shot, with a way to Settings, beats a toast after it.
+        let addAccess = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        if addAccess == .denied || addAccess == .restricted {
+            isPhotosAccessAlertShown = true
             return
         }
         if settings.mode == .video {

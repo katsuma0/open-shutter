@@ -23,6 +23,12 @@ struct CameraScreen: View {
             SettingsView(model: model)
                 .settingsZoomTransition(settingsZoom)
         }
+        .alert("Open Shutter can't save to Photos", isPresented: $model.isPhotosAccessAlertShown) {
+            Button("Open Settings") { model.openAppSettings() }
+            Button("Not now", role: .cancel) {}
+        } message: {
+            Text("Turn on Photos access for Open Shutter in Settings, then take the shot again.")
+        }
         .task { await model.start() }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
