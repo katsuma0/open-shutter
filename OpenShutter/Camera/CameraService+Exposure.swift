@@ -73,9 +73,23 @@ extension CameraService {
     // MARK: Auto and manual
 
     nonisolated private func applyAutoExposure(_ request: ExposureRequest, locked: Bool, device: AVCaptureDevice) {
-        restoreFrameDurations(unlessLongerThan: nil)
-        guard Self.lockForChanges(device) else { return }
-        defer { device.unlockForConfiguration() }
+        do {
+            guard Self.lockForChanges(device) else { return }
+            defer { device.unlockForConfiguration() }
+            setAutoExposureMode(request, locked: locked, device: device)
+        }
+        // Frames a long custom exposure stretched go back only once the device has left custom mode. Shortened while
+        // that exposure still runs, they are stretched again to fit it, and continuous auto exposure then keeps the
+        // long shutter it starts from: PHOTO stayed at LONG's or a night stack's 1 s frames. A lock keeps the frames
+        // its held exposure still fills.
+        let held = locked && device.exposureDuration.isNumeric ? device.exposureDuration : nil
+        if restoreFrameDurations(unlessLongerThan: held) {
+            resetAutoExposureLimit(request.maxAutoSeconds, device: device)
+        }
+    }
+
+    /// Device locked.
+    nonisolated private func setAutoExposureMode(_ request: ExposureRequest, locked: Bool, device: AVCaptureDevice) {
         applyAutoExposureLimit(request.maxAutoSeconds, device: device)
         // A lock held in custom mode, as after a stack, becomes the device's own lock before the bias goes on: custom
         // mode would apply the bias to the meter alone.
@@ -110,13 +124,13 @@ extension CameraService {
         let format = device.activeFormat
         guard let duration = Self.clampedDuration(seconds, in: format) else { return }
         let gain = Self.clampedISO(iso, in: format)
-        restoreFrameDurations(unlessLongerThan: duration)
         guard Self.lockForChanges(device) else { return }
         defer { device.unlockForConfiguration() }
         // In custom mode the bias only moves the meter, which is exactly what a manual camera's meter does.
         applyBias(bias, device: device)
         meteringPointPending = false
-        setCustomExposure(duration: duration, iso: gain, aperture: aperture, device: device, completion: nil)
+        setCustomExposure(duration: duration, iso: gain, aperture: aperture, device: device,
+                          completion: restoringFrames(fitting: duration, then: nil))
     }
 
     /// iOS 27 runs a priority mode in hardware when the format accepts the combination. false means the caller
@@ -139,8 +153,6 @@ extension CameraService {
             }
             // An unsupported combination raises NSInvalidArgumentException, so it is asked first.
             guard format.supportsExposureModeCustom(lensAperture: aperture, duration: duration, iso: iso) else { return false }
-            // Auto exposure keeps streaming frames within activeMaxExposureDuration here, so stretched frames end.
-            restoreFrameDurations(unlessLongerThan: nil)
             // A failed lock is another app holding the camera for a moment; the next request tries again, and
             // falling back to the software loop would not get the lock either.
             guard Self.lockForChanges(device) else { return true }
@@ -150,7 +162,10 @@ extension CameraService {
             meteringPointPending = false
             // The auto parameters follow the meter; setting the mode right after puts a moved rect into effect.
             applyMeteringArea(device)
-            device.setExposureModeCustom(lensAperture: aperture, duration: duration, iso: iso, completionHandler: nil)
+            // Auto exposure keeps streaming frames within activeMaxExposureDuration here, so stretched frames end once
+            // the long exposure is gone. A locked duration still needs the frames it fills.
+            let frames = restoringFrames(fitting: locks.seconds == nil ? nil : duration, then: nil)
+            device.setExposureModeCustom(lensAperture: aperture, duration: duration, iso: iso, completionHandler: frames)
             return true
         }
         #endif
@@ -224,7 +239,6 @@ extension CameraService {
         // The iris only gets an explicit value when it is locked or the loop moved it; otherwise it stays put.
         let movesIris = ranges.hasVariableAperture
             && (locks.aperture != nil || Self.stops(current.aperture, next.aperture, weight: 2) > 0.01)
-        restoreFrameDurations(unlessLongerThan: duration)
         guard Self.lockForChanges(device) else { return }
         var landed: (@Sendable (CMTime) -> Void)?
         if force, softwareAEStart != nil {
@@ -237,7 +251,7 @@ extension CameraService {
             }
         }
         setCustomExposure(duration: duration, iso: iso, aperture: movesIris ? next.aperture : nil, device: device,
-                          completion: landed)
+                          completion: restoringFrames(fitting: duration, then: landed))
         device.unlockForConfiguration()
         softwareAENextStep = now + max(0.25, max(next.seconds, 1.0 / 30) * 3)
     }
@@ -353,7 +367,7 @@ extension CameraService {
         }
         let variable = CapabilitiesBuilder.apertureInfo(device: device, format: format).variable
         setCustomExposure(duration: duration, iso: iso, aperture: variable ? values.aperture : nil, device: device,
-                          completion: landed)
+                          completion: restoringFrames(fitting: duration, then: landed))
         return true
     }
 
@@ -425,9 +439,10 @@ extension CameraService {
     }
 
     /// Device locked. nil gives the limit back to the device's default for the format.
-    nonisolated private func applyAutoExposureLimit(_ seconds: Double?, device: AVCaptureDevice) {
+    nonisolated private func applyAutoExposureLimit(_ seconds: Double?, device: AVCaptureDevice,
+                                                    framesChanged: Bool = false) {
         guard let seconds, let limit = Self.clampedDuration(seconds, in: device.activeFormat) else {
-            if autoExposureLimitSet {
+            if autoExposureLimitSet || framesChanged {
                 device.activeMaxExposureDuration = .invalid
                 autoExposureLimitSet = false
             }
@@ -462,18 +477,49 @@ extension CameraService {
         frameDurationRestoreLimit = longestFrame.seconds
     }
 
+    /// Device not locked. The device picks its own limit for the frame durations it runs, so one picked while the
+    /// frames were stretched lets auto exposure go as long as they were.
+    nonisolated private func resetAutoExposureLimit(_ seconds: Double?, device: AVCaptureDevice) {
+        guard Self.lockForChanges(device) else { return }
+        defer { device.unlockForConfiguration() }
+        applyAutoExposureLimit(seconds, device: device, framesChanged: true)
+    }
+
+    /// Device locked. The completion for a custom exposure of `duration` (nil: one auto exposure picks) that gives
+    /// the format its frame durations back once it is in effect, unless it still fills the stretched frame.
+    /// Shortened before, while a longer exposure still runs, the frames are stretched again to fit that one.
+    nonisolated private func restoringFrames(fitting duration: CMTime?,
+                                             then completion: (@Sendable (CMTime) -> Void)?) -> (@Sendable (CMTime) -> Void)? {
+        guard frameDurationRestoreLimit != nil else { return completion }
+        let generation = exposureGeneration
+        return { [weak self] time in
+            completion?(time)
+            self?.sessionQueue.async { self?.restoreFramesAfterLanding(generation, fitting: duration) }
+        }
+    }
+
+    /// Session queue. A newer request or a stack owns the frames by now.
+    nonisolated private func restoreFramesAfterLanding(_ generation: Int, fitting duration: CMTime?) {
+        guard generation == exposureGeneration, !stackInProgress, let device = activeCamera?.device,
+              restoreFrameDurations(unlessLongerThan: duration) else { return }
+        resetAutoExposureLimit(exposureRequest.maxAutoSeconds, device: device)
+    }
+
     /// Device not locked. Gives the format its own frame durations back unless `duration` still fills the stretched
     /// frame. A shorter custom exposure leaves the frame as long as it was, so a 1/8 s exposure after a 1 s one would
     /// come once a second; from the format's own durations it stretches the frame to its own length and no further.
-    nonisolated func restoreFrameDurations(unlessLongerThan duration: CMTime?) {
-        guard let limit = frameDurationRestoreLimit else { return }
+    /// true when stretched frames were given back.
+    @discardableResult
+    nonisolated func restoreFrameDurations(unlessLongerThan duration: CMTime?) -> Bool {
+        guard let limit = frameDurationRestoreLimit else { return false }
         if let duration, duration.seconds > limit, let device = activeCamera?.device {
             let stretched = device.activeVideoMaxFrameDuration
             // A twelfth of a stop covers the device rounding the frame it stretched to, so asking for the same
             // duration again doesn't reset it.
-            if !stretched.isNumeric || duration.seconds * pow(2, 1.0 / 12) >= stretched.seconds { return }
+            if !stretched.isNumeric || duration.seconds * pow(2, 1.0 / 12) >= stretched.seconds { return false }
         }
         applyFrameRateLimits()
+        return frameDurationRestoreLimit == nil
     }
 
     /// lockForConfiguration fails while another app holds the camera; the next request tries again.

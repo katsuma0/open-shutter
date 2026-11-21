@@ -1683,8 +1683,12 @@ extension CameraService {
         stackInProgress = false
         setFullResolutionFrames(false)
         updateFrameDelivery()
-        // The stack's long frames stretched the frame duration, and pressure changes waited for it to end.
-        applyFrameRateLimits()
+        // Pressure changes waited for the stack to end. Frames its long exposure stretched go back with the exposure
+        // that follows, once that is in effect: shortened while the stack's frame still runs, they are stretched again
+        // to fit it, and the preview after it, PHOTO's too, kept its long shutter.
+        if frameDurationRestoreLimit == nil {
+            applyFrameRateLimits()
+        }
         // A focus-once request is already where it should be: the stack held the lens where that focus settled.
         // Applying it again would start a new scan.
         if focusRequest != .autoOnce {

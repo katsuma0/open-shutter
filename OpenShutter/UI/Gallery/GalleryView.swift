@@ -87,12 +87,15 @@ private struct GalleryHome: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // Close is gone while selecting, so a stray tap there doesn't throw the selection away.
+            // Back is gone while selecting, so a stray tap there doesn't throw the selection away.
             if !isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Close") {
+                    Button {
                         model.isReviewPresented = false
+                    } label: {
+                        Image(systemName: "chevron.backward")
                     }
+                    .accessibilityLabel("Camera")
                     .accessibilityHint("Goes back to the camera.")
                 }
             }
@@ -101,9 +104,6 @@ private struct GalleryHome: View {
                     Button(isSelecting ? "Cancel" : "Select") {
                         setSelecting(!isSelecting)
                     }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    .controlSize(.small)
                 }
             }
             if isSelecting {
@@ -139,7 +139,7 @@ private struct GalleryHome: View {
                             }
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "ellipsis")
                     }
                     .accessibilityLabel("More")
                 }
