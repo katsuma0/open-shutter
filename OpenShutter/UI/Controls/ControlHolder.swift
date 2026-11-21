@@ -52,7 +52,7 @@ extension ControlHolder {
         guard of(kind, model: model) == .scene, let scene = sceneName(for: kind, model: model) else { return nil }
         // ISO keeps its capitals.
         let control = kind == .iso ? "ISO" : kind.title.lowercased()
-        return "\(scene) sets the \(control). Pick Custom in the scene menu for auto."
+        return "\(scene) sets the \(control). Pick Manual night for auto."
     }
 
     private static func isSetByPerson(_ kind: DialKind, model: CameraModel) -> Bool {

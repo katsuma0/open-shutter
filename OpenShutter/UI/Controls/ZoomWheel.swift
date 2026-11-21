@@ -566,7 +566,7 @@ private struct ZoomReadoutBubble: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 3)
         .frame(minWidth: 64, minHeight: 30)
-        .background(Capsule().fill(Color.black.opacity(0.55)))
+        .background(Capsule().fill(Theme.scrim))
     }
 }
 

@@ -43,7 +43,7 @@ struct ModeCarousel: View {
                 }
                 // Where the strip sits on the picture (a phone without a band under the frame), a soft shadow keeps
                 // the titles readable over a bright scene without a scrim over the photo.
-                .shadow(color: .black.opacity(0.55), radius: 2)
+                .legibleShadow()
                 .fixedSize()
                 .offset(x: totalWidth(centers) / 2 - focus)
                 .animation(Theme.spring, value: mode)
@@ -92,7 +92,7 @@ struct ModeCarousel: View {
 
     private func title(_ item: CaptureMode, isHighlighted: Bool) -> some View {
         Text(item.title)
-            .font(Theme.modeFont)
+            .font(Theme.labelFont)
             .tracking(1)
             .foregroundStyle(isHighlighted ? Theme.accent : Theme.primaryText)
             .animation(Theme.snappy, value: isHighlighted)
@@ -153,7 +153,7 @@ struct ModeCarousel: View {
 
     private func estimatedTextWidth(_ item: CaptureMode) -> CGFloat {
         let weight: UIFont.Weight = legibilityWeight == .bold ? .bold : .semibold
-        // Theme.modeFont is 13 pt, a fifth bigger with Larger labels.
+        // Theme.labelFont is 13 pt, a fifth bigger with Larger labels.
         let font = UIFont.systemFont(ofSize: 13 * Theme.labelScale, weight: weight)
         let size = (item.title as NSString).size(withAttributes: [.font: font, .kern: 1])
         return ceil(size.width)

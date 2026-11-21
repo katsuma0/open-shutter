@@ -55,7 +55,7 @@ struct LensPicker: View {
                     }
                 }
                 .padding(.horizontal, 3)
-                .background(Capsule().fill(Color.white.opacity(0.07)).padding(.vertical, 1))
+                .background(Capsule().fill(Theme.trackFill).padding(.vertical, 1))
                 // Faded, never removed or made untouchable: the gesture that opened the wheel lives on a button and
                 // has to keep its touch to the end.
                 .opacity(isWheelOpen ? Self.hiddenOpacity : 1)

@@ -173,6 +173,8 @@ struct QuickSettingsDrawer: View {
             QuickActions.toggle(\.capture.silentShutter, model)
         } glyph: {
             Image(systemName: isOn ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                // QuickActions.toggle animates the write, so the speaker changes over as iOS's own toggles do.
+                .contentTransition(.symbolEffect(.replace))
         }
     }
 
@@ -248,9 +250,9 @@ private struct DrawerButtonItem<Glyph: View>: View {
         Button(action: action) {
             DrawerItemLabel(model: model, title: title, value: value, isActive: isActive, glyph: glyph())
         }
-        .buttonStyle(DrawerPressStyle())
+        .buttonStyle(PressScaleStyle())
         .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.35)
+        .opacity(isEnabled ? 1 : Theme.Dim.off)
         .accessibilityLabel(spokenTitle ?? title)
         .accessibilityValue(spokenValue ?? value)
         .accessibilityHint(hint ?? "")
@@ -273,8 +275,8 @@ private struct DrawerMenuItem<Glyph: View>: View {
 
     var body: some View {
         DrawerItemLabel(model: model, title: title, value: value, isActive: isActive, glyph: glyph())
-            // The touch lands on the menu layer, so the press look is set by hand, as DrawerPressStyle sets it.
-            .scaleEffect(press.isPressed ? 0.92 : 1)
+            // The touch lands on the menu layer, so the press look is set by hand, as PressScaleStyle sets it.
+            .scaleEffect(press.isPressed ? 0.9 : 1)
             .animation(Theme.snappy, value: press.isPressed)
             // The menu over the item is what VoiceOver reads and opens.
             .accessibilityHidden(true)
@@ -283,7 +285,7 @@ private struct DrawerMenuItem<Glyph: View>: View {
                                 hint: hint ?? HoldMenuText.choicesHint)
             }
             .disabled(!isEnabled)
-            .opacity(isEnabled ? 1 : 0.35)
+            .opacity(isEnabled ? 1 : Theme.Dim.off)
     }
 }
 
@@ -329,7 +331,7 @@ private struct TimerItem: View {
         DrawerItemLabel(model: model, title: "Timer", value: value, isActive: !schedule.isOff,
                         glyph: Image(systemName: "timer"))
             // As DrawerMenuItem's face: the touch lands on the menu layer, which VoiceOver reads and opens.
-            .scaleEffect(press.isPressed ? 0.92 : 1)
+            .scaleEffect(press.isPressed ? 0.9 : 1)
             .animation(Theme.snappy, value: press.isPressed)
             .accessibilityHidden(true)
             .overlay {
@@ -337,7 +339,7 @@ private struct TimerItem: View {
                                timerSheetRequested: $timerSheetRequested)
             }
             .disabled(!isEnabled)
-            .opacity(isEnabled ? 1 : 0.35)
+            .opacity(isEnabled ? 1 : Theme.Dim.off)
     }
 
     /// "Off", "3s", "10s ×5", or "5 shots" for an intervalometer with no delay.
@@ -416,8 +418,8 @@ private struct SetupsItem: View {
         let value = saved == 0 ? "None" : "\(saved) saved"
         DrawerItemLabel(model: model, title: "Setups", value: value, isActive: false,
                         glyph: Image(systemName: "slider.horizontal.3"))
-            // The touch lands on the menu layer, so the press look is set by hand, as DrawerPressStyle sets it.
-            .scaleEffect(press.isPressed ? 0.92 : 1)
+            // The touch lands on the menu layer, so the press look is set by hand, as PressScaleStyle sets it.
+            .scaleEffect(press.isPressed ? 0.9 : 1)
             .animation(Theme.snappy, value: press.isPressed)
             // The menu over the item is what VoiceOver reads and opens.
             .accessibilityHidden(true)
@@ -500,10 +502,10 @@ private struct DrawerItemLabel<Glyph: View>: View {
                 .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
                 .frame(width: 44, height: 44)
                 // Filled circles instead of glass: a dozen glass shapes on a glass panel would cost frames.
-                .background(isActive ? Theme.accent.opacity(0.2) : Color.white.opacity(0.12), in: Circle())
+                .background(isActive ? Theme.accent.opacity(0.2) : Theme.raisedFill, in: Circle())
             VStack(spacing: 1) {
                 Text(title)
-                    .font(.system(size: 10 * scale, weight: .medium))
+                    .font(Theme.microFont.weight(.medium))
                     .foregroundStyle(Theme.secondaryText)
                 Text(value)
                     .font(.system(size: 11 * scale, weight: .semibold).monospacedDigit())
@@ -518,14 +520,6 @@ private struct DrawerItemLabel<Glyph: View>: View {
         .contentShape(Rectangle())
         .animation(Theme.snappy, value: value)
         .animation(Theme.snappy, value: isActive)
-    }
-}
-
-private struct DrawerPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.92 : 1)
-            .animation(Theme.snappy, value: configuration.isPressed)
     }
 }
 

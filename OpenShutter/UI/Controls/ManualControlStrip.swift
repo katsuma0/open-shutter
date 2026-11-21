@@ -20,7 +20,7 @@ struct ManualControlStrip: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Theme.edge)
         // A chip that goes away takes its dial with it: tint when white balance returns to auto (Camera Control,
         // the preset row), the duration when bulb comes on, focus on a lens without manual focus. Initial covers a
         // mode switch, which builds a new strip under a dial that was already open. The lens row's chips count too:
@@ -33,7 +33,7 @@ struct ManualControlStrip: View {
         }
         .frame(height: 44)
         .disabled(locked)
-        .opacity(dimmed ? 0.45 : 1)
+        .opacity(dimmed ? Theme.Dim.held : 1)
         .animation(Theme.spring, value: kinds)
         .animation(Theme.snappy, value: dimmed)
         // VoiceOver stays on the chip that opened a dial, so its escape gesture has to work from here as well as
@@ -74,7 +74,7 @@ struct LensRowShutterChip: View {
         .disabled(ChipReader.isLocked(model.activity))
         // Like the exposure chip on the row's other side. A stack dims the whole lens row (ControlsZone), and a
         // dimming of its own on top of that would all but hide the running shot's duration.
-        .opacity(model.activity == .saving ? 0.45 : 1)
+        .opacity(model.activity == .saving ? Theme.Dim.held : 1)
         .animation(Theme.snappy, value: shows)
     }
 }
@@ -82,7 +82,7 @@ struct LensRowShutterChip: View {
 // MARK: - Chips
 
 /// One control's chip. `compact` is the lens row's: the value alone, with a moon where it is a night shot's length,
-/// since the room beside five lens buttons is about 72 pt on a 402 pt phone.
+/// since the room beside five lens buttons is about 70 pt on a 402 pt phone.
 struct ParameterChip: View {
     let model: CameraModel
     let kind: DialKind
@@ -336,31 +336,21 @@ private struct ChipFace: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if compact {
-                // White with the readout line's small A for the camera's value, the accent for one set by hand: no
-                // room for the title or the strip's badge.
-                if let symbol {
-                    Image(systemName: symbol)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                }
-                HStack(alignment: .firstTextBaseline, spacing: 1) {
-                    Text(content.value)
-                        .contentTransition(.numericText(value: content.numeric))
-                    if content.tone == .auto {
-                        AutoMark()
-                            .transition(.opacity)
-                    }
-                }
-            } else {
-                HStack(spacing: content.hugsTitle ? 1 : 4) {
+            // The lens row's chip has room for the value alone, with the moon where it is a night shot's length.
+            if compact, let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: content.hugsTitle ? 1 : 4) {
+                if !compact {
                     Text(content.title)
                         .opacity(0.8)
+                }
+                // White with the small A for the camera's value, the accent for one set by hand, on every chip.
+                AutoMarked(isAuto: content.tone == .auto) {
                     Text(content.value)
                         .contentTransition(.numericText(value: content.numeric))
-                }
-                if content.tone == .auto {
-                    AutoBadge()
                 }
             }
         }
@@ -383,19 +373,51 @@ private struct ChipFace: View {
         // Keyed to auto and manual, not the value: dial drags and live auto readings change the value many times a
         // second, and the digits would never finish rolling.
         .animation(Theme.snappy, value: content.tone)
+        // A change of length moves the capsule's inner edge, so it glides. Keyed on the length, not the value, so the
+        // live readings never keep it running.
+        .animation(Theme.snappy, value: content.value.count)
         .animation(Theme.spring, value: isSelected)
     }
 }
 
-/// The readout line's small A (ReadoutHUD), size for size, for the lens row's two chips: the strip's badge has no
-/// room beside five lens buttons. Decoration only: each chip says "auto" in its own VoiceOver value. Set it beside
-/// the value in an HStack aligned on the first text baseline, as the readout line does.
-struct AutoMark: View {
+/// A value and, while the camera picks it, the small A at its top right, in grey. Every value that marks auto draws
+/// it this way: the chips, PHOTO's readout line and the dial's header. Decoration only: each control says "auto" in
+/// its own VoiceOver value.
+struct AutoMarked<Value: View>: View {
+    let isAuto: Bool
+    /// The A's size before Larger labels: 7 beside the chips' and the readout line's values, 11 beside the dial
+    /// header's.
+    let size: CGFloat
+    // Built once in init: a stored closure never compares equal.
+    let value: Value
+
+    init(isAuto: Bool, size: CGFloat = 7, @ViewBuilder value: () -> Value) {
+        self.isAuto = isAuto
+        self.size = size
+        self.value = value()
+    }
+
+    var body: some View {
+        let mark = size * Theme.labelScale
+        HStack(alignment: .firstTextBaseline, spacing: mark / 7) {
+            value
+            if isAuto {
+                AutoMarkGlyph(size: mark)
+                    .transition(.opacity)
+            }
+        }
+    }
+}
+
+/// The A itself. It grows with Larger labels as the value does, so its top stays level with the top of the digits.
+private struct AutoMarkGlyph: View {
+    let size: CGFloat
+
     var body: some View {
         Text("A")
-            .font(.system(size: 7, weight: .bold))
+            .font(.system(size: size, weight: .bold))
             .foregroundStyle(Theme.secondaryText)
-            .baselineOffset(4)
+            .baselineOffset(size * 4 / 7)
             // Keeps its size while the value beside it shrinks to fit.
             .minimumScaleFactor(1)
             .fixedSize()
@@ -403,25 +425,14 @@ struct AutoMark: View {
     }
 }
 
-private struct AutoBadge: View {
-    var body: some View {
-        Text("A")
-            .font(.system(size: 8, weight: .heavy))
-            .foregroundStyle(Color.black)
-            .frame(width: 11, height: 11)
-            .background(Circle().fill(Theme.primaryText.opacity(0.85)))
-            .accessibilityHidden(true)
-    }
-}
-
 // MARK: - Values
 
 private enum ChipTone {
-    /// White with an A, the strip's badge or the lens row's small mark: the camera picks the value.
+    /// White with the small A: the camera picks the value.
     case auto
     /// Yellow: the user fixed the value.
     case manual
-    /// White without a badge: a control resting where nothing of the user's is set and no camera is choosing.
+    /// White without the A: a control resting where nothing of the user's is set and no camera is choosing.
     /// EV 0, tint 0, or a value LONG's scene fixes.
     case neutral
 }
@@ -525,8 +536,9 @@ private enum ChipReader {
         case .shutter:
             return shutter(model: model, settings: settings)
         case .iso:
-            let iso = model.displayISO
             let holder = ControlHolder.of(kind, model: model)
+            // The camera's own value on the third-stop scale, so its digits settle. Set by hand or by a scene, exact.
+            let iso = holder == .camera ? AutoValues.iso(model.displayISO) : model.displayISO
             return ChipContent(title: kind.shortTitle, value: ISOScale.compactLabel(iso), numeric: iso,
                                tone: tone(holder), canReset: holder == .person,
                                spokenValue: spoken(ISOScale.label(iso), holder: holder))
@@ -543,8 +555,8 @@ private enum ChipReader {
                                tone: isSet ? .manual : .neutral, canReset: isSet,
                                spokenValue: EVFormat.label(bias) + " EV")
         case .whiteBalance:
-            let kelvin = model.displayKelvin
             let holder = ControlHolder.of(kind, model: model)
+            let kelvin = holder == .camera ? AutoValues.kelvin(model.displayKelvin) : model.displayKelvin
             return ChipContent(title: kind.shortTitle, value: Formatting.kelvin(kelvin), numeric: kelvin,
                                tone: tone(holder), canReset: holder == .person,
                                spokenValue: spoken(Formatting.kelvin(kelvin), holder: holder))
@@ -557,7 +569,7 @@ private enum ChipReader {
         case .focus:
             let position = model.displayLensPosition
             let holder = ControlHolder.of(kind, model: model)
-            // "MF" with an auto badge would contradict itself, so autofocus reads "AF". A scene that parks the
+            // "MF" with the auto A would contradict itself, so autofocus reads "AF". A scene that parks the
             // lens is manual focus without the yellow.
             return ChipContent(title: holder == .camera ? "AF" : kind.shortTitle, value: percent(position), numeric: position,
                                tone: tone(holder), canReset: holder == .person,
@@ -615,8 +627,9 @@ private enum ChipReader {
             return ChipContent(title: title, value: speed.label, numeric: speed.seconds, tone: .manual, canReset: false,
                                spokenValue: spokenShutter(speed))
         }
-        let speed = ShutterSpeed(seconds: shownShutter(model))
         let auto = model.isShutterAuto
+        // The camera's own shutter on the third-stop scale, as a camera's display shows it: 1/83 reads 1/80.
+        let speed = auto ? AutoValues.shutter(shownShutter(model)) : ShutterSpeed(seconds: shownShutter(model))
         var value = speed.label
         var spokenValue = spokenShutter(speed)
         if settings.mode == .video, settings.video.showShutterAngle {

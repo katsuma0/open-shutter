@@ -8,8 +8,7 @@ import CameraCore
 ///
 /// The scene is chosen from the button left of the shutter (NightSceneMenuItems). How long a shot runs is the moon
 /// chip's, beside the lens buttons (LensRowShutterChip). Whether the shot needs a tripod, and whether the phone is
-/// steady, is the status pill's over the picture (SteadyBanner). The night shot's stability, Auto, Handheld or
-/// Tripod, is on the top bar, in the histogram's place.
+/// steady, is the status pill's over the picture (SteadyBanner); the top bar's tripod button shows or hides it.
 struct NightModePanel: View {
     let model: CameraModel
 
@@ -28,11 +27,11 @@ struct NightModePanel: View {
                         .transition(.opacity)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Theme.edge)
             .frame(maxWidth: .infinity, minHeight: 44)
         }
         .disabled(locked)
-        .opacity(locked ? 0.45 : 1)
+        .opacity(locked ? Theme.Dim.held : 1)
         .animation(Theme.snappy, value: isLong)
         .animation(Theme.snappy, value: locked)
     }
@@ -108,35 +107,32 @@ private struct BulbButton: View {
     }
 }
 
-/// The menu for the shutter of each Blur or Trails frame, around whatever shows it. Auto exposure stays under its
-/// own limit and drifts with the light, so star trails need a fixed one: every frame equally bright, and up to the
-/// longest shutter the sensor has.
-private struct FrameMenu<Face: View>: View {
+/// The menu for the shutter of each Blur or Trails frame, laid over the plan pill. Auto exposure stays under its own
+/// limit and drifts with the light, so star trails need a fixed one: every frame equally bright, and up to the
+/// longest shutter the sensor has. Its own view, with inputs that change only with the frame shutter: the pill under
+/// it follows the 10 Hz plan, and a menu built there would be rebuilt with every reading.
+private struct FrameMenuLayer: View {
     let model: CameraModel
-    let frameSeconds: Double?
-    let range: ClosedRange<Double>
-    // Built once in init: a stored closure never compares equal, and the pill that builds this follows the 10 Hz
-    // readings, so the menu would be rebuilt with every one of them.
-    @ViewBuilder let face: Face
+    let press: PressTracker
+    /// "Auto" or the frame shutter, never the plan.
+    let value: String
 
     var body: some View {
-        Menu {
-            FrameMenuRows(model: model, frameSeconds: frameSeconds, range: range)
-        } label: {
-            face
+        MenuOnTapLayer(press: press, label: "Frame shutter", value: value,
+                       hint: "Shows the shutter choices for each frame.") {
+            FrameMenuRows(model: model)
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
     }
 }
 
-/// The rows of the frame shutter menu. Their own view, so a change of the pill's text leaves them as they are.
+/// The rows of the frame shutter menu. They read the frame shutter themselves, so the layer above them stays as it is.
 private struct FrameMenuRows: View {
     let model: CameraModel
-    let frameSeconds: Double?
-    let range: ClosedRange<Double>
 
     var body: some View {
+        // The frame the shot will use, which for a scene that closes the iris is longer than its own.
+        let frameSeconds = model.longFrameSeconds
+        let range = model.capabilities.exposure.seconds
         let ascending = ShutterSpeed.scale(minSeconds: range.lowerBound, maxSeconds: range.upperBound, step: .full)
         // Longest first, right under Auto: the long end is what a fixed frame is for.
         let speeds = Array(ascending.reversed())
@@ -169,6 +165,7 @@ private struct FrameMenuRows: View {
 private struct NightPlanPill: View {
     let model: CameraModel
     let isLong: Bool
+    @State private var press = PressTracker()
 
     var body: some View {
         let long = model.settings.longExposure
@@ -182,14 +179,18 @@ private struct NightPlanPill: View {
         let stacked = plan.frameCount > 1 || bulbLimit != nil
         // The frame shutter is a shutter speed, which only the phones with manual shutter speeds offer.
         if isLong, long.blend != .additive, model.allowsManualShutter {
-            // The frame the shot will use, which for a scene that closes the iris is longer than its own.
             let frame = model.longFrameSeconds
-            FrameMenu(model: model, frameSeconds: frame, range: model.capabilities.exposure.seconds) {
-                PlanPillFace(text: text, stacked: stacked, opensMenu: true)
-            }
-            .accessibilityLabel(Text("Plan"))
-            .accessibilityValue(Text(spoken + (frame == nil ? ", frame shutter auto" : ", frame shutter set")))
-            .accessibilityHint(Text("Shows the shutter choices for each frame. Auto lets the camera pick it."))
+            // VoiceOver finds two elements here: the plan, read only, and the frame shutter's menu.
+            PlanPillFace(text: text, stacked: stacked, opensMenu: true)
+                .scaleEffect(press.isPressed ? 0.94 : 1)
+                .animation(Theme.snappy, value: press.isPressed)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Plan"))
+                .accessibilityValue(Text(spoken))
+                .overlay {
+                    FrameMenuLayer(model: model, press: press,
+                                   value: frame.map { ShutterSpeed(seconds: $0).label } ?? "Auto")
+                }
         } else {
             PlanPillFace(text: text, stacked: stacked, opensMenu: false)
                 .accessibilityElement(children: .ignore)
@@ -203,16 +204,12 @@ private struct NightPlanPill: View {
 /// line of numbers to read over a lit street as well as a black sky.
 private struct PlanPillFace: View {
     let text: String
-    /// The shot merges several frames: the STACKED badge's glyph leads the line. Drawn only, since in Blur and Trails
+    /// The shot merges several frames: the stack glyph leads the line. Drawn only, since in Blur and Trails
     /// the pill is the frame shutter's menu and has no second tap to give; the spoken plan says "stacked".
     let stacked: Bool
     let opensMenu: Bool
-    @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        // The steady pill's backing: white on 60 percent black over a white sky is about 5.7:1.
-        let backing = contrast == .increased || reduceTransparency || AppearanceStore.shared.solidControls ? 0.85 : 0.6
         HStack(spacing: 6) {
             if stacked {
                 Image(systemName: "square.stack.3d.up.fill")
@@ -225,20 +222,22 @@ private struct PlanPillFace: View {
                 .contentTransition(.numericText())
             if opensMenu {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 8, weight: .bold))
                     .opacity(0.6)
             }
         }
-        .font(.system(size: 14 * Theme.labelScale, weight: .medium).monospacedDigit())
+        .font(Theme.labelFont.weight(.medium).monospacedDigit())
         .foregroundStyle(Theme.primaryText)
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .padding(.horizontal, 14)
-        .frame(height: 32)
+        .frame(height: 30)
+        // The scrim: white on it over a white sky is about 5.7:1, and darker where the person asked for more
+        // contrast or less transparency.
         .background {
             Capsule()
-                .fill(Color.black.opacity(backing))
-                .overlay { Capsule().strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5) }
+                .fill(Theme.scrim)
+                .overlay { Capsule().strokeBorder(Theme.scrimEdge, lineWidth: 0.5) }
         }
         .frame(minHeight: 44)
         .contentShape(Rectangle())

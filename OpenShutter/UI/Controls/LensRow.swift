@@ -12,13 +12,13 @@ struct LensRow: View {
     let wheel: ZoomWheelModel
 
     /// The row's width and the lens buttons', measured: each chip keeps to the room between the row's edge and the
-    /// buttons, which five buttons cut to about 72 pt on a 402 pt phone and 58 pt at 375. Measured, not counted from
+    /// buttons, which five buttons cut to about 70 pt on a 402 pt phone and 56 pt at 375. Measured, not counted from
     /// the presets: the buttons drop presets that share a label, and stay laid out under the wheel and on the front
     /// camera, so their width holds still.
     @State private var rowWidth: CGFloat = 0
     @State private var pickerWidth: CGFloat = 0
 
-    private static let edgePadding: CGFloat = 10
+    private static let edgePadding: CGFloat = Theme.edge
     /// Kept clear between a chip and the outer lens button's touch area.
     private static let gap: CGFloat = 2
 
@@ -121,14 +121,16 @@ private struct LensPickerSlot: View {
         )
         // The back lens buttons mean nothing on the selfie camera; the flip button brings the back camera back.
         .opacity(isFront ? 0 : 1)
+        // Fades with the veil and the flip arrow's turn instead of vanishing in one frame.
+        .animation(Theme.fade, value: isFront)
         .allowsHitTesting(!isFront)
         .accessibilityHidden(isFront)
     }
 }
 
 /// Exposure compensation, beside the lens buttons in every mode. Tap opens the dial, touch and hold lists a few
-/// values and the way back to zero. At zero the exposure is the camera's own, and the value wears the readout
-/// line's small A, as the dial's header does there.
+/// values and the way back to zero. At zero the exposure is the camera's own, and the value wears the small A, as
+/// the dial's header does there.
 private struct ExposureChip: View {
     let model: CameraModel
     /// The room between the row's edge and the lens buttons. A longer value shrinks its text to stay inside it.
@@ -149,13 +151,9 @@ private struct ExposureChip: View {
             Upright(model: model) {
                 Image(systemName: "plusminus.circle")
             }
-            HStack(alignment: .firstTextBaseline, spacing: 1) {
+            AutoMarked(isAuto: !isAdjusted) {
                 Text(EVFormat.label(bias))
                     .contentTransition(.numericText(value: bias))
-                if !isAdjusted {
-                    AutoMark()
-                        .transition(.opacity)
-                }
             }
         }
         .font(Theme.chipFont)
@@ -191,7 +189,7 @@ private struct ExposureChip: View {
         // current exposure. Not dimmed while capturing, because every single photo passes through it. Saving
         // follows only stacks and recordings, long enough to show the chip is resting.
         .disabled(locked)
-        .opacity(model.activity == .saving ? 0.45 : 1)
+        .opacity(model.activity == .saving ? Theme.Dim.held : 1)
         // Outside the glass, which would otherwise stretch over the whole room.
         .frame(maxWidth: max(maxWidth, 44), alignment: Alignment(horizontal: edge, vertical: .center))
         // Keyed to adjusted or not, not the value: a drag of the EV dial changes it on every tick, and the digits

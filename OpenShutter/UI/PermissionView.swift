@@ -119,18 +119,18 @@ struct PermissionView: View {
     private static func message(for status: CameraAuthorization) -> String {
         switch status {
         case .notDetermined, .authorized:
-            return "Allow camera access to see the viewfinder and take photos and videos with full manual control."
+            return "Allow camera access to take photos and videos."
         case .denied:
-            return "Turn on Camera for Open Shutter in Settings to use the viewfinder."
+            return "Turn on Camera for Open Shutter in Settings."
         case .restricted:
-            return "This iPhone limits camera use, for example through Screen Time or a device management profile."
+            return "This iPhone limits camera use, through Screen Time or a management profile."
         }
     }
 
     private static func footnote(for status: CameraAuthorization) -> String {
         switch status {
         case .notDetermined, .authorized:
-            return "Photos and videos are saved to your photo library. Location tags stay off unless you turn them on."
+            return "Photos and videos go to your photo library. Location stays off until you turn it on."
         case .denied:
             return "Settings > Privacy & Security > Camera"
         case .restricted:

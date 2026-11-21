@@ -61,23 +61,23 @@ private struct DialPanel: View {
             if kind == .whiteBalance {
                 WhiteBalancePresetRow(model: model)
                     .disabled(locked)
-                    .opacity(dimmed ? 0.45 : 1)
+                    .opacity(dimmed ? Theme.Dim.held : 1)
             }
             // Far end needs no magnifier, so the row stays where Settings turns it off or Depth leaves it out, and
             // only Magnify goes.
             if kind == .focus, model.capabilities.supportsManualFocus, !model.capabilities.lens.isFront {
                 FocusAssistRow(model: model)
                     .disabled(locked)
-                    .opacity(dimmed ? 0.45 : 1)
+                    .opacity(dimmed ? Theme.Dim.held : 1)
             }
             if scale.values.isEmpty {
                 Text(kind == .aperture ? "This lens has a fixed aperture." : "Not available on this camera.")
                     .font(.footnote)
                     .foregroundStyle(Theme.secondaryText)
                     // At 16:9 this sits on the picture with nothing behind it.
-                    .shadow(color: .black.opacity(0.6), radius: 4)
+                    .legibleShadow()
                     .frame(height: 56)
-                    .opacity(dimmed ? 0.45 : 1)
+                    .opacity(dimmed ? Theme.Dim.held : 1)
             } else {
                 RulerDial(
                     values: scale.values,
@@ -104,7 +104,7 @@ private struct DialPanel: View {
                         .allowsHitTesting(false)
                 }
                 .disabled(locked)
-                .opacity(dimmed ? 0.45 : 1)
+                .opacity(dimmed ? Theme.Dim.held : 1)
             }
         }
         .background {
@@ -301,6 +301,8 @@ private struct FocusEndGlyphs: View {
         }
         .font(.system(size: 12, weight: .semibold))
         .foregroundStyle(Theme.secondaryText)
+        // Grey glyphs on the picture at the dial's ends: the shadow keeps them apart from a bright sky.
+        .legibleShadow()
         .padding(.horizontal, 6)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -333,10 +335,10 @@ private struct WhiteBalancePresetRow: View {
         let grayCardAvailable = model.capabilities.supportsCustomWhiteBalance
         ViewThatFits(in: .horizontal) {
             row(current: current, grayCardAvailable: grayCardAvailable)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, Theme.edge)
             ScrollView(.horizontal, showsIndicators: false) {
                 row(current: current, grayCardAvailable: grayCardAvailable)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, Theme.edge)
             }
         }
     }
@@ -357,7 +359,7 @@ private struct WhiteBalancePresetRow: View {
                 model.setWhiteBalanceFromGrayCard()
             }
             .disabled(!grayCardAvailable)
-            .opacity(grayCardAvailable ? 1 : 0.45)
+            .opacity(grayCardAvailable ? 1 : Theme.Dim.off)
             // Gray world gains assume a neutral card filling the middle half of the frame; a small card leaves them
             // averaging the whole scene.
             .accessibilityHint(Text("Fill the middle of the frame with a gray card or white paper, then tap."))
@@ -400,7 +402,7 @@ private struct FocusAssistRow: View {
                     model.toggleMagnifier()
                 }
                 .disabled(!available)
-                .opacity(available ? 1 : 0.45)
+                .opacity(available ? 1 : Theme.Dim.off)
                 .animation(Theme.snappy, value: available)
                 // The power asked for, not the badge's: that one follows the readings, ten times a second.
                 .accessibilityValue(Text(magnified ? Self.spokenPower(model.magnification) : "Off"))
@@ -413,7 +415,7 @@ private struct FocusAssistRow: View {
             }
             .accessibilityHint(Text("Moves the focus to the far end of the lens. Distant stars are sharp near there."))
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Theme.edge)
         .frame(maxWidth: .infinity)
     }
 
@@ -449,17 +451,9 @@ private struct PresetButton: View {
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(PresetPressStyle())
+        .buttonStyle(PressScaleStyle())
         .accessibilityLabel(Text(title))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-}
-
-private struct PresetPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.9 : 1)
-            .animation(Theme.snappy, value: configuration.isPressed)
     }
 }
 
@@ -578,7 +572,7 @@ private enum DialValues {
         case .shutter:
             if settings.mode == .night {
                 let manual = settings.night.seconds
-                // The header's A badge and lit AUTO button already say auto, so the value is the bare duration.
+                // The header's small A and lit AUTO button already say auto, so the value is the bare duration.
                 return Readout(title: "Duration", value: DialScales.durationLabel(manual ?? model.nightAutoSeconds),
                                isAuto: manual == nil, offersAuto: true, isStacked: false)
             }
@@ -596,8 +590,11 @@ private enum DialValues {
                 }
                 return readout
             }
-            let seconds = shownShutter(model)
-            var value = ShutterSpeed(seconds: seconds).label
+            // The camera's own shutter on the third-stop scale, as the chip shows it. The ruler still sits on the
+            // reading (current(_:model:)).
+            let speed = model.isShutterAuto ? AutoValues.shutter(shownShutter(model)) : ShutterSpeed(seconds: shownShutter(model))
+            let seconds = speed.seconds
+            var value = speed.label
             if settings.mode == .video, settings.video.showShutterAngle {
                 let angle = ExposureMath.shutterAngle(seconds: seconds, fps: model.recordedVideo.frameRate)
                 // Checked and bounded before the Int conversion, which traps on NaN and on huge values.
@@ -607,7 +604,8 @@ private enum DialValues {
             return Readout(title: kind.title, value: value, isAuto: model.isShutterAuto, offersAuto: true,
                            isStacked: settings.mode == .manual && model.shutterIsStacked)
         case .iso:
-            return sceneAware(kind, value: ISOScale.compactLabel(model.displayISO), offersAuto: true, model: model)
+            let iso = ControlHolder.of(kind, model: model) == .camera ? AutoValues.iso(model.displayISO) : model.displayISO
+            return sceneAware(kind, value: ISOScale.compactLabel(iso), offersAuto: true, model: model)
         case .aperture:
             return sceneAware(kind, value: ApertureScale.label(model.displayAperture),
                               offersAuto: caps.supportsVariableAperture, model: model)
@@ -617,7 +615,9 @@ private enum DialValues {
             return Readout(title: name(kind, model: model), value: value, isAuto: abs(bias) < 0.05,
                            offersAuto: true, isStacked: false)
         case .whiteBalance:
-            let kelvin = Formatting.kelvin(model.displayKelvin)
+            let shown = ControlHolder.of(kind, model: model) == .camera
+                ? AutoValues.kelvin(model.displayKelvin) : model.displayKelvin
+            let kelvin = Formatting.kelvin(shown)
             var readout = sceneAware(kind, value: kelvin, offersAuto: true, model: model)
             // Only the person picks presets; the scene's temperature shows as the bare number.
             if readout.isSetByPerson, case .preset(let preset) = model.effectiveWhiteBalance, preset != .auto {
@@ -645,7 +645,7 @@ private enum DialValues {
 
     /// The header of a control LONG's scene can hold. While the scene holds it, the value is neither auto nor the
     /// person's: the title names the scene ("Focus · Stars"), the value shows in white, and AUTO stays off. A tap
-    /// on AUTO then says that the scene sets the value and that Custom gives auto back; with a value of the
+    /// on AUTO then says that the scene sets the value and that Manual night gives auto back; with a value of the
     /// person's, AUTO leads back to the scene's.
     private static func sceneAware(_ kind: DialKind, value: String, offersAuto: Bool, model: CameraModel) -> Readout {
         let holder = ControlHolder.of(kind, model: model)
