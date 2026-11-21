@@ -491,7 +491,8 @@ private struct FocusReticle: View {
             ReticleShape()
                 .stroke(Theme.accent, lineWidth: 1.25)
                 .frame(width: Self.side, height: Self.side)
-                .scaleEffect(settled ? 1 : 1.3)
+                // With Reduce Motion the square lands in place and only fades.
+                .scaleEffect(settled || AppearanceStore.shared.reduceMotion ? 1 : 1.3)
                 // A held lock stays on screen, dimmed; a plain tap fades out like the Camera app's square.
                 .opacity(faded ? (isLocked ? 0.6 : 0) : 1)
                 .accessibilityHidden(true)

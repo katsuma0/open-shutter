@@ -764,6 +764,17 @@ private final class ModeVeilView: UIView {
     private static let strength: CGFloat = 0.6
     private static let rampDuration: CFTimeInterval = 0.25
 
+    // UIKit asserts when a paused animator is released, and a display link holds its target: both are let go as
+    // soon as the veil leaves the screen, however it leaves.
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        guard newWindow == nil else { return }
+        link?.invalidate()
+        link = nil
+        animator?.stopAnimation(true)
+        animator = nil
+    }
+
     init(snapshot: UIView, frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false

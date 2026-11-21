@@ -343,11 +343,13 @@ enum SettingsZoom {
 }
 
 extension View {
-    /// Marks the gear as where Settings zooms from. Not with Reduce Motion, where the sheet slides up as usual.
+    /// Marks the gear as where Settings zooms from. Marked whatever Reduce Motion says: a sheet that opened with
+    /// the zoom still needs its gear to shrink back into after the switch is turned on inside it, and a plain
+    /// sheet just leaves the mark unused.
     @MainActor
     @ViewBuilder
     func settingsZoomSource(_ namespace: Namespace.ID?) -> some View {
-        if let namespace, !AppearanceStore.shared.reduceMotion {
+        if let namespace {
             matchedTransitionSource(id: SettingsZoom.id, in: namespace)
         } else {
             self
@@ -358,10 +360,26 @@ extension View {
     @MainActor
     @ViewBuilder
     func settingsZoomTransition(_ namespace: Namespace.ID?) -> some View {
-        if let namespace, !AppearanceStore.shared.reduceMotion {
-            navigationTransition(.zoom(sourceID: SettingsZoom.id, in: namespace))
+        if let namespace {
+            modifier(SettingsZoomTransition(namespace: namespace))
         } else {
             self
+        }
+    }
+}
+
+/// Decides zoom or plain once, as the sheet opens. Read live, the Reduce Motion switch on Settings' own
+/// Accessibility page would swap the branch under the open sheet, which rebuilds Settings and drops it back to
+/// its first page.
+private struct SettingsZoomTransition: ViewModifier {
+    let namespace: Namespace.ID
+    @State private var zooms = !AppearanceStore.shared.reduceMotion
+
+    func body(content: Content) -> some View {
+        if zooms {
+            content.navigationTransition(.zoom(sourceID: SettingsZoom.id, in: namespace))
+        } else {
+            content
         }
     }
 }

@@ -100,9 +100,9 @@ final class CameraModel {
         }
     }
     var isDrawerOpen = false
-    /// The gallery is up (the editor opens inside it). The camera stops under it (updateGalleryPause).
     /// Shown when the shutter is pressed while the app may not add to Photos.
     var isPhotosAccessAlertShown = false
+    /// The gallery is up (the editor opens inside it). The camera stops under it (updateGalleryPause).
     var isReviewPresented = false {
         didSet {
             guard oldValue != isReviewPresented else { return }
@@ -1779,13 +1779,7 @@ final class CameraModel {
             }
             return
         }
-        // With adding to Photos turned off a shot has nowhere to go, and a long night stack would be lost at the
-        // end. Asking before the shot, with a way to Settings, beats a toast after it.
-        let addAccess = PHPhotoLibrary.authorizationStatus(for: .addOnly)
-        if addAccess == .denied || addAccess == .restricted {
-            isPhotosAccessAlertShown = true
-            return
-        }
+        if photosAccessBlocksShot() { return }
         if settings.mode == .video {
             startRecording()
             return
@@ -1812,6 +1806,16 @@ final class CameraModel {
             // included.
             runSchedule(schedule, silentCountdown: settle > 0)
         }
+    }
+
+    /// With adding to Photos turned off a shot has nowhere to go, and a long night stack would be lost at the end.
+    /// Asking before the shot, with a way to Settings, beats a toast after it. Only a press that would start one asks:
+    /// limited, full and not yet asked all let the save through.
+    private func photosAccessBlocksShot() -> Bool {
+        let addAccess = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        guard addAccess == .denied || addAccess == .restricted else { return false }
+        isPhotosAccessAlertShown = true
+        return true
     }
 
     /// A half press takes nothing and plays no shutter sound. Someone who can't see the whole frame come back would
@@ -1860,6 +1864,8 @@ final class CameraModel {
             return
         }
         guard canCapture else { return }
+        // A held bulb is the longest shot there is, and the one most worth asking about before it starts.
+        if photosAccessBlocksShot() { return }
         bulbHoldActive = true
         // A finger on the shutter keeps the screen lit.
         updateDimming()
@@ -2207,8 +2213,9 @@ final class CameraModel {
             handle([result])
             if result.savedToLibrary {
                 // The frames are all in by now and the haptics hold has lifted with .saving, so the one tap that
-                // says the picture is developed can't shake a frame.
-                Haptics.success()
+                // says the picture is developed can't shake a frame. Not within an intervalometer: its next stack
+                // can start as this one saves, with the tap still running through the tripod.
+                if intervalometer == nil { Haptics.success() }
                 speak("Done.")
             }
         } catch let error as CameraError where error == .cancelled {
