@@ -71,16 +71,20 @@ struct GalleryViewer: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                ViewerTitle(date: current?.creationDate)
+                ViewerTitle(date: current?.creationDate,
+                            position: currentID.flatMap { assets?.index(of: $0) }, total: assets?.count ?? 0)
             }
             ToolbarItemGroup(placement: .bottomBar) {
                 bottomButtons(for: current)
+                    // Thin, as the camera's top bar draws its glyphs.
+                    .fontWeight(.light)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarVisibility(showsChrome ? .visible : .hidden, for: .navigationBar, .bottomBar)
         .toolbarBackgroundVisibility(.visible, for: .navigationBar, .bottomBar)
-        .toolbarBackground(Color.black.opacity(0.72), for: .navigationBar, .bottomBar)
+        // Solid, as the info panel is, so the bars read the same over any photo.
+        .toolbarBackground(InfoPanelStyle.fill, for: .navigationBar, .bottomBar)
         .toolbarColorScheme(.dark, for: .navigationBar, .bottomBar)
         // The camera hides it too, and over black its text would follow a light list's dark style.
         .statusBarHidden(true)
@@ -297,16 +301,33 @@ struct GalleryViewer: View {
     }
 }
 
-/// The date over the picture. How it was shot is in the info panel.
+/// The date over the picture, and under it where the picture sits in the gallery, "12 / 214". How it was shot is in
+/// the info panel.
 private struct ViewerTitle: View {
     let date: Date?
+    /// Zero-based; nil while the page is unknown.
+    let position: Int?
+    let total: Int
 
     var body: some View {
-        Text(GalleryText.dateLine(date))
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
+        VStack(spacing: 1) {
+            Text(GalleryText.dateLine(date))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            if let position, total > 1 {
+                Text("\(position + 1) / \(total)")
+                    .font(.caption2.weight(.medium).monospacedDigit())
+                    .tracking(0.6)
+                    .foregroundStyle(InfoPanelStyle.tertiary)
+                    .lineLimit(1)
+                    .accessibilityLabel("\(position + 1) of \(total)")
+            }
+        }
+        // Two lines have to fit the bar's height.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
+        .accessibilityElement(children: .combine)
     }
 }
 
