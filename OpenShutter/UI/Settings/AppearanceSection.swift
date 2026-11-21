@@ -17,13 +17,17 @@ struct LookAndControlsSection: View {
                 Haptics.tick()
                 model.updateSettings { $0.appearance.accent = choice }
             }
+            NavigationLink("Accessibility") {
+                AccessibilitySettingsView(model: model)
+            }
+            // Its own view: it reads the list and the camera, which this section has no need to redraw for. It shows
+            // only on an iPhone with Camera Control.
+            CameraControlRow(model: model)
             NavigationLink("Buttons and haptics") {
                 ButtonsAndHapticsView(model: model)
             }
-            // Its own view: it reads the list and the camera, which this section has no need to redraw for.
-            CameraControlRow(model: model)
-            NavigationLink("Accessibility") {
-                AccessibilitySettingsView(model: model)
+            if model.showsAdvancedSettings {
+                Toggle("Switch lenses while zooming", isOn: model.settingBinding(\.controls.autoLensSwitching))
             }
             NavigationLink("Preserve settings") {
                 PreserveSettingsView(model: model)
@@ -31,7 +35,7 @@ struct LookAndControlsSection: View {
         } header: {
             Text("Look and controls")
         } footer: {
-            Text("Appearance sets the look of Settings and the other lists. The camera always stays dark. The accent color marks what is on or set by hand on the camera. Camera Control sets what a light press on the Camera Control button lets you change.")
+            Text("Appearance changes Settings, not the camera.")
         }
     }
 }

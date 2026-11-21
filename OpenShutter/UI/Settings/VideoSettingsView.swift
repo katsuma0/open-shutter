@@ -27,17 +27,24 @@ struct VideoSettingsView: View {
                              options: pickerOptions(caps.colorModes, current: video.colorMode), label: \.title)
                 SettingsPicker("Stabilization", selection: model.settingBinding(\.video.stabilization),
                              options: pickerOptions(caps.stabilizationModes, current: video.stabilization), label: \.title)
+                Toggle("Low light noise reduction", isOn: model.settingBinding(\.video.lowLightNoiseReduction))
+                    .disabled(!caps.lowLightVideoNoiseReductionSupported)
+                Toggle("Show shutter angle", isOn: model.settingBinding(\.video.showShutterAngle))
+            } footer: {
+                SettingsFooter(Self.notes(video: video, caps: caps, isVideoMode: model.settings.mode == .video))
+            }
+
+            Section {
                 Toggle("Record sound", isOn: model.settingBinding(\.video.audio))
                 // Without sound the camera leaves the audio session alone, so other apps keep playing anyway.
                 Toggle("Allow audio playback", isOn: model.settingBinding(\.video.allowAudioPlayback))
                     .disabled(!video.audio)
                 Toggle("Wind noise reduction", isOn: model.settingBinding(\.video.windNoiseReduction))
                     .disabled(!video.audio)
-                Toggle("Low light noise reduction", isOn: model.settingBinding(\.video.lowLightNoiseReduction))
-                    .disabled(!caps.lowLightVideoNoiseReductionSupported)
-                Toggle("Shutter angle", isOn: model.settingBinding(\.video.showShutterAngle))
+            } header: {
+                Text("Sound")
             } footer: {
-                SettingsFooter(Self.notes(video: video, caps: caps, isVideoMode: model.settings.mode == .video))
+                Text(audioPlaybackNote)
             }
         }
         .navigationTitle("Video")
@@ -69,20 +76,17 @@ struct VideoSettingsView: View {
     /// Codecs, stabilization and noise reduction describe the active format and movie output, which only exist in
     /// VIDEO; resolution, frame rate and color come from every format of the lens and hold in any mode.
     private static func notes(video: VideoSettings, caps: CameraCapabilities, isVideoMode: Bool) -> [String?] {
-        var notes: [String?] = ["Choices follow what the current camera can record."]
+        var notes: [String?] = []
         var recordable = VideoFormatChoices.isRecordable(video, formats: caps.formats) && caps.colorModes.contains(video.colorMode)
         if isVideoMode {
             recordable = recordable && caps.videoCodecs.contains(video.codec)
                 && caps.stabilizationModes.contains(video.stabilization)
         } else {
-            notes.append("Codec, stabilization and noise reduction choices are complete while video is the active mode.")
+            notes.append("Some choices show only while the camera is in Video.")
         }
         if !recordable {
-            notes.append("The current camera can't record these settings exactly, so video uses the closest it has.")
+            notes.append("This camera can't record this exactly, so video uses the closest it has.")
         }
-        notes.append(audioPlaybackNote)
-        notes.append("Wind noise reduction takes the rumble of wind out of the sound, on iPhones that support it.")
-        notes.append("Shutter angle shows the shutter in degrees while filming; 180\u{00B0} gives the classic film look.")
         var unavailable = UnavailableFeatures()
         unavailable.noteFromIOS27("low light noise reduction", supported: caps.lowLightVideoNoiseReductionSupported)
         notes.append(unavailable.text)
@@ -90,28 +94,23 @@ struct VideoSettingsView: View {
     }
 }
 
-/// Video in the short list: the one video setting most people change in Settings rather than on the camera.
+/// Video in the short list: sound, the video settings most people change in Settings rather than on the camera.
 struct BasicVideoSection: View {
     let model: CameraModel
 
     var body: some View {
-        let recordsSound = model.settings.video.audio
-
         Section {
+            Toggle("Record sound", isOn: model.settingBinding(\.video.audio))
             // Without sound the camera leaves the audio session alone, so other apps keep playing anyway.
             Toggle("Allow audio playback", isOn: model.settingBinding(\.video.allowAudioPlayback))
-                .disabled(!recordsSound)
+                .disabled(!model.settings.video.audio)
         } header: {
             Text("Video")
         } footer: {
-            SettingsFooter([
-                audioPlaybackNote,
-                // The switch that dims this row is not in the short list, so the footer has to name the reason.
-                recordsSound ? nil : "Video is set to record without sound, so other apps keep playing either way.",
-            ])
+            Text(audioPlaybackNote)
         }
     }
 }
 
 /// What allowing audio playback means for the recording, in the short list and on the Video page.
-private let audioPlaybackNote = "Music and other apps keep playing while you film. The microphone can pick them up."
+private let audioPlaybackNote = "Allow audio playback keeps music playing while you film, and the microphone may record it."

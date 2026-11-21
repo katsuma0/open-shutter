@@ -13,12 +13,6 @@ struct CustomSetupsSection: View {
             }
         } header: {
             Text("Custom setups")
-        } footer: {
-            SettingsFooter([
-                "A custom setup keeps the mode and scene, the exposure, white balance and focus, the photo format, the timer and brackets, and the viewfinder tools.",
-                "Tap one to use it. The More button beside it saves the current setup there, renames it or clears it.",
-                "Your name, the copyright line, location tags and the look of the app stay as they are.",
-            ])
         }
     }
 }
@@ -47,16 +41,11 @@ private struct CustomSetupRow: View {
                     SetupActions.save(model: model, slot: slot, keeping: nil, naming: naming)
                 }
             } label: {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title)
-                        Text(setup?.summary ?? "Empty. Tap to save the current setup.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "\(slot + 1).square")
-                        .foregroundStyle(Theme.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    Text(setup?.summary ?? "Tap to save the current setup")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -87,8 +76,8 @@ private struct CustomSetupRow: View {
             Button(naming.justSaved ? "Not now" : "Cancel", role: .cancel) {}
         } message: {
             Text(naming.justSaved
-                 ? "Saved to \(code). Give it a name, such as Milky Way, or leave it as \(code)."
-                 : "A short name, such as Milky Way. Leave it empty to call it \(code).")
+                 ? "Saved to \(code). Name it, or leave it as \(code)."
+                 : "Leave it empty to call it \(code).")
         }
     }
 

@@ -47,6 +47,41 @@ struct SettingsPicker<Value: Hashable>: View {
     }
 }
 
+/// A menu picker whose row has a second line saying what the chosen value does, for values whose name alone says too
+/// little: RAW or ProRAW, Minimal to Maximum, Real, Blur or Trails. In a Form the second text of a label is the row's
+/// subtitle.
+struct SettingsDetailPicker<Value: Hashable>: View {
+    let title: String
+    let selection: Binding<Value>
+    let options: [Value]
+    let label: (Value) -> String
+    let detail: String?
+
+    init(_ title: String, selection: Binding<Value>, options: [Value], label: @escaping (Value) -> String,
+         detail: String?) {
+        self.title = title
+        self.selection = selection
+        self.options = options
+        self.label = label
+        self.detail = detail
+    }
+
+    var body: some View {
+        Picker(selection: selection) {
+            ForEach(options, id: \.self) { option in
+                Text(label(option)).tag(option)
+            }
+        } label: {
+            if let detail {
+                Text(title)
+                Text(detail)
+            } else {
+                Text(title)
+            }
+        }
+    }
+}
+
 /// A titled slider that keeps its value to itself while the finger is down and commits on release, so a drag
 /// doesn't save and re-apply the settings on every frame. VoiceOver adjusts without a drag, so those commit at once.
 struct SettingsSlider: View {
@@ -218,13 +253,13 @@ struct UnavailableFeatures {
     var text: String? {
         var sentences: [String] = []
         if !missing.isEmpty {
-            sentences.append("Not available with the current camera: \(ListFormatter.localizedString(byJoining: missing)).")
+            sentences.append("Not on this camera: \(ListFormatter.localizedString(byJoining: missing)).")
         }
         if !needsIOS26.isEmpty {
-            sentences.append("Needs iOS 26 or later: \(ListFormatter.localizedString(byJoining: needsIOS26)).")
+            sentences.append("Needs iOS 26: \(ListFormatter.localizedString(byJoining: needsIOS26)).")
         }
         if !needsNewerSystem.isEmpty {
-            sentences.append("Needs iOS 27 or later: \(ListFormatter.localizedString(byJoining: needsNewerSystem)).")
+            sentences.append("Needs iOS 27: \(ListFormatter.localizedString(byJoining: needsNewerSystem)).")
         }
         if !needsNewerBuild.isEmpty {
             sentences.append("Needs an Xcode 27 build: \(ListFormatter.localizedString(byJoining: needsNewerBuild)).")

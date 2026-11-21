@@ -1,7 +1,7 @@
 import SwiftUI
 import CameraCore
 
-/// The Viewfinder page of the full list: the tools drawn over the picture to judge exposure and focus. The grid and
+/// The Viewfinder page of the full list: the tools drawn over the picture to judge exposure, focus and a steady hold. The grid and
 /// the level are not here but in the Camera section of the first page, which the short list has too. Zebras and false
 /// color show where highlights clip, so the camera has no separate clipping warning.
 struct ViewfinderSettingsView: View {
@@ -15,15 +15,9 @@ struct ViewfinderSettingsView: View {
                 SettingsPicker("Histogram", selection: model.settingBinding(\.display.histogram),
                              options: HistogramStyle.allCases, label: \.title)
                 Toggle("Exposure readout", isOn: model.settingBinding(\.display.showReadout))
-            } footer: {
-                SettingsFooter([
-                    // A night photo is built from many frames, so no one frame's histogram says how it will come out.
-                    "Night mode shows no histogram.",
-                    // NIGHT's plan and the sky scenes' way into the focus dial follow this switch too
-                    // (NightText.isoShownElsewhere, ModePanels), and nothing on the camera screen says so.
-                    "The readout is the line above the zoom buttons in Photo, the night shot and the scenes: ISO, aperture, white balance and focus. In Stars, Northern lights and Fireworks a tap on it opens the focus dial. With it off, Night's plan names the ISO, and those scenes show a focus chip instead. Manual, Manual night and Video have chips for the values you can set there.",
-                    "The grid and the level are on the first page of Settings, under Camera.",
-                ])
+                // The same switch as NIGHT's top bar, under the bar's name for it, so the sign can come back from any
+                // mode.
+                Toggle(TopBarItem.steadySign.title, isOn: model.settingBinding(\.display.showSteadySign))
             }
 
             Section {
@@ -35,7 +29,7 @@ struct ViewfinderSettingsView: View {
                     }
                 }
             } footer: {
-                Text("Stripes cover everything at or above the zebra level, so highlights about to clip stand out.")
+                Text("Stripes mark highlights about to clip.")
             }
 
             Section {
@@ -51,7 +45,7 @@ struct ViewfinderSettingsView: View {
                     }
                 }
             } footer: {
-                Text("Peaking outlines edges that are in focus. Manual focus shows it only while you focus by hand. Higher sensitivity marks softer edges too.")
+                Text("Outlines the edges that are in focus.")
             }
 
             Section {
@@ -60,7 +54,7 @@ struct ViewfinderSettingsView: View {
                     FalseColorLegend()
                 }
             } footer: {
-                Text("False color paints brightness as color: purple and blue for deep shadows, green for middle gray, pink for skin, yellow and red for highlights about to clip.")
+                Text("Paints brightness as color.")
             }
         }
         .navigationTitle("Viewfinder")

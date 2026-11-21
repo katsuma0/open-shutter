@@ -16,19 +16,17 @@ struct CameraSection: View {
                     Text(ratio.label).tag(ratio)
                 }
             }
-            CustomAspectRow(aspect: aspect) { ratio in
-                model.updateSettings { $0.capture.aspect = ratio }
+            // Any other shape is for the full list, unless one is saved: then it stays where it can be changed.
+            if model.showsAdvancedSettings || !AspectRatio.presets.contains(where: { $0.matches(aspect) }) {
+                CustomAspectRow(aspect: aspect) { ratio in
+                    model.updateSettings { $0.capture.aspect = ratio }
+                }
             }
             SettingsPicker("Grid", selection: model.settingBinding(\.display.grid),
                          options: GridStyle.allCases, label: \.title)
             Toggle("Level", isOn: model.settingBinding(\.display.showLevel))
         } header: {
             Text("Camera")
-        } footer: {
-            SettingsFooter([
-                "Photos are cropped to the aspect ratio; video keeps the whole frame. For any other shape, enter its long and short sides under Custom ratio, from 1 to 100.",
-                "The grid lays guide lines over the picture. The level line changes color when the phone is straight.",
-            ])
         }
     }
 

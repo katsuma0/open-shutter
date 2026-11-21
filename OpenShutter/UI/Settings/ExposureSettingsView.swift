@@ -23,7 +23,7 @@ struct ExposureSettingsView: View {
 
         Form {
             Section {
-                Picker("Auto exposure limit", selection: model.settingBinding(\.exposure.aeMaxShutter)) {
+                Picker("Slowest auto shutter", selection: model.settingBinding(\.exposure.aeMaxShutter)) {
                     Text("Auto").tag(Double?.none)
                     ForEach(Self.limitOptions(current: exposure.aeMaxShutter, longest: caps.exposure.seconds.upperBound),
                             id: \.self) { seconds in
@@ -51,7 +51,7 @@ struct ExposureSettingsView: View {
                 }
                 .disabled(!caps.supportsVariableAperture)
             } footer: {
-                SettingsFooter(Self.notes(caps: caps))
+                SettingsFooter(Self.notes(caps: caps, toneMapping: exposure.globalToneMapping))
             }
         }
         .navigationTitle("Exposure")
@@ -79,25 +79,19 @@ struct ExposureSettingsView: View {
         caps.videoHDRSupported || caps.formats.contains(where: \.supportsVideoHDR)
     }
 
-    private static func notes(caps: CameraCapabilities) -> [String?] {
-        var notes: [String?] = [
-            // The model hands VIDEO a limit of one frame instead, so the picker doesn't apply there.
-            "Auto exposure limit is the slowest shutter auto exposure may pick. A faster limit keeps moving subjects sharp and raises ISO instead; a slower one keeps ISO down in dim light but blurs motion. In video mode the frame rate sets the limit.",
-        ]
-        if caps.supportsMeteringArea {
-            notes.append("Metering area sets what auto exposure measures: Auto reads the area around the point you tap, Spot only a small spot there, and Whole frame the entire picture.")
+    private static func notes(caps: CameraCapabilities, toneMapping: Bool) -> [String?] {
+        var notes: [String?] = []
+        if toneMapping, caps.globalToneMappingSupported {
+            notes.append("Global tone mapping turns off multi-frame fusion.")
         }
-        if caps.globalToneMappingSupported {
-            notes.append("Global tone mapping uses one tone curve for the whole frame and turns off multi-frame fusion.")
-        }
-        if caps.supportsVariableAperture {
-            notes.append("Aperture speed sets how quickly auto exposure may move the iris. Smooth suits video.")
-        } else if !UnavailableFeatures.runsIOS27 {
-            notes.append("Aperture speed needs iOS 27 and a lens with a variable aperture.")
-        } else if !UnavailableFeatures.hasIOS27Code {
-            notes.append("Aperture speed needs an Xcode 27 build and a lens with a variable aperture.")
-        } else {
-            notes.append("Aperture speed needs a lens with a variable aperture.")
+        if !caps.supportsVariableAperture {
+            if !UnavailableFeatures.runsIOS27 {
+                notes.append("Aperture speed needs iOS 27 and a lens with a variable aperture.")
+            } else if !UnavailableFeatures.hasIOS27Code {
+                notes.append("Aperture speed needs an Xcode 27 build and a lens with a variable aperture.")
+            } else {
+                notes.append("Aperture speed needs a lens with a variable aperture.")
+            }
         }
         var unavailable = UnavailableFeatures()
         unavailable.noteFromIOS26("metering area", supported: caps.supportsMeteringArea)

@@ -14,97 +14,64 @@ struct PhotoSettingsView: View {
         let choice = PhotoFormatChoice(capture)
 
         Form {
-            // Format, RAW and Resolution, the same three groups as the Format button's menu on the camera.
+            // What a shot saves: the same choices as the Format button's menu on the camera.
             Section {
                 SettingsPicker("Format", selection: formatBinding(model), options: photo.formatChoices(for: capture),
                                label: \.title)
-                // Dimmed where it does nothing: High saves at its own quality, and PNG and TIFF lose nothing to
-                // compression. RAW only keeps it, because its night and long exposure photos save HEIF.
-                SettingsSlider(title: "Quality", value: capture.quality, range: 0.5...1, step: 0.05,
-                               format: Formatting.percent) { quality in
-                    model.updateSettings { $0.capture.quality = quality }
-                }
-                .disabled(!choice.takesQualitySlider)
-            } header: {
-                Text("Format")
-            } footer: {
-                SettingsFooter(Self.formatNotes(capture: capture, photo: photo))
-            }
-
-            Section {
-                Picker(selection: rawBinding(model)) {
-                    ForEach(pickerOptions(Self.rawFormats(photo), current: capture.rawFormat)) { raw in
-                        Text(raw.title).tag(raw)
-                    }
-                } label: {
-                    // The second text is the row's subtitle: what the chosen kind of RAW is.
-                    if let detail = capture.rawFormat.detail {
-                        Text("RAW")
-                        Text(detail)
-                    } else {
-                        Text("RAW")
+                // Only where it acts: High saves at its own quality, and PNG and TIFF lose nothing to compression. RAW
+                // only keeps it, because its night and long exposure photos save HEIF.
+                if choice.takesQualitySlider {
+                    SettingsSlider(title: "Quality", value: capture.quality, range: 0.5...1, step: 0.05,
+                                   format: Formatting.percent) { quality in
+                        model.updateSettings { $0.capture.quality = quality }
                     }
                 }
-                // Stays usable while RAW is set, so it can still be switched off on a camera without RAW.
-                .disabled(!photo.bayerRAW && !photo.proRAW && capture.rawFormat == .none)
-            } header: {
-                Text("RAW")
-            } footer: {
-                SettingsFooter(Self.rawNotes(capture: capture, photo: photo, presets: model.lensPresets))
-            }
-
-            Section {
+                // The second line says what the chosen kind of RAW is.
+                SettingsDetailPicker("RAW", selection: rawBinding(model),
+                                     options: pickerOptions(Self.rawFormats(photo), current: capture.rawFormat),
+                                     label: \.title, detail: capture.rawFormat.detail)
+                    // Stays usable while RAW is set, so it can still be switched off on a camera without RAW.
+                    .disabled(!photo.bayerRAW && !photo.proRAW && capture.rawFormat == .none)
                 // A stored Largest or 24 MP reads as the row it takes (shownAs), so neither adds a row of its own.
                 SettingsPicker("Resolution", selection: resolutionBinding(model), options: PhotoResolution.offered,
                                label: \.title)
-            } header: {
-                Text("Resolution")
             } footer: {
-                SettingsFooter(Self.resolutionNotes(capture: capture, photo: photo))
+                SettingsFooter(Self.formatNotes(capture: capture, photo: photo, presets: model.lensPresets))
             }
 
             Section {
-                SettingsPicker("Processing", selection: model.settingBinding(\.capture.processing),
-                             options: pickerOptions(Self.processingLevels(photo), current: capture.processing), label: \.title)
+                SettingsDetailPicker("Processing", selection: model.settingBinding(\.capture.processing),
+                                     options: pickerOptions(Self.processingLevels(photo), current: capture.processing),
+                                     label: \.title, detail: capture.processing.detail)
                 Toggle("Prioritize faster shooting", isOn: model.settingBinding(\.capture.prioritizeSpeed))
             } footer: {
-                SettingsFooter([
-                    capture.processing.detail,
-                    Self.processingLimitNote(capture.processing, photo: photo),
-                    "Manual exposure always uses Minimal, so the shutter and ISO you set are kept.",
-                    fasterShootingNote,
-                ])
+                SettingsFooter([Self.processingLimitNote(capture.processing, photo: photo)])
             }
 
             Section {
                 Toggle("Live Photo", isOn: model.settingBinding(\.capture.livePhoto))
                     .disabled(!photo.livePhoto || !capture.allowsLivePhoto)
-                // PNG and TIFF can't carry a depth map: ImageIO writes auxiliary data into HEIF and JPEG only.
+                // ImageIO writes a depth map into HEIF and JPEG only, and the photo pipeline embeds none beside RAW.
                 Toggle("Depth", isOn: model.settingBinding(\.capture.depth))
-                    .disabled(!photo.depth || capture.processedFormat.isLossless)
+                    .disabled(!photo.depth || capture.processedFormat.isLossless || capture.rawFormat != .none)
                 Toggle("Constant color", isOn: model.settingBinding(\.capture.constantColor))
                     .disabled(!photo.constantColor)
                 Toggle("Lens correction", isOn: model.settingBinding(\.capture.lensCorrection))
                     .disabled(!photo.lensCorrection)
                 Toggle("Mirror front camera", isOn: model.settingBinding(\.capture.mirrorFront))
+                // The system refuses to mute the shutter where the law requires the sound, so the row only shows
+                // where it works.
+                if photo.silentShutter {
+                    Toggle("Silent shutter", isOn: model.settingBinding(\.capture.silentShutter))
+                }
             } footer: {
                 SettingsFooter(Self.featureNotes(capture: capture, photo: photo))
-            }
-
-            // The system refuses to mute the shutter where the law requires the sound, so the row only shows where it
-            // works.
-            if photo.silentShutter {
-                Section {
-                    Toggle("Silent shutter", isOn: model.settingBinding(\.capture.silentShutter))
-                } footer: {
-                    Text("Not available in every region.")
-                }
             }
 
             Section {
                 Toggle("Location tags", isOn: model.settingBinding(\.capture.saveLocation))
                 if capture.saveLocation, locationAccess?.isDenied == true {
-                    Button("Open Settings") { model.openAppSettings() }
+                    Button("Allow location access") { model.openAppSettings() }
                 }
                 SettingsTextRow(title: "Your name", value: capture.artist, prompt: "None") { name in
                     model.updateSettings { $0.capture.artist = name }
@@ -117,8 +84,7 @@ struct PhotoSettingsView: View {
             } footer: {
                 SettingsFooter([
                     locationNote(enabled: capture.saveLocation, access: locationAccess),
-                    "Your name and the copyright line go into every photo and video, for apps that show who took it. Leave them empty to save neither.",
-                    "Every photo also records how it was taken: lens, focal length, shutter, ISO, aperture, white balance, exposure compensation and mode.",
+                    "Your name and copyright go into every photo and video.",
                 ])
             }
         }
@@ -143,87 +109,63 @@ struct PhotoSettingsView: View {
         let levels = ProcessingLevel.allCases
         guard let wanted = levels.firstIndex(of: level), let limit = levels.firstIndex(of: photo.maxProcessing),
               wanted > limit else { return nil }
-        return "The current camera tops out at \(photo.maxProcessing.title)."
+        return "This camera goes up to \(photo.maxProcessing.title)."
     }
 
-    private static func formatNotes(capture: CaptureOptions, photo: PhotoSupport) -> [String?] {
-        var notes: [String?] = []
-        if !photo.isReported {
-            notes.append("In video mode the camera doesn't report its photo features, so the photo choices here aren't checked against it. Switch to a photo mode to see which ones the current camera supports.")
-        }
-        notes.append(photo.heifNote(for: capture))
-        notes.append("HEIF and JPEG use the Quality slider. HEIF High and JPEG High always save at \(Formatting.percent(PhotoFormatChoice.highQuality)).")
+    /// Only what a shot saves differently from what the rows say, and why a row is dimmed.
+    private static func formatNotes(capture: CaptureOptions, photo: PhotoSupport, presets: [LensPreset]) -> [String?] {
+        var notes: [String?] = [photo.heifNote(for: capture), photo.losslessNote(for: capture)]
         if capture.processedFormat == .none {
-            notes.append("Quality still applies to night and long exposure photos, which are never RAW.")
-        }
-        notes.append("PNG and TIFF keep every pixel, with no compression loss. A 12 MP TIFF is about 37 MB and a 48 MP one about 146 MB. PNG files are smaller, with the same pixels.")
-        if capture.processedFormat.isLossless {
-            notes.append("PNG and TIFF photos are standard range. Live Photo and depth need HEIF or JPEG.")
-            notes.append("Night photos and other stacks saved as PNG or TIFF keep 16 bits per color.")
-        }
-        var unavailable = UnavailableFeatures()
-        unavailable.note("HEIF", supported: photo.heif)
-        notes.append(unavailable.text)
-        return notes
-    }
-
-    private static func rawNotes(capture: CaptureOptions, photo: PhotoSupport, presets: [LensPreset]) -> [String?] {
-        var notes: [String?] = []
-        // The unprocessed RAW and Apple's processed one read alike by name, so each says what it is, where this camera
-        // has it.
-        if photo.bayerRAW {
-            notes.append("RAW saves the sensor's data with no processing. It needs a lens at its own zoom, such as 1\u{00D7}.")
-        }
-        if photo.proRAW {
-            notes.append("ProRAW saves Apple's processed picture as a RAW file and works at any zoom.")
+            notes.append("Quality applies to Night and stacked photos.")
         }
         notes += photo.rawNotes(for: capture, presets: presets)
-        if capture.rawFormat != .none {
-            notes.append("Night photos and other stacks have no RAW.")
+        // Each row follows the person from lens to lens, so a lens without that size says what it gives instead.
+        let shown = capture.resolution.shownAs
+        if let delivered = photo.deliveredSize(capture.resolution), delivered.megapixelLabel != shown.title {
+            notes.append("This camera has no \(shown.title), so photos are \(delivered.megapixelLabel).")
         }
+        notes.append(stacksNote(capture: capture, photo: photo))
         var unavailable = UnavailableFeatures()
+        unavailable.note("HEIF", supported: photo.heif)
         unavailable.note("RAW", supported: photo.bayerRAW || photo.proRAW)
         notes.append(unavailable.text)
         return notes
     }
 
-    private static func resolutionNotes(capture: CaptureOptions, photo: PhotoSupport) -> [String?] {
-        var notes: [String?] = []
-        if let sizes = photo.sizes {
-            let shown = capture.resolution.shownAs
-            // Each row follows the person from lens to lens, so a lens without that size says what it gives instead.
-            if let delivered = photo.deliveredSize(capture.resolution), delivered.megapixelLabel != shown.title {
-                notes.append("The current camera has no \(shown.title) size, so photos are \(delivered.megapixelLabel).")
-            }
-            if let largest = sizes.last {
-                notes.append("Largest photo with the current camera: \(largest.width)\u{00D7}\(largest.height) (\(largest.megapixelLabel)).")
-            }
+    /// Stacks are made from video frames, so they are 12 MP on every sensor and never RAW.
+    private static func stacksNote(capture: CaptureOptions, photo: PhotoSupport) -> String? {
+        let raw = capture.rawFormat != .none
+        let large = capture.resolution.shownAs == .mp48
+            && (photo.deliveredSize(capture.resolution).map { $0.pixelCount > 20_000_000 } ?? true)
+        switch (raw, large) {
+        case (true, true): return "Night and stacked photos are 12 MP and never RAW."
+        case (true, false): return "Night and stacked photos are never RAW."
+        case (false, true): return "Night and stacked photos are 12 MP."
+        case (false, false): return nil
         }
-        notes.append("48 MP photos take about four times the space of 12 MP photos.")
-        notes.append("Night photos and other stacks are made from video frames at 12 MP.")
-        return notes
     }
 
     private static func featureNotes(capture: CaptureOptions, photo: PhotoSupport) -> [String?] {
-        var notes: [String?] = [photo.livePhotoNote(for: capture)]
-        if capture.depth, photo.depth {
-            if capture.processedFormat.isLossless {
-                notes.append("Depth needs HEIF or JPEG, so \(capture.processedFormat.title) photos have none.")
-            } else {
-                // Depth maps come at the sensor's own 4:3, and the photo pipeline embeds them only there.
-                notes.append(capture.aspect.matches(.fourThree)
-                    ? "Depth is saved only with 4:3 HEIF and JPEG photos that have no RAW file."
-                    : "Depth is saved only with 4:3 HEIF and JPEG photos that have no RAW file, so photos at \(capture.aspect.label) have none.")
+        var notes: [String?] = []
+        // The rows RAW, PNG and TIFF dim, named only where this camera has them.
+        let dimmed = [photo.livePhoto ? "Live Photo" : nil, photo.depth ? "Depth" : nil].compactMap { $0 }
+        if !dimmed.isEmpty {
+            let names = ListFormatter.localizedString(byJoining: dimmed)
+            if capture.rawFormat != .none {
+                notes.append("\(names) \(dimmed.count > 1 ? "are" : "is") off while RAW is on.")
+            } else if capture.processedFormat.isLossless {
+                notes.append("\(names) \(dimmed.count > 1 ? "need" : "needs") HEIF or JPEG.")
             }
         }
-        if photo.constantColor {
-            // The photo pipeline skips it without a flash, with RAW, and with locked white balance (Apple's advice).
-            notes.append("Constant color uses the flash to remove the color cast of room light. It needs the flash on or set to auto, auto white balance, and RAW off.")
+        // Depth maps come at the sensor's own 4:3, and the photo pipeline embeds them only there.
+        if capture.depth, photo.depth, capture.rawFormat == .none, !capture.processedFormat.isLossless,
+           !capture.aspect.matches(.fourThree) {
+            notes.append("Depth is saved only with 4:3 photos.")
         }
-        if photo.lensCorrection {
-            notes.append("Lens correction straightens stretched edges, mostly on the ultra wide.")
+        // The photo pipeline skips it without a flash, with RAW, and with locked white balance (Apple's advice).
+        if capture.constantColor, photo.constantColor {
+            notes.append("Constant color needs the flash, auto white balance and RAW off.")
         }
-        notes.append("Mirror front camera saves selfies the way the preview shows them.")
         var unavailable = UnavailableFeatures()
         unavailable.note("Live Photo", supported: photo.livePhoto)
         unavailable.note("depth", supported: photo.depth)
@@ -257,7 +199,7 @@ struct BasicPhotosSection: View {
             Toggle("Mirror front camera", isOn: model.settingBinding(\.capture.mirrorFront))
             Toggle("Location tags", isOn: model.settingBinding(\.capture.saveLocation))
             if capture.saveLocation, locationAccess?.isDenied == true {
-                Button("Open Settings") { model.openAppSettings() }
+                Button("Allow location access") { model.openAppSettings() }
             }
             if photo.silentShutter {
                 Toggle("Silent shutter", isOn: model.settingBinding(\.capture.silentShutter))
@@ -266,33 +208,23 @@ struct BasicPhotosSection: View {
         } header: {
             Text("Photos")
         } footer: {
-            SettingsFooter(Self.notes(capture: capture, photo: photo, presets: model.lensPresets,
-                                      access: locationAccess))
+            SettingsFooter(Self.notes(capture: capture, photo: photo, access: locationAccess))
         }
     }
 
-    private static func notes(capture: CaptureOptions, photo: PhotoSupport, presets: [LensPreset],
+    /// Only a state that differs from what the rows say, or why a row is dimmed.
+    private static func notes(capture: CaptureOptions, photo: PhotoSupport,
                               access: LocationPermissionWatcher?) -> [String?] {
-        var notes: [String?] = [
-            "HEIF photos take less space. JPEG photos open in any app. HEIF High and JPEG High save at full quality. PNG and TIFF keep every pixel, in much larger files.",
+        [
             photo.heifNote(for: capture),
-            // Neither has a row in this list, so the footer says where they are.
-            "RAW and the resolution are on the Format button at the top of the camera.",
+            photo.losslessNote(for: capture),
+            photo.livePhotoNote(for: capture),
+            locationNote(enabled: capture.saveLocation, access: access),
         ]
-        // RAW has no row in this list, so while it is on the footer is where a shot's files are named.
-        notes += photo.rawNotes(for: capture, presets: presets)
-        notes.append(photo.livePhotoNote(for: capture))
-        notes.append(locationNote(enabled: capture.saveLocation, access: access))
-        notes.append("Every photo also records how it was taken, such as the lens and the camera's settings.")
-        notes.append(fasterShootingNote)
-        return notes
     }
 }
 
 // MARK: - Shared by both lists
-
-/// What prioritize faster shooting gives up, in the short list and on the Photos page.
-private let fasterShootingNote = "Prioritize faster shooting lets the camera lower the quality of photos taken in quick succession so it keeps up, on iPhones that support it."
 
 /// The Format rows, one per PhotoFormatChoice, read from the two stored fields and written through the model, so
 /// Settings, the camera's Format button and the quick settings panel set a format the same way.
@@ -313,19 +245,12 @@ private func resolutionBinding(_ model: CameraModel) -> Binding<PhotoResolution>
     Binding(get: { model.settings.capture.resolution.shownAs }, set: { model.setPhotoResolution($0) })
 }
 
-/// The location row's line in a footer: why photos carry no place, or only a rough one, while location tags are on,
-/// and otherwise what the tags do.
+/// Why photos carry only a rough place while location tags are on. A denied access needs no sentence: the Allow
+/// location access row under the switch says it.
 @MainActor
-private func locationNote(enabled: Bool, access: LocationPermissionWatcher?) -> String {
-    if enabled, let access {
-        if access.isDenied {
-            return "Location access is off for Open Shutter, so photos won't include where they were taken."
-        }
-        if access.isAuthorized, !access.isPrecise {
-            return "Precise Location is off for Open Shutter, so photos get an approximate place."
-        }
-    }
-    return "Location tags add where each photo and video was taken. Location is only read while they are on."
+private func locationNote(enabled: Bool, access: LocationPermissionWatcher?) -> String? {
+    guard enabled, let access, access.isAuthorized, !access.isPrecise else { return nil }
+    return "Precise Location is off, so photos get an approximate place."
 }
 
 /// What the photo side of the current camera can do, as the photo rows need it. VIDEO takes the photo output
@@ -398,11 +323,20 @@ extension PhotoSupport {
     func heifNote(for capture: CaptureOptions) -> String? {
         guard capture.processedFormat == .heif, !heif else { return nil }
         // The photo pipeline falls back to JPEG at the same quality, High included.
-        return "The current camera can't save HEIF, so photos are saved as \(capture.highQuality ? "JPEG High" : "JPEG")."
+        return capture.highQuality
+            ? "This camera saves JPEG High in place of HEIF High."
+            : "This camera saves JPEG in place of HEIF."
     }
 
-    /// Says what a shot really saves. The photo pipeline swaps ProRAW for Bayer RAW where ProRAW is missing,
-    /// drops Bayer RAW at any zoom but a lens's own 1x, and saves a HEIF when RAW alone isn't possible.
+    /// PNG and TIFF keep every pixel, at many times the size of a HEIF or JPEG.
+    func losslessNote(for capture: CaptureOptions) -> String? {
+        guard capture.processedFormat.isLossless else { return nil }
+        return "\(capture.processedFormat.title) photos are many times larger than HEIF or JPEG."
+    }
+
+    /// What a shot really saves where it differs from the rows. The photo pipeline swaps ProRAW for Bayer RAW where
+    /// ProRAW is missing, drops Bayer RAW at any zoom but a lens's own 1x, and saves a HEIF when RAW alone isn't
+    /// possible.
     func rawNotes(for capture: CaptureOptions, presets: [LensPreset]) -> [String?] {
         let saved: RawFormat
         switch capture.rawFormat {
@@ -416,38 +350,29 @@ extension PhotoSupport {
         let processed = container == .heif && !heif ? "JPEG" : container.title
         guard saved != .none else {
             return [capture.processedFormat == .none
-                ? "The current camera can't shoot RAW, so photos are saved as \(fallback)."
-                : "The current camera can't shoot RAW, so only the \(processed) is saved."]
+                ? "This camera can't shoot RAW, so photos are \(fallback)."
+                : "This camera can't shoot RAW, so only the \(processed) is saved."]
         }
         var notes: [String?] = []
         if saved != capture.rawFormat {
-            notes.append("The current camera can't shoot \(capture.rawFormat.title), so it saves \(saved.title) instead.")
+            notes.append("This camera saves \(saved.title) in place of \(capture.rawFormat.title).")
         }
-        notes.append(capture.processedFormat == .none
-            ? "Each shot saves only the \(saved.title) file."
-            : "Each shot saves \(saved.title) and \(processed) together.")
         if saved == .bayer {
-            // With RAW only a zoomed shot still saves something, because the pipeline falls back to HEIF or JPEG.
-            let outcome = capture.processedFormat == .none ? "save a \(fallback) instead" : "skip it"
             // Older Pro phones have a real 2x lens, so the zoomed buttons are named from the presets, not assumed.
             let cropped = presets.filter { abs($0.zoomFactor - 1) > 0.01 }.map(\.selectedLabel)
-            notes.append(cropped.first.map { "RAW is saved only at each lens's own zoom; zoomed views such as \($0) \(outcome)." }
-                ?? "RAW is saved only at each lens's own zoom; zoomed photos \(outcome).")
+            notes.append(cropped.first.map { "RAW is saved only at each lens's own zoom, not at \($0)." }
+                ?? "RAW is saved only at each lens's own zoom.")
         }
         return notes
     }
 
-    /// Why the Live Photo switch is dimmed, or else when it does nothing; nil on a camera without Live Photo.
+    /// Why the Live Photo switch is dimmed; nil on a camera without Live Photo and while it can be used.
     func livePhotoNote(for capture: CaptureOptions) -> String? {
         guard livePhoto else { return nil }
         if capture.rawFormat != .none {
             return "Live Photo is off while RAW is on."
         }
         // PNG and TIFF are made from the camera's photo after the shot, so no movie goes with them.
-        if capture.processedFormat.isLossless {
-            return "Live Photo is off with \(capture.processedFormat.title). Live Photos need HEIF or JPEG."
-        }
-        // The model records the Live movie in PHOTO only; unsaid, the switch would seem dead in the other modes.
-        return "Only photo mode takes Live Photos."
+        return capture.processedFormat.isLossless ? "Live Photo needs HEIF or JPEG." : nil
     }
 }

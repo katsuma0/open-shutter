@@ -21,9 +21,9 @@ struct CapabilitiesView: View {
                         CapabilityRowView(row: row)
                     }
                 } header: {
-                    if group.showsIntro {
+                    if group.showsIntro, let intro = CapabilityReport.intro {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text(CapabilityReport.intro)
+                            Text(intro)
                                 .textCase(nil)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
@@ -50,8 +50,6 @@ struct CapabilitiesView: View {
                 }
             } header: {
                 Text("Formats (\(formats.count))")
-            } footer: {
-                Text("Every format this camera offers, in the order iOS lists them. Video mode picks among these.")
             }
         }
         .listStyle(.insetGrouped)
@@ -168,10 +166,9 @@ private struct FormatRowView: View {
 
 /// The screen and the copied text come from the same rows, so what gets pasted is exactly what was shown.
 private enum CapabilityReport {
-    static var intro: String {
-        let intro = "What this camera reports to apps. Values come straight from iOS."
-        guard buildLacksIOS27Features else { return intro }
-        return intro + " This build was made with Xcode 26, which leaves out iOS 27 features such as variable aperture and priority modes, so they read as missing."
+    /// Only for a build that can't see iOS 27's features, which would otherwise read as missing from the camera.
+    static var intro: String? {
+        buildLacksIOS27Features ? "Built with Xcode 26, so iOS 27 features read as missing." : nil
     }
 
     /// iOS 27 features are compiled only by Xcode 27 (Swift 6.4). On iOS 27 an Xcode 26 build would otherwise seem
@@ -190,7 +187,7 @@ private enum CapabilityReport {
     }
 
     static func text(groups: [CapabilityGroup], formats: [FormatDescriptor]) -> String {
-        var lines = [intro, ""]
+        var lines = intro.map { [$0, ""] } ?? []
         for group in groups {
             lines.append(group.title.uppercased())
             for row in group.rows {
@@ -246,7 +243,7 @@ private enum CapabilityReport {
             CapabilityRow("ISO", text: iso),
             CapabilityRow("Exposure compensation",
                           text: "\(EVFormat.label(c.biasRange.lowerBound)) to \(EVFormat.label(c.biasRange.upperBound)) EV"),
-            CapabilityRow("Auto exposure limit", text: ShutterSpeed(seconds: ranges.maxAutoSeconds).label),
+            CapabilityRow("Slowest auto shutter", text: ShutterSpeed(seconds: ranges.maxAutoSeconds).label),
             CapabilityRow("Manual exposure", flag: c.supportsCustomExposure),
             CapabilityRow("Variable aperture", flag: c.supportsVariableAperture),
             CapabilityRow("Metering area", flag: c.supportsMeteringArea),
@@ -263,7 +260,7 @@ private enum CapabilityReport {
         return CapabilityGroup(
             title: "Native priority modes",
             rows: rows,
-            footer: "Priority modes iOS runs itself, new in iOS 27. Where they're missing, Open Shutter steers exposure in software."
+            footer: "Where these are missing, Open Shutter sets exposure in software."
         )
     }
 
@@ -310,12 +307,12 @@ private enum CapabilityReport {
         // VIDEO takes the photo output out of the session. Every iPhone's photo output offers HEVC and brackets,
         // so both missing at once means there is no photo output to ask, not a camera without photo features.
         if !c.heifSupported && c.maxBracketCount == 0 {
-            notes.append("Video mode takes the photo output out of the session, so iOS reports no photo features right now. Open this screen from a photo mode to see them.")
+            notes.append("Open this page from a photo mode to see photo features.")
         }
         // CapabilitiesBuilder drops 24 MP from the sizes, so the list can't tell whether this lens has it. Only 48 MP
         // sensors offer it, so those get the reason it's missing.
         if c.photoDimensions.contains(where: { $0.pixelCount >= 40_000_000 }) {
-            notes.append("On iPhones with 24 MP, iOS delivers 5712\u{00D7}4284 only through deferred photo delivery. Open Shutter keeps that off, so 24 MP isn't listed or offered.")
+            notes.append("iOS gives 24 MP only through deferred delivery, which Open Shutter keeps off.")
         }
         return CapabilityGroup(title: "Photo", rows: rows, footer: notes.isEmpty ? nil : notes.joined(separator: " "))
     }

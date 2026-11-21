@@ -10,23 +10,10 @@ struct PreserveSettingsView: View {
         Form {
             Section {
                 Toggle("Camera mode", isOn: model.settingBinding(\.startup.keepMode))
-            } footer: {
-                Text("Opens in the mode you used last instead of Photo.")
-            }
-
-            Section {
                 Toggle("Lens and zoom", isOn: model.settingBinding(\.startup.keepLensAndZoom))
-            } footer: {
-                Text("Opens on the lens and zoom you used last instead of the main lens at 1x.")
-            }
-
-            Section {
                 Toggle("Exposure", isOn: model.settingBinding(\.startup.keepBrightness))
             } footer: {
-                SettingsFooter([
-                    "Keeps the exposure compensation you set, the night shot's too, instead of going back to 0.",
-                    "These apply each time Open Shutter starts. Coming back to it from another app keeps everything as it was.",
-                ])
+                Text("When off, the camera opens in Photo, on the main lens at 1\u{00D7}, with exposure at 0.")
             }
         }
         .navigationTitle("Preserve settings")
