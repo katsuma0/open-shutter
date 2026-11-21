@@ -6,11 +6,11 @@ import CameraCore
 /// and never takes a touch, so taps still focus.
 ///
 /// Place it at the top of the open part of the frame, 12 pt down. It shows exactly while `model.steadyStatus` has a
-/// message (the model drops it under the Camera Control's overlay and the battery saver's black screen). It is as
-/// tall as its pill, and has no height while hidden, so toasts and badges can move below it by its measured height.
-/// It takes the width it is offered and centers the pill with 16 pt to spare on each side. With the phone on its side
-/// the pill moves to the edge that is then the person's top and reads upright there; the banner is then as tall as
-/// the pill is long.
+/// message (the model drops it under the Camera Control's overlay and the battery saver's black screen, and while the
+/// steady sign is switched off). It is as tall as its pill, and has no height while hidden, so toasts and badges can
+/// move below it by its measured height. It takes the width it is offered and centers the pill with 16 pt to spare on
+/// each side. With the phone on its side the pill moves to the edge that is then the person's top and reads upright
+/// there; the banner is then as tall as the pill is long.
 struct SteadyBanner: View {
     let model: CameraModel
 
@@ -32,7 +32,7 @@ private struct SteadyBannerSlot: View {
         let degrees = model.motion.iconRotationDegrees
         let reduceMotion = systemReduceMotion || AppearanceStore.shared.reduceMotion
         // The screen fades the sign out under the open quick settings panel but keeps its room, and Settings covers
-        // it while the camera and the motion sensor run on, so the line would go on swinging where nobody sees it.
+        // it while the camera and the motion sensor run on, so the wave would go on flowing where nobody sees it.
         // The Camera Control's overlay hides the panel.
         let isCovered = (model.isDrawerOpen && !model.controlsFullscreen) || model.isSettingsPresented
         ZStack {
@@ -53,8 +53,8 @@ private struct SteadyBannerSlot: View {
         .padding(.horizontal, turns % 2 == 0 ? 16 : 12)
         .frame(maxWidth: .infinity, alignment: Self.alignment(turns))
         // Only the pill coming and going fades.
-        .animation(.easeInOut(duration: 0.2), value: message != nil)
-        .animation(.easeInOut(duration: 0.2), value: turns)
+        .animation(Theme.fade, value: message != nil)
+        .animation(Theme.fade, value: turns)
         .modifier(SteadyAnnouncements(message: message, isHidden: model.dimmer.isDimmed || model.controlsFullscreen))
         .allowsHitTesting(false)
     }
@@ -69,8 +69,8 @@ private struct SteadyBannerSlot: View {
     }
 }
 
-/// Turns the pill upright for the person. On its side it is laid out turned, so it takes the room it covers and
-/// can't reach over the top controls.
+/// Turns the pill upright for the person, the short way round as every upright label turns. On its side it is laid
+/// out turned, so it takes the room it covers and can't reach over the top controls.
 private struct PersonsTop: ViewModifier {
     let degrees: Double
     let sideways: Bool
@@ -79,10 +79,10 @@ private struct PersonsTop: ViewModifier {
         if sideways {
             let layout = QuarterTurnLayout()
             layout {
-                content.rotationEffect(.degrees(degrees))
+                content.uprightRotation(degrees)
             }
         } else {
-            content.rotationEffect(.degrees(degrees))
+            content.uprightRotation(degrees)
         }
     }
 }
@@ -106,9 +106,9 @@ private struct QuarterTurnLayout: Layout {
 // MARK: - The sign
 
 /// One state of the steady sign, drawn straight on the picture like the histogram: no box behind it, the words and
-/// the icon carried by a soft shadow, and beside them a line that swings while the phone moves. A warning shows in its
-/// colour (orange, the words and the icon) rather than on a filled block. A calm state fades to 70 percent after
-/// 3 s, and every new state starts at full strength.
+/// the icon carried by a soft shadow, and beside them a line that flows as a wave while the phone moves. A warning
+/// shows in its colour (orange, the words and the icon) rather than on a filled block. A calm state fades to 70
+/// percent after 3 s, and every new state starts at full strength.
 private struct SteadyPill: View {
     let message: SteadyMessage
     /// The live movement, where a sensor reports it.
@@ -143,10 +143,12 @@ private struct SteadyPill: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             }
-            // On the words and the icon only. The line redraws with every frame while it swings, and a shadow over
+            // On the words and the icon only. The line redraws with every frame while it flows, and a shadow over
             // the whole sign would be drawn again with it; the line carries its own.
             .shadow(color: .black.opacity(shade), radius: 3)
             .shadow(color: .black.opacity(shade * 0.5), radius: 10)
+            // The words keep their room first: on a narrow phone at the largest text the line gives some of its own.
+            .layoutPriority(1)
             if let pulse {
                 MotionLine(pulse: pulse, shade: shade, isHidden: isHidden)
             }
@@ -173,11 +175,11 @@ private struct SteadyPill: View {
     }
 }
 
-/// The phone's movement as a string across the sign: flat while the phone is still, swinging while it moves, and
-/// bouncing back to flat once it stops (MotionBounce). Drawn like the histogram, with no box, its ends running out
-/// into the picture. Coloured by how much the phone moves now, green when still, then yellow, orange and red, so a
-/// glance says whether it is ready. Frames are drawn only while the line moves: a phone at rest on a tripod draws
-/// none at all.
+/// The phone's movement as a sound wave across the sign: a flat line while the phone is still, and a wave that flows
+/// while it moves, taller and quicker the more it moves (MotionWave). Drawn like the histogram, with no box, its ends
+/// running out into the picture. Coloured by how much the phone moves now, green when still, then yellow, orange and
+/// red, so a glance says whether it is ready. Frames are drawn only while the wave shows: a phone at rest on a tripod
+/// draws none at all.
 private struct MotionLine: View {
     let pulse: MotionPulse
     /// The sign's shadow strength, for the line's own shade.
@@ -186,86 +188,120 @@ private struct MotionLine: View {
     /// movement until that closes.
     let isHidden: Bool
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-    @State private var swing = SwingClock()
-    /// Set while the line swings, and kept after the phone comes to rest until it lies flat: the frames run until
+    @State private var clock = WaveClock()
+    /// Set while the wave shows, and kept after the phone comes to rest until it lies flat: the frames run until
     /// then.
-    @State private var isRinging = false
+    @State private var isFlowing = false
 
-    /// The room the sign lays out for the line, beside its words.
-    private static let size = CGSize(width: 64, height: 24)
-    /// Drawn this far past that room on every side, so the shade isn't cut where the line swings close to the edge.
+    /// The line's length beside the words, and the least it keeps when longer words need the room.
+    private static let length: CGFloat = 96
+    private static let shortest: CGFloat = 64
+    private static let height: CGFloat = 24
+    /// Drawn this far past that room on every side, so the shade isn't cut where the wave comes close to the edge.
     private static let bleed: CGFloat = 4
+    /// The two faint waves inside the main one, drawn first: their height against the main wave's (below 0, upside
+    /// down), how far they trail it in cycles, their strength and their thickness.
+    private static let echoes: [(scale: Double, lag: Double, opacity: Double, width: CGFloat)] = [
+        (-0.35, 0.14, 0.35, 1),
+        (0.6, 0.07, 0.5, 1.2),
+    ]
     private static let lineWidth: CGFloat = 2
-    /// How often, and at most how many times, a ring-down is checked for its end. The swing only runs down while
-    /// frames come in; with none (the app in the background) the line is laid flat after three seconds.
-    private static let ringCheck = Duration.milliseconds(200)
-    private static let ringChecks = 15
+    /// The faint waves come in with the first ripple, over this much of the wave's height, so a flat line is one line.
+    private static let echoesIn = 0.1
+    /// How many times the task waits for the wave to lie flat before it lays it flat. The wave only calms while frames
+    /// come in; with none (the app in the background) it would wait for ever.
+    private static let flatChecks = 4
 
     var body: some View {
         // Read here, not in the timeline's closure, so the pulse's updates redraw this view and nothing around it. Not
         // read while hidden, so a hand's tremor redraws nothing behind the panel or Settings either.
         let level = isHidden ? 0 : pulse.level
-        let moving = MotionBounce.swing(forLevel: level) > 0
-        let calm = systemReduceMotion || AppearanceStore.shared.reduceMotion
-        let rgb = MotionPulse.color(for: level)
-        let ink = Self.ink(Color(red: rgb.red, green: rgb.green, blue: rgb.blue))
+        let moving = level > MotionPulse.stillLevel
+        // Reduce Motion: the wave keeps still and only its height follows the movement.
+        let flowing = !(systemReduceMotion || AppearanceStore.shared.reduceMotion)
         let shadow = Color.black.opacity(shade)
-        // Paused at once when covered, rather than after a ring-down nobody would see.
-        TimelineView(.animation(paused: isHidden || (!moving && !isRinging))) { timeline in
-            let bow = swing.advance(to: timeline.date, level: level, calm: calm)
-            Canvas { context, size in
-                let room = CGRect(origin: .zero, size: size).insetBy(dx: Self.bleed, dy: Self.bleed)
-                let path = Self.string(bow: bow, in: room)
-                let along = GraphicsContext.Shading.linearGradient(
-                    ink, startPoint: CGPoint(x: room.minX, y: room.midY), endPoint: CGPoint(x: room.maxX, y: room.midY))
-                // The shade is drawn with the line, so it fades out at the ends with it and keeps the line apart from
-                // a white sky without a shadow pass over the sign.
-                context.drawLayer { layer in
-                    layer.addFilter(.shadow(color: shadow, radius: 2))
-                    layer.stroke(path, with: along, style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round))
+        Color.clear
+            .frame(minWidth: Self.shortest, idealWidth: Self.length, maxWidth: Self.length)
+            .frame(height: Self.height)
+            .overlay {
+                // Paused at once when covered, rather than after a calm-down nobody would see.
+                TimelineView(.animation(paused: isHidden || (!moving && !isFlowing))) { timeline in
+                    let wave = clock.advance(to: timeline.date, target: level, flowing: flowing)
+                    Canvas { context, size in
+                        Self.draw(wave, shadow: shadow, in: &context, size: size)
+                    }
                 }
+                .padding(-Self.bleed)
             }
-        }
-        .frame(width: Self.size.width + 2 * Self.bleed, height: Self.size.height + 2 * Self.bleed)
-        .padding(-Self.bleed)
-        .onChange(of: moving, initial: true) { _, isMoving in
-            if isMoving, !isRinging { isRinging = true }
-        }
-        // Laid flat while covered, so the line comes back from flat and swings up to the movement there is then,
-        // rather than finishing a swing from before the cover and being laid flat halfway through it.
-        .onChange(of: isHidden) { _, hidden in
-            guard hidden else { return }
-            swing.settle()
-            if isRinging { isRinging = false }
-        }
-        // Once the phone is still the line rings down by itself, and the frames stop when it lies flat. Nothing else
-        // redraws this view then, so a task has to look.
-        .task(id: moving) {
-            guard !moving else { return }
-            var checks = 0
-            while !swing.isAtRest, checks < Self.ringChecks {
-                try? await Task.sleep(for: Self.ringCheck)
-                guard !Task.isCancelled else { return }
-                checks += 1
+            .onChange(of: moving, initial: true) { _, isMoving in
+                if isMoving, !isFlowing { isFlowing = true }
             }
-            swing.settle()
-            if isRinging { isRinging = false }
-        }
-        .accessibilityHidden(true)
+            // Laid flat while covered, so the wave grows from flat to the movement there is when the cover goes.
+            .onChange(of: isHidden) { _, hidden in
+                guard hidden else { return }
+                clock.settle()
+                if isFlowing { isFlowing = false }
+            }
+            // Once the phone is still the wave calms by itself, and the frames stop when it lies flat. Nothing else
+            // redraws this view then, so a task waits for that.
+            .task(id: moving) {
+                guard !moving else { return }
+                for _ in 0..<Self.flatChecks {
+                    let wait = clock.secondsToFlat
+                    guard wait > 0 else { break }
+                    try? await Task.sleep(for: .seconds(wait + 1.0 / 60))
+                    guard !Task.isCancelled else { return }
+                }
+                clock.settle()
+                if isFlowing { isFlowing = false }
+            }
+            .accessibilityHidden(true)
     }
 
-    /// The string between its two ends, its middle `bow` (-1 to 1) of the way to the top or the bottom of `rect`. One
-    /// cubic, shaped like a plucked string's first swing.
-    private static func string(bow: Double, in rect: CGRect) -> Path {
-        let room = rect.height / 2 - 2
-        let lift = CGFloat(bow.isFinite ? min(max(bow, -1), 1) : 0) * room
-        let y = rect.midY
+    private static func draw(_ wave: MotionWave, shadow: Color, in context: inout GraphicsContext, size: CGSize) {
+        let room = CGRect(origin: .zero, size: size).insetBy(dx: bleed, dy: bleed)
+        guard room.width > 1, room.height > 1 else { return }
+        let rgb = MotionPulse.color(for: wave.level)
+        let along = GraphicsContext.Shading.linearGradient(
+            ink(Color(red: rgb.red, green: rgb.green, blue: rgb.blue)),
+            startPoint: CGPoint(x: room.minX, y: room.midY), endPoint: CGPoint(x: room.maxX, y: room.midY))
+        // The main wave's 2 pt stroke stays inside the room at its tallest.
+        let reach = Double(room.height / 2 - 2)
+        let echoStrength = min(wave.amplitude / echoesIn, 1)
+        // The shade is drawn with the line, so it fades out at the ends with it and keeps the line apart from a white
+        // sky without a shadow pass over the sign.
+        context.drawLayer { layer in
+            layer.addFilter(.shadow(color: shadow, radius: 2))
+            if echoStrength > 0 {
+                for echo in echoes {
+                    layer.opacity = echo.opacity * echoStrength
+                    let path = wavePath(lift: wave.amplitude * echo.scale * reach, phase: wave.phase - echo.lag,
+                                        in: room)
+                    layer.stroke(path, with: along,
+                                 style: StrokeStyle(lineWidth: echo.width, lineCap: .round, lineJoin: .round))
+                }
+                layer.opacity = 1
+            }
+            let path = wavePath(lift: wave.amplitude * reach, phase: wave.phase, in: room)
+            layer.stroke(path, with: along, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+        }
+    }
+
+    /// The wave across `rect`, `lift` points tall at most, one point to each point of length; a straight line at 0.
+    private static func wavePath(lift: Double, phase: Double, in rect: CGRect) -> Path {
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: y))
-        // A cubic's middle rises three quarters of the way to its control points.
-        path.addCurve(to: CGPoint(x: rect.maxX, y: y),
-                      control1: CGPoint(x: rect.minX + rect.width * 0.36, y: y - lift * 4 / 3),
-                      control2: CGPoint(x: rect.maxX - rect.width * 0.36, y: y - lift * 4 / 3))
+        guard lift != 0, lift.isFinite else {
+            path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            return path
+        }
+        let count = max(Int(rect.width.rounded(.up)), 2)
+        for index in 0...count {
+            let along = Double(index) / Double(count)
+            let point = CGPoint(x: rect.minX + rect.width * CGFloat(along),
+                                y: rect.midY - CGFloat(lift * MotionWave.shape(at: along, phase: phase)))
+            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
         return path
     }
 
@@ -287,34 +323,33 @@ private struct MotionLine: View {
     }()
 }
 
-/// The swing and the time it was last moved on to, kept across the timeline's frames. Not observed: the timeline
+/// The wave and the time it was last moved on to, kept across the timeline's frames. Not observed: the timeline
 /// asks for every frame itself, and a write here must not start another update.
 @MainActor
-private final class SwingClock {
-    private var bounce = MotionBounce()
+private final class WaveClock {
+    private var wave = MotionWave()
     private var last: Date?
 
-    /// Frames come 1/120 to 1/60 s apart while the line moves; a longer gap is a pause.
+    /// Frames come 1/120 to 1/60 s apart while the wave shows; a longer gap is a pause.
     private static let longestGap: TimeInterval = 0.1
 
-    var isAtRest: Bool { bounce.isAtRest(level: 0) }
+    var secondsToFlat: Double { wave.secondsToFlat }
 
-    /// The line's bow at `date`. A date the clock has seen, or an earlier one, moves nothing, and neither does the
-    /// first frame after a pause: a gap that long is the timeline starting again, and one step across it would throw
-    /// the line from flat to most of its swing in a single frame.
-    func advance(to date: Date, level: Double, calm: Bool) -> Double {
-        bounce.isCalm = calm
+    /// The wave at `date`. A date the clock has seen, or an earlier one, moves nothing, and neither does the first
+    /// frame after a pause: a gap that long is the timeline starting again, and one step across it would throw the
+    /// wave from flat to most of its height in a single frame.
+    func advance(to date: Date, target: Double, flowing: Bool) -> MotionWave {
         if let last {
             let seconds = date.timeIntervalSince(last)
-            if seconds > 0, seconds < Self.longestGap { bounce.advance(by: seconds, level: level) }
+            if seconds > 0, seconds < Self.longestGap { wave.advance(by: seconds, toward: target, flowing: flowing) }
         }
         if last.map({ date > $0 }) ?? true { last = date }
-        return bounce.displacement
+        return wave
     }
 
-    /// Flat and still, and the next frame starts its count afresh: a pause between swings is no step to take.
+    /// Flat, and the next frame starts its count afresh: a pause between waves is no step to take.
     func settle() {
-        bounce.reset()
+        wave.settle()
         last = nil
     }
 }

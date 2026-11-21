@@ -16,8 +16,7 @@ final class MotionMonitor {
     /// How much the phone is moving, 0 to 1 (MotionPulse.level), for the line on the steady sign. Called only when
     /// the level changes by a step worth drawing, at most about twenty times a second.
     var onPulse: ((Double) -> Void)?
-    /// The level as last smoothed: up quickly, so a twitch is seen, and down soon enough that the line rings down by
-    /// itself once the phone stops.
+    /// The level as last smoothed: up quickly, so a twitch is seen, and down soon after the phone stops.
     private var pulse = 0.0
     private var publishedPulse = 0.0
     private var lastPulseTime: TimeInterval?
@@ -128,10 +127,9 @@ final class MotionMonitor {
     }
 
     /// Rises halfway to the movement with each sample, so a bump shows within two samples, and falls back by an eighth
-    /// with each, so a phone set down lets go of the line within about a third of a second: from there the line rings
-    /// down by itself (MotionBounce). A slower fall would hold the line up as it went and lose the bounce. Published
-    /// in twentieths, no more than twenty times a second: a hand's tremor costs the screen that many small redraws,
-    /// and a tripod none.
+    /// with each, so a phone set down lets go of the wave within about a third of a second; the wave eases the rest
+    /// (MotionWave). Published in twentieths, no more than twenty times a second: a hand's tremor costs the screen
+    /// that many small redraws, and a tripod none.
     private func publishPulse(speed: Double, at time: TimeInterval) {
         let level = MotionPulse.level(forSpeed: speed)
         pulse = level > pulse ? pulse + (level - pulse) * 0.5 : max(level, pulse * 0.88)
@@ -139,7 +137,7 @@ final class MotionMonitor {
         // Every step up to the top of the green draws the same flat green line, so they all go out as 0. A tripod in
         // a breeze or near a running fan wanders between them all the time, and each would redraw a line that never
         // changes.
-        let stepped = MotionBounce.swing(forLevel: rounded) > 0 ? rounded : 0
+        let stepped = rounded > MotionPulse.stillLevel ? rounded : 0
         guard stepped != publishedPulse else { return }
         if let last = lastPulseTime, time >= last, time - last < 0.05, stepped != 0 { return }
         lastPulseTime = time
