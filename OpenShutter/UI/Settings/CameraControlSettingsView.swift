@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import CameraCore
 
 /// The Camera Control row of the first page, in the short list and the full one alike. It reads the list and the
@@ -6,13 +7,14 @@ import CameraCore
 struct CameraControlRow: View {
     let model: CameraModel
 
+    /// The button's own symbol where the system has it. Looked up once: a missing name draws nothing.
+    private static let symbol = ["camera.shutter.button", "camera"].first { UIImage(systemName: $0) != nil } ?? "camera"
+
     var body: some View {
         // An iPhone without Camera Control has nothing to set here. The saved list stays for one that has it.
         if model.capabilities.supportsCameraControls {
-            NavigationLink {
-                CameraControlItemsView(model: model)
-            } label: {
-                LabeledContent("Camera Control", value: CameraControlItemsView.summary(model))
+            NavigationLink(value: SettingsPage.cameraControl) {
+                SettingsRowLabel("Camera Control", symbol: Self.symbol, value: CameraControlItemsView.summary(model))
             }
         }
     }
@@ -109,10 +111,13 @@ struct CameraControlItemsView: View {
     }
 
     private func add(_ item: CameraControlItem, limit: Int) {
-        model.updateSettings { settings in
-            guard !settings.controls.cameraControlItems.contains(item),
-                  settings.controls.cameraControlItems.count < limit else { return }
-            settings.controls.cameraControlItems.append(item)
+        // The row moves up into Included rather than vanishing from one list and appearing in the other.
+        withAnimation(Theme.Motion.rows) {
+            model.updateSettings { settings in
+                guard !settings.controls.cameraControlItems.contains(item),
+                      settings.controls.cameraControlItems.count < limit else { return }
+                settings.controls.cameraControlItems.append(item)
+            }
         }
     }
 

@@ -1,7 +1,7 @@
 import SwiftUI
 import CameraCore
 
-/// What the volume buttons do in the camera, and how the controls feel. Linked from Look and controls, whether
+/// What the volume buttons do in the camera, and how the controls feel. Linked from Controls, whether
 /// Advanced settings is on or off.
 struct ButtonsAndHapticsView: View {
     let model: CameraModel
@@ -18,7 +18,7 @@ struct ButtonsAndHapticsView: View {
             Section {
                 // One system interaction carries the volume buttons and the Camera Control click, with one switch
                 // for all of them, so a single switch here covers both. The rows under it say what each press does.
-                Toggle("Use hardware buttons", isOn: model.settingBinding(\.controls.volumeShutter))
+                Toggle("Use hardware buttons", isOn: model.settingBinding(\.controls.volumeShutter).animation(Theme.Motion.rows))
             }
 
             Section {

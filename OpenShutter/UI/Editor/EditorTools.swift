@@ -158,20 +158,28 @@ struct EditorToolPanel: View {
 
 private struct EditorTabRow: View {
     @Binding var tab: EditorTab
+    @Namespace private var highlight
 
     var body: some View {
         HStack(spacing: 6) {
             ForEach(EditorTab.allCases) { item in
                 let isSelected = item == tab
                 Button {
-                    tab = item
+                    withAnimation(Theme.Motion.rows) { tab = item }
                 } label: {
                     Text(item.title)
                         .font(Theme.chipFont)
                         .foregroundStyle(isSelected ? Theme.accent : Theme.secondaryText)
                         .padding(.horizontal, 14)
                         .frame(height: 30)
-                        .background(Capsule().fill(Color.white.opacity(isSelected ? 0.14 : 0)))
+                        // One backing that slides to the chosen tab, so the eye follows the change.
+                        .background {
+                            if isSelected {
+                                Capsule()
+                                    .fill(Color.white.opacity(0.14))
+                                    .matchedGeometryEffect(id: "tab", in: highlight)
+                            }
+                        }
                         .frame(minWidth: 76, minHeight: 44)
                         .contentShape(Rectangle())
                 }
@@ -206,7 +214,7 @@ private struct AdjustHeader: View {
     var body: some View {
         let value = session.recipe[keyPath: adjustment.keyPath]
         EditorValueHeader(title: adjustment.title, value: EditorAdjustment.label(value), isChanged: value != 0) {
-            session.recipe[keyPath: adjustment.keyPath] = 0
+            withAnimation(Theme.Motion.roll) { session.recipe[keyPath: adjustment.keyPath] = 0 }
         }
     }
 }
@@ -224,7 +232,7 @@ private struct AdjustStrip: View {
                     ForEach(EditorAdjustment.allCases) { item in
                         AdjustButton(adjustment: item, value: recipe[keyPath: item.keyPath],
                                      isSelected: item == selection) {
-                            selection = item
+                            withAnimation(Theme.Motion.roll) { selection = item }
                         }
                         .equatable()
                         .id(item)
@@ -261,11 +269,10 @@ private struct AdjustButton: View, Equatable {
 
     var body: some View {
         Button(action: select) {
+            // No ring of its own: the arc is the only line, so an untouched tool is just its symbol.
             ZStack {
                 Circle()
                     .fill(Color.white.opacity(isSelected ? 0.14 : 0))
-                Circle()
-                    .strokeBorder(Theme.hairline, lineWidth: 1.5)
                 ValueRing(value: value, isSigned: adjustment.isSigned)
                 if isSelected, value != 0 {
                     Text(EditorAdjustment.label(value))
@@ -275,10 +282,10 @@ private struct AdjustButton: View, Equatable {
                         .padding(.horizontal, 3)
                 } else {
                     Image(systemName: adjustment.symbolName)
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: 17, weight: .light))
                 }
             }
-            .foregroundStyle(isSelected ? Theme.primaryText : Theme.secondaryText)
+            .foregroundStyle(isSelected ? Theme.accent : Theme.secondaryText)
             .frame(width: 44, height: 44)
             .contentShape(Circle())
         }
@@ -350,10 +357,12 @@ private struct EditorValueHeader: View {
                     .font(.system(size: 10 * Theme.labelScale, weight: .semibold))
                     .tracking(Theme.smallCapsTracking)
                     .foregroundStyle(Theme.secondaryText)
-                // Not animated per value: a scrub changes it many times a second.
+                // Rolls on a change of tool and on Reset, which run in an animation. A scrub runs in none, so its many
+                // steps a second land at once.
                 Text(value)
                     .font(Theme.valueFont)
                     .foregroundStyle(isChanged ? Theme.accent : Theme.primaryText)
+                    .contentTransition(.numericText())
             }
             .lineLimit(1)
             .minimumScaleFactor(0.7)
@@ -637,6 +646,7 @@ private struct StraightenHeader: View {
                 Text(Self.degrees(recipe.straightenDegrees))
                     .font(Theme.valueFont)
                     .foregroundStyle(recipe.straightenDegrees != 0 ? Theme.accent : Theme.primaryText)
+                    .contentTransition(.numericText())
             }
             .lineLimit(1)
             .minimumScaleFactor(0.7)
@@ -645,7 +655,7 @@ private struct StraightenHeader: View {
             .accessibilityValue(Text(Self.spokenDegrees(recipe.straightenDegrees)))
             Spacer(minLength: 4)
             Button {
-                session.recipe = session.recipe.colorOnly
+                withAnimation(Theme.Motion.roll) { session.recipe = session.recipe.colorOnly }
             } label: {
                 Text("Reset")
                     .font(Theme.chipFont)

@@ -25,17 +25,28 @@ struct VideoSettingsView: View {
                              options: pickerOptions(caps.videoCodecs, current: video.codec), label: \.title)
                 SettingsPicker("Color", selection: fittedBinding(\.colorMode, formats: formats),
                              options: pickerOptions(caps.colorModes, current: video.colorMode), label: \.title)
+            } header: {
+                Text("Format")
+                    .settingsHeader()
+            } footer: {
+                SettingsFooter(Self.formatNotes(video: video, caps: caps, isVideoMode: model.settings.mode == .video))
+            }
+
+            Section {
                 SettingsPicker("Stabilization", selection: model.settingBinding(\.video.stabilization),
                              options: pickerOptions(caps.stabilizationModes, current: video.stabilization), label: \.title)
                 Toggle("Low light noise reduction", isOn: model.settingBinding(\.video.lowLightNoiseReduction))
                     .disabled(!caps.lowLightVideoNoiseReductionSupported)
                 Toggle("Show shutter angle", isOn: model.settingBinding(\.video.showShutterAngle))
+            } header: {
+                Text("Image")
+                    .settingsHeader()
             } footer: {
-                SettingsFooter(Self.notes(video: video, caps: caps, isVideoMode: model.settings.mode == .video))
+                SettingsFooter([Self.imageNote(caps: caps)])
             }
 
             Section {
-                Toggle("Record sound", isOn: model.settingBinding(\.video.audio))
+                Toggle("Record sound", isOn: model.settingBinding(\.video.audio).animation(Theme.Motion.rows))
                 // Without sound the camera leaves the audio session alone, so other apps keep playing anyway.
                 Toggle("Allow audio playback", isOn: model.settingBinding(\.video.allowAudioPlayback))
                     .disabled(!video.audio)
@@ -76,7 +87,7 @@ struct VideoSettingsView: View {
 
     /// Codecs, stabilization and noise reduction describe the active format and movie output, which only exist in
     /// VIDEO; resolution, frame rate and color come from every format of the lens and hold in any mode.
-    private static func notes(video: VideoSettings, caps: CameraCapabilities, isVideoMode: Bool) -> [String?] {
+    private static func formatNotes(video: VideoSettings, caps: CameraCapabilities, isVideoMode: Bool) -> [String?] {
         var notes: [String?] = []
         var recordable = VideoFormatChoices.isRecordable(video, formats: caps.formats) && caps.colorModes.contains(video.colorMode)
         if isVideoMode {
@@ -88,10 +99,18 @@ struct VideoSettingsView: View {
         if !recordable {
             notes.append("This camera can't record this exactly, so video uses the closest it has.")
         }
+        return notes
+    }
+
+    private static func imageNote(caps: CameraCapabilities) -> String? {
         var unavailable = UnavailableFeatures()
         unavailable.noteFromIOS27("low light noise reduction", supported: caps.lowLightVideoNoiseReductionSupported)
-        notes.append(unavailable.text)
-        return notes
+        return unavailable.text
+    }
+
+    /// "4K 30", what the Video row of the Advanced menu trails with.
+    static func summary(_ video: VideoSettings) -> String {
+        "\(video.resolution.title) \(frameRateLabel(video.frameRate))"
     }
 }
 
@@ -115,4 +134,4 @@ struct BasicVideoSection: View {
 }
 
 /// What allowing audio playback means for the recording, in the short list and on the Video page.
-private let audioPlaybackNote = "Audio playback keeps music on while you film; the mic may record it."
+private let audioPlaybackNote = "Audio playback keeps music on while you film, and the mic may pick it up."

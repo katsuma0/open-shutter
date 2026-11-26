@@ -8,26 +8,55 @@ import CameraCore
 /// list: every setting, as a menu of pages by subject. On those pages, rows the current camera can't use stay visible
 /// but disabled, and their section footer says why, so nobody hunts for a switch that silently does nothing. Off is
 /// the short list: the few settings most people change, all on the first page. The Camera section and the custom
-/// setups lead both lists, and the look, the buttons, the tools and About close both.
+/// setups lead both lists, and the look, the controls, the tools and About close both.
+///
+/// The search above the form finds any setting by name, with Advanced settings on or off, and opens its page, so
+/// nobody has to know which page a switch lives on.
 struct SettingsView: View {
     @Bindable var model: CameraModel
 
     @Environment(\.dismiss) private var dismiss
     /// Made on first appearance: a default value would build a new location manager on every parent update.
     @State private var locationAccess: LocationPermissionWatcher? = nil
+    @State private var path: [SettingsPage] = []
+    @State private var query = ""
+    @State private var isSearching = false
+    /// A first-page row a search result asked for, scrolled to once the form is back.
+    @State private var pendingAnchor: SettingsAnchor?
 
     var body: some View {
-        NavigationStack {
-            Form {
-                AdvancedSettingsSection(model: model)
-                CameraSection(model: model)
-                CustomSetupsSection(model: model)
-                SettingsListSections(model: model, locationAccess: locationAccess)
-                LookAndControlsSection(model: model)
-                PhotoToolsSection(model: model)
-                AboutSection(model: model)
+        NavigationStack(path: $path) {
+            ScrollViewReader { proxy in
+                Group {
+                    if query.isEmpty {
+                        Form {
+                            AdvancedSettingsSection(model: model)
+                            CameraSection(model: model)
+                            CustomSetupsSection(model: model)
+                            SettingsListSections(model: model, locationAccess: locationAccess)
+                            LookSection(model: model)
+                            ControlsSection(model: model)
+                            PhotoToolsSection(model: model)
+                            AboutSection(model: model)
+                        }
+                        .formStyle(.grouped)
+                        .onAppear {
+                            // Back from a search that asked for a row of this page.
+                            guard let anchor = pendingAnchor else { return }
+                            pendingAnchor = nil
+                            proxy.scrollTo(anchor, anchor: .top)
+                        }
+                    } else {
+                        SettingsSearchResults(query: query, model: model, reveal: reveal)
+                    }
+                }
             }
-            .formStyle(.grouped)
+            .searchable(text: $query, isPresented: $isSearching, placement: .navigationBarDrawer(displayMode: .automatic),
+                        prompt: "Search")
+            .autocorrectionDisabled()
+            .navigationDestination(for: SettingsPage.self) { page in
+                SettingsDestination(page: page, model: model, locationAccess: locationAccess)
+            }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -46,6 +75,13 @@ struct SettingsView: View {
             }
         }
     }
+
+    /// A result on the first page: the search closes and the form comes back where that row is.
+    private func reveal(_ anchor: SettingsAnchor) {
+        pendingAnchor = anchor
+        query = ""
+        isSearching = false
+    }
 }
 
 // MARK: - Advanced settings
@@ -55,16 +91,15 @@ struct SettingsView: View {
 private struct AdvancedSettingsSection: View {
     let model: CameraModel
 
-    private static let explanation = "Shows every setting. The camera stays the same."
-
     var body: some View {
         Section {
             Toggle("Advanced settings", isOn: Binding(
                 get: { model.showsAdvancedSettings },
-                set: { model.setAdvancedSettings($0) }
+                // The short list and the menu trade places in one motion rather than a jump.
+                set: { isOn in withAnimation(Theme.Motion.rows) { model.setAdvancedSettings(isOn) } }
             ))
         } footer: {
-            Text(Self.explanation)
+            Text("Shows every setting.")
         }
     }
 }
@@ -77,7 +112,7 @@ private struct SettingsListSections: View {
 
     var body: some View {
         if model.showsAdvancedSettings {
-            AdvancedMenuSection(model: model, locationAccess: locationAccess)
+            AdvancedMenuSection(model: model)
         } else {
             // What most people change. Each section has its page in the full list, where the rest of its subject is.
             BasicPhotosSection(model: model, locationAccess: locationAccess)
@@ -89,69 +124,43 @@ private struct SettingsListSections: View {
 
 // MARK: - Full list
 
-/// The full list as a menu of pages, one per subject. The page names say what each holds, so the rows carry no second
-/// line. What the camera reports is not a page of settings, so it sits with the tools.
+/// The full list as a menu of pages, one per subject. Where one choice sums a page up, it trails the row, so the
+/// format, the night plan and the video size read without opening anything.
 private struct AdvancedMenuSection: View {
     let model: CameraModel
-    let locationAccess: LocationPermissionWatcher?
 
     var body: some View {
+        let settings = model.settings
         Section {
-            NavigationLink {
-                PhotoSettingsView(model: model, locationAccess: locationAccess)
-            } label: {
-                MenuRowLabel("Photos", symbol: "photo")
+            NavigationLink(value: SettingsPage.photos) {
+                SettingsRowLabel("Photos", symbol: "photo", value: Self.photoSummary(settings.capture))
             }
-            NavigationLink {
-                ExposureSettingsView(model: model)
-            } label: {
-                MenuRowLabel("Exposure", symbol: "plusminus.circle")
+            NavigationLink(value: SettingsPage.exposure) {
+                SettingsRowLabel("Exposure", symbol: "plusminus.circle")
             }
-            NavigationLink {
-                FocusSettingsView(model: model)
-            } label: {
-                MenuRowLabel("Focus", symbol: "scope")
+            NavigationLink(value: SettingsPage.focus) {
+                SettingsRowLabel("Focus", symbol: "scope")
             }
-            NavigationLink {
-                ViewfinderSettingsView(model: model)
-            } label: {
-                MenuRowLabel("Viewfinder", symbol: "viewfinder")
+            NavigationLink(value: SettingsPage.viewfinder) {
+                SettingsRowLabel("Viewfinder", symbol: "viewfinder")
             }
-            NavigationLink {
-                NightSettingsView(model: model)
-            } label: {
-                MenuRowLabel("Night", symbol: "moon.stars")
+            NavigationLink(value: SettingsPage.night) {
+                SettingsRowLabel("Night", symbol: "moon.stars", value: settings.night.stability.title)
             }
-            NavigationLink {
-                VideoSettingsView(model: model)
-            } label: {
-                MenuRowLabel("Video", symbol: "video")
+            NavigationLink(value: SettingsPage.video) {
+                SettingsRowLabel("Video", symbol: "video", value: VideoSettingsView.summary(settings.video))
             }
         } header: {
             Text("Advanced")
                 .settingsHeader()
         }
     }
-}
 
-/// A row of the menu: the page's name beside its thin symbol in the accent.
-private struct MenuRowLabel: View {
-    let title: String
-    let symbol: String
-
-    init(_ title: String, symbol: String) {
-        self.title = title
-        self.symbol = symbol
-    }
-
-    var body: some View {
-        Label {
-            Text(title)
-        } icon: {
-            Image(systemName: symbol)
-                .fontWeight(.light)
-                .foregroundStyle(Theme.accent)
-        }
+    /// "HEIF", or "HEIF + RAW" while a RAW file goes with it, since RAW changes what every shot costs.
+    private static func photoSummary(_ capture: CaptureOptions) -> String {
+        let choice = PhotoFormatChoice(capture)
+        guard capture.rawFormat != .none, choice != .rawOnly else { return choice.title }
+        return "\(choice.title) + RAW"
     }
 }
 
@@ -165,13 +174,12 @@ private struct AboutSection: View {
     var body: some View {
         Section {
             LabeledContent("Version", value: Self.version)
+                .id(SettingsAnchor.about)
             if model.isSimulated {
                 LabeledContent("Camera", value: "Simulated")
             }
             // Every iPhone that runs the app takes the night shot and the long exposures; manual shutter speeds need
-            // the iPhone 18 Pro (CameraModel.allowsManualShutter).
-            LabeledContent("Recommended", value: "iPhone 11 or later")
-            LabeledContent("Best", value: "iPhone 18 Pro")
+            // the iPhone 18 Pro (CameraModel.allowsManualShutter), which the footer names only where it matters.
             LabeledContent("This iPhone", value: model.allowsManualShutter ? "Every feature" : "No manual shutter")
             Button("Reset all settings", role: .destructive) {
                 isConfirmingReset = true
@@ -185,6 +193,10 @@ private struct AboutSection: View {
         } header: {
             Text("About")
                 .settingsHeader()
+        } footer: {
+            if !model.allowsManualShutter {
+                Text("Manual shutter needs an iPhone 18 Pro.")
+            }
         }
     }
 
