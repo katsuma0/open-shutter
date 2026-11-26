@@ -31,6 +31,9 @@ struct ReadoutHUD: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .cameraGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // Live values the shot doesn't need watched: they step back while the camera is left alone, and come back at
+        // the next touch. An open dial keeps them up, as NIGHT's focus dial opens from this line.
+        .quietsWhenIdle(isHeld: model.activeDial != nil)
         // Nothing to tap, unless it is the focus dial's button: a touch goes through to the picture.
         .allowsHitTesting(opensFocusDial)
         .accessibilityElement(children: .ignore)

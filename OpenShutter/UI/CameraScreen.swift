@@ -17,6 +17,8 @@ struct CameraScreen: View {
         ZStack {
             Theme.background
                 .ignoresSafeArea()
+                // Tells the readouts that step back when the camera is left alone when a finger comes down.
+                .background { CameraTouchWatcher().accessibilityHidden(true) }
             ScreenContent(model: model, settingsZoom: settingsZoom)
         }
         .sheet(isPresented: $model.isSettingsPresented) {
@@ -844,15 +846,11 @@ private struct DrawerLayer: View {
         let reduceMotion = systemReduceMotion || AppearanceStore.shared.reduceMotion
         ZStack(alignment: .top) {
             if isOpen {
-                // A tap on the viewfinder closes the drawer instead of moving focus behind it.
+                // A tap or a swipe on the viewfinder closes the drawer instead of moving focus behind it.
                 Color.clear
                     .frame(maxWidth: .infinity)
                     .frame(height: catcherHeight)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation(Theme.spring) { model.isDrawerOpen = false }
-                    }
-                    .accessibilityHidden(true)
+                    .closesDrawer(model)
                 QuickSettingsDrawer(model: model, timerSheetRequested: $timerSheetRequested)
                     // Its size, not its frame, which the slide moves: a message that arrives while the panel is open
                     // goes under it.
@@ -870,6 +868,25 @@ private struct DrawerLayer: View {
         // Clipping at the top bar's bottom edge makes the drawer appear from under the bar.
         .clipped()
         .animation(Theme.spring, value: isOpen)
+    }
+}
+
+private extension View {
+    /// A clear catcher while the quick settings are open: a tap or a swipe on it closes them, the same as a swipe
+    /// up on the panel, so any touch outside the panel puts it away and none moves the focus behind it.
+    @MainActor
+    func closesDrawer(_ model: CameraModel) -> some View {
+        contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(Theme.spring) { model.isDrawerOpen = false }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 12)
+                    .onEnded { _ in
+                        withAnimation(Theme.spring) { model.isDrawerOpen = false }
+                    }
+            )
+            .accessibilityHidden(true)
     }
 }
 
@@ -967,11 +984,7 @@ private struct ControlsZone: View {
         .background {
             if model.isDrawerOpen {
                 Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation(Theme.spring) { model.isDrawerOpen = false }
-                    }
-                    .accessibilityHidden(true)
+                    .closesDrawer(model)
             }
         }
         // VoiceOver's two-finger scrub closes an open dial from whichever control has the focus: the lens row's
@@ -1191,7 +1204,7 @@ private struct ShutterRow: View {
                         .animation(Theme.snappy, value: busy)
                 } else if model.macroOffered {
                     ShutterSideButton(symbol: "camera.macro", isActive: model.isMacro,
-                                      label: model.isMacro ? "Macro, on" : "Macro") {
+                                      label: model.isMacro ? "Macro, on" : "Macro", bounces: true) {
                         model.toggleMacro()
                     }
                     .disabled(busy)
@@ -1225,6 +1238,9 @@ private struct ShutterSideButton: View {
     let isActive: Bool
     let label: String
     var size: CGFloat = ShutterSideButton.standardSize
+    /// The glyph bounces once as its feature switches: macro's, whose glyph is the same on and off. The quick
+    /// settings' dots say enough by opening the panel.
+    var bounces = false
     let action: () -> Void
 
     var body: some View {
@@ -1232,7 +1248,8 @@ private struct ShutterSideButton: View {
             Haptics.tap()
             action()
         } label: {
-            ShutterSideFace(image: Image(systemName: symbol), isActive: isActive, size: size)
+            ShutterSideFace(image: Image(systemName: symbol), isActive: isActive, size: size,
+                            bounceValue: bounces ? isActive : false)
         }
         .buttonStyle(PressScaleStyle())
         .accessibilityLabel(Text(label))
@@ -1245,9 +1262,14 @@ private struct ShutterSideFace: View {
     let image: Image
     let isActive: Bool
     let size: CGFloat
+    /// A change bounces the glyph once (Theme's toggleBounce); a face that never bounces keeps it constant.
+    var bounceValue = false
 
     var body: some View {
         image
+            // NIGHT's scene button changes over to the new scene's symbol rather than cutting to it.
+            .symbolSwap()
+            .toggleBounce(bounceValue)
             .font(.system(size: size * 0.38, weight: .medium))
             .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
             .accentGlow(isActive)
@@ -1273,6 +1295,8 @@ private struct SceneSideButton: View {
         let scene: LongExposureScene? = model.settings.mode == .long ? model.settings.longExposure.scene : nil
         let symbol: Image = scene.map { SceneSymbols.image(for: $0) } ?? Image(systemName: NightText.nightSymbol)
         ShutterSideFace(image: symbol, isActive: true, size: size)
+            // A pick from the menu writes the scene outside any animation; this lets the symbol change over.
+            .animation(Theme.snappy, value: scene)
             .scaleEffect(press.isPressed ? 0.9 : 1)
             .animation(Theme.snappy, value: press.isPressed)
             // The menu over the face is what VoiceOver reads and opens.
@@ -1336,7 +1360,7 @@ private struct BottomRow: View {
                         .animation(Theme.snappy, value: busy)
                 } else if model.macroOffered {
                     ShutterSideButton(symbol: "camera.macro", isActive: model.isMacro,
-                                      label: model.isMacro ? "Macro, on" : "Macro", size: 44) {
+                                      label: model.isMacro ? "Macro, on" : "Macro", size: 44, bounces: true) {
                         model.toggleMacro()
                     }
                     .disabled(busy)

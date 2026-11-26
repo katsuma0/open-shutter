@@ -359,7 +359,10 @@ private struct ChipFace: View {
             .accentGlow(isSelected)
         }
         .font(Theme.chipFont)
-        .foregroundStyle(content.tone == .manual ? Theme.accent : Theme.primaryText)
+        // The accent for a value set by hand, and for the chip whose dial is open, as the exposure chip does: the
+        // open chip reads as the active thing even at a value the camera picks, and Increase Contrast, which drops
+        // the glow, still shows it.
+        .foregroundStyle(content.tone == .manual || isSelected ? Theme.accent : Theme.primaryText)
         .lineLimit(1)
         // The strip's chips share the row and the lens row's has the room beside the lens buttons, so each shrinks
         // its text a little instead of reaching a neighbour.
@@ -368,7 +371,7 @@ private struct ChipFace: View {
         .frame(maxWidth: compact ? nil : .infinity)
         .frame(height: Theme.chipHeight)
         .cameraGlass(in: Capsule())
-        .instrumentEdge(isActive: isSelected)
+        .instrumentEdge()
         .scaleEffect(isPressed ? 0.94 : 1)
         .animation(Theme.snappy, value: isPressed)
         // Keyed to auto and manual, not the value: dial drags and live auto readings change the value many times a

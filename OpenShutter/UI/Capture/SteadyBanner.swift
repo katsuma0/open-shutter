@@ -108,7 +108,7 @@ private struct QuarterTurnLayout: Layout {
 /// One state of the steady sign, drawn straight on the picture like the histogram: no box behind it, the words and
 /// the icon carried by a soft shadow, and beside them a line that flows as a wave while the phone moves. A warning
 /// shows in its colour (orange, the words and the icon) rather than on a filled block. A calm state fades to 70
-/// percent after 3 s, and every new state starts at full strength.
+/// percent after Theme.Quiet.delay, and every new state starts at full strength.
 private struct SteadyPill: View {
     let message: SteadyMessage
     /// The live movement, where a sensor reports it.
@@ -163,9 +163,9 @@ private struct SteadyPill: View {
         .task(id: message) {
             if isQuiet { isQuiet = false }
             guard Self.quietens(message) else { return }
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: Theme.Quiet.delay)
             guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.5)) { isQuiet = true }
+            withAnimation(Theme.Quiet.fade) { isQuiet = true }
         }
     }
 

@@ -607,7 +607,7 @@ private struct StatusBadges: View {
                     showsStackInfo = true
                 } label: {
                     StatusBadge(symbol: "square.stack.3d.up.fill", text: "STACKED", tint: Theme.accent,
-                                quarterTurns: turns)
+                                quarterTurns: turns, foldsWhenIdle: true)
                         .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
                 }
@@ -684,15 +684,24 @@ private struct StatusBadge: View {
     let text: String
     var tint: Color = Theme.primaryText
     let quarterTurns: Int
+    /// A hint that has been read folds to its symbol while the camera is left alone, and spells itself out again at
+    /// the next touch. The state badges (a lock, the magnifier, heat) keep their words.
+    var foldsWhenIdle = false
+    @State private var isFolded = false
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
 
     var body: some View {
         let sideways = quarterTurns % 2 != 0
+        let folded = foldsWhenIdle && isFolded
         SidewaysFrame(sideways: sideways) {
             HStack(spacing: 4) {
                 Image(systemName: symbol)
                     .foregroundStyle(tint)
-                Text(text)
-                    .foregroundStyle(Theme.primaryText)
+                if !folded {
+                    Text(text)
+                        .foregroundStyle(Theme.primaryText)
+                        .transition(.opacity)
+                }
             }
             .font(Theme.microFont)
             .lineLimit(1)
@@ -704,7 +713,24 @@ private struct StatusBadge: View {
             .uprightRotation(Upright.degrees(quarterTurns))
         }
         .animation(Theme.spring, value: sideways)
-        .accessibilityElement(children: .combine)
+        // With Reduce Motion the capsule changes width at once and only the words fade.
+        .animation(systemReduceMotion || AppearanceStore.shared.reduceMotion ? Theme.fade : Theme.Quiet.fade,
+                   value: folded)
+        // Words that are folded away are still what VoiceOver reads; CameraCalm never folds them under VoiceOver.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(text))
+        .task(id: CameraCalm.shared.isCalm) {
+            guard foldsWhenIdle else { return }
+            guard CameraCalm.shared.isCalm else {
+                if isFolded { isFolded = false }
+                return
+            }
+            // A beat after the readout line steps back, so a badge that came up while the camera was already calm
+            // still has its words read before they fold.
+            try? await Task.sleep(for: Theme.Quiet.delay)
+            guard !Task.isCancelled else { return }
+            isFolded = true
+        }
     }
 }
 
@@ -731,7 +757,8 @@ private struct SensorBadges: View {
         let readings = model.readings
         VStack(alignment: .trailing, spacing: 0) {
             if readings.lensSmudged {
-                StatusBadge(symbol: "drop.fill", text: "Clean the lens", quarterTurns: quarterTurns)
+                StatusBadge(symbol: "drop.fill", text: "Clean the lens", quarterTurns: quarterTurns,
+                            foldsWhenIdle: true)
                     .padding(.bottom, 6)
                     .transition(.opacity)
             }

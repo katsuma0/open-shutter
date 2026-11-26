@@ -167,7 +167,7 @@ private struct ExposureChip: View {
         .padding(.horizontal, Theme.chipPadding)
         .frame(height: Theme.chipHeight)
         .cameraGlass(in: Capsule())
-        .instrumentEdge(isActive: isOpen)
+        .instrumentEdge()
         .animation(Theme.spring, value: isOpen)
         .scaleEffect(press.isPressed ? 0.94 : 1)
         .animation(Theme.snappy, value: press.isPressed)
