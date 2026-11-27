@@ -36,13 +36,6 @@ struct ExposureSettingsView: View {
                 SettingsPicker("Face-driven exposure", selection: model.settingBinding(\.exposure.faceDriven),
                              options: TriState.allCases, label: \.title)
                     .disabled(!caps.faceDrivenAutoExposureSupported)
-                Toggle("Low light boost", isOn: model.settingBinding(\.exposure.lowLightBoost))
-                    .disabled(!caps.lowLightBoostSupported)
-                Toggle("Global tone mapping", isOn: model.settingBinding(\.exposure.globalToneMapping))
-                    .disabled(!caps.globalToneMappingSupported)
-                SettingsPicker("Video HDR", selection: model.settingBinding(\.exposure.videoHDR),
-                             options: TriState.allCases, label: \.title)
-                    .disabled(!Self.videoHDRAvailable(caps))
                 Picker("Aperture speed", selection: model.settingBinding(\.exposure.apertureRateLimit)) {
                     Text("Auto").tag(Double?.none)
                     ForEach(Self.speedOptions(current: exposure.apertureRateLimit), id: \.ratio) { option in
@@ -50,8 +43,26 @@ struct ExposureSettingsView: View {
                     }
                 }
                 .disabled(!caps.supportsVariableAperture)
+            } header: {
+                Text("Auto exposure")
+                    .settingsHeader()
             } footer: {
-                SettingsFooter(Self.notes(caps: caps, toneMapping: exposure.globalToneMapping))
+                SettingsFooter(Self.autoNotes(caps: caps))
+            }
+
+            Section {
+                Toggle("Low light boost", isOn: model.settingBinding(\.exposure.lowLightBoost))
+                    .disabled(!caps.lowLightBoostSupported)
+                Toggle("Global tone mapping", isOn: model.settingBinding(\.exposure.globalToneMapping))
+                    .disabled(!caps.globalToneMappingSupported)
+                SettingsPicker("Video HDR", selection: model.settingBinding(\.exposure.videoHDR),
+                             options: TriState.allCases, label: \.title)
+                    .disabled(!Self.videoHDRAvailable(caps))
+            } header: {
+                Text("Tone")
+                    .settingsHeader()
+            } footer: {
+                SettingsFooter(Self.toneNotes(caps: caps, toneMapping: exposure.globalToneMapping))
             }
         }
         .navigationTitle("Exposure")
@@ -79,11 +90,8 @@ struct ExposureSettingsView: View {
         caps.videoHDRSupported || caps.formats.contains(where: \.supportsVideoHDR)
     }
 
-    private static func notes(caps: CameraCapabilities, toneMapping: Bool) -> [String?] {
+    private static func autoNotes(caps: CameraCapabilities) -> [String?] {
         var notes: [String?] = []
-        if toneMapping, caps.globalToneMappingSupported {
-            notes.append("Global tone mapping turns off multi-frame fusion.")
-        }
         if !caps.supportsVariableAperture {
             if !UnavailableFeatures.runsIOS27 {
                 notes.append("Aperture speed needs iOS 27 and a lens with a variable aperture.")
@@ -96,6 +104,16 @@ struct ExposureSettingsView: View {
         var unavailable = UnavailableFeatures()
         unavailable.noteFromIOS26("metering area", supported: caps.supportsMeteringArea)
         unavailable.note("face-driven exposure", supported: caps.faceDrivenAutoExposureSupported)
+        notes.append(unavailable.text)
+        return notes
+    }
+
+    private static func toneNotes(caps: CameraCapabilities, toneMapping: Bool) -> [String?] {
+        var notes: [String?] = []
+        if toneMapping, caps.globalToneMappingSupported {
+            notes.append("Global tone mapping turns off multi-frame fusion.")
+        }
+        var unavailable = UnavailableFeatures()
         unavailable.note("low light boost", supported: caps.lowLightBoostSupported)
         unavailable.note("global tone mapping", supported: caps.globalToneMappingSupported)
         unavailable.note("video HDR", supported: videoHDRAvailable(caps))

@@ -8,8 +8,8 @@ struct PhotoToolsSection: View {
 
     var body: some View {
         Section {
-            NavigationLink("Photo info") {
-                PhotoInfoToolView()
+            NavigationLink(value: SettingsPage.photoInfo) {
+                SettingsRowLabel("Photo info", symbol: "doc.text.magnifyingglass")
             }
             if model.showsAdvancedSettings {
                 ThisCameraLink(model: model)
@@ -17,8 +17,6 @@ struct PhotoToolsSection: View {
         } header: {
             Text("Tools")
                 .settingsHeader()
-        } footer: {
-            Text("Photo info reads a photo's details and saves a copy without them.")
         }
     }
 }
@@ -31,10 +29,8 @@ private struct ThisCameraLink: View {
     var body: some View {
         let capabilities = model.capabilities
 
-        NavigationLink {
-            CapabilitiesView(capabilities: capabilities)
-        } label: {
-            LabeledContent("This camera", value: Self.summary(capabilities))
+        NavigationLink(value: SettingsPage.thisCamera) {
+            SettingsRowLabel("This camera", symbol: "camera.aperture", value: Self.summary(capabilities))
         }
     }
 

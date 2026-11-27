@@ -13,7 +13,7 @@ struct PreserveSettingsView: View {
                 Toggle("Lens and zoom", isOn: model.settingBinding(\.startup.keepLensAndZoom))
                 Toggle("Exposure", isOn: model.settingBinding(\.startup.keepBrightness))
             } footer: {
-                Text("When off, the camera opens in Photo, on the main lens at 1\u{00D7}, with exposure at 0.")
+                Text("Off opens in Photo at 1\u{00D7} with exposure at 0.")
             }
         }
         .navigationTitle("Preserve settings")

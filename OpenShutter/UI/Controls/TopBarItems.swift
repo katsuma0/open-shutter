@@ -82,7 +82,7 @@ private struct BarFlash: View {
         Upright(model: model) {
             Image(systemName: flash.symbolName)
                 // The pick animates, so the glyph changes over as iOS's own toggles do.
-                .contentTransition(.symbolEffect(.replace))
+                .symbolSwap()
         }
         .modifier(BarGlyphLook(isActive: flash == .on && !stacked, isPressed: press.isPressed))
         // The menu over the glyph is what VoiceOver reads and opens.
@@ -131,7 +131,9 @@ private struct BarTorch: View {
         } label: {
             Upright(model: model) {
                 Image(systemName: isOn ? "flashlight.on.fill" : "flashlight.off.fill")
-                    .contentTransition(.symbolEffect(.replace))
+                    .symbolSwap()
+                    // On or off is a switch, so the change is seen to land; a new brightness keeps it on and stays still.
+                    .toggleBounce(isOn)
             }
         }
         .buttonStyle(BarCircleStyle(isActive: isOn, isPressed: press.isPressed))
@@ -259,7 +261,8 @@ private struct BarLivePhoto: View {
         } label: {
             Upright(model: model) {
                 Image(systemName: isOn ? "livephoto" : "livephoto.slash")
-                    .contentTransition(.symbolEffect(.replace))
+                    .symbolSwap()
+                    .toggleBounce(isOn)
             }
         }
         .buttonStyle(BarCircleStyle(isActive: isOn))
@@ -808,7 +811,8 @@ private struct BarExposureLock: View {
         } label: {
             Upright(model: model) {
                 Image(systemName: locked ? "lock.fill" : "lock.open")
-                    .contentTransition(.symbolEffect(.replace))
+                    .symbolSwap()
+                    .toggleBounce(locked)
             }
         }
         .buttonStyle(BarCircleStyle(isActive: locked))

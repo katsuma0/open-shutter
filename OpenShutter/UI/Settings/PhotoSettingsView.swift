@@ -16,8 +16,8 @@ struct PhotoSettingsView: View {
         Form {
             // What a shot saves: the same choices as the Format button's menu on the camera.
             Section {
-                SettingsPicker("Format", selection: formatBinding(model), options: photo.formatChoices(for: capture),
-                               label: \.title)
+                SettingsPicker("Format", selection: formatBinding(model).animation(Theme.Motion.rows),
+                               options: photo.formatChoices(for: capture), label: \.title)
                 // Only where it acts: High saves at its own quality, and PNG and TIFF lose nothing to compression. RAW
                 // only keeps it, because its night and long exposure photos save HEIF.
                 if choice.takesQualitySlider {
@@ -35,6 +35,9 @@ struct PhotoSettingsView: View {
                 // A stored Largest or 24 MP reads as the row it takes (shownAs), so neither adds a row of its own.
                 SettingsPicker("Resolution", selection: resolutionBinding(model), options: PhotoResolution.offered,
                                label: \.title)
+            } header: {
+                Text("Format")
+                    .settingsHeader()
             } footer: {
                 SettingsFooter(Self.formatNotes(capture: capture, photo: photo, presets: model.lensPresets))
             }
@@ -44,6 +47,9 @@ struct PhotoSettingsView: View {
                                      options: pickerOptions(Self.processingLevels(photo), current: capture.processing),
                                      label: \.title, detail: capture.processing.detail)
                 Toggle("Prioritize faster shooting", isOn: model.settingBinding(\.capture.prioritizeSpeed))
+            } header: {
+                Text("Processing")
+                    .settingsHeader()
             } footer: {
                 SettingsFooter([Self.processingLimitNote(capture.processing, photo: photo)])
             }
@@ -64,12 +70,15 @@ struct PhotoSettingsView: View {
                 if photo.silentShutter {
                     Toggle("Silent shutter", isOn: model.settingBinding(\.capture.silentShutter))
                 }
+            } header: {
+                Text("Capture")
+                    .settingsHeader()
             } footer: {
                 SettingsFooter(Self.featureNotes(capture: capture, photo: photo))
             }
 
             Section {
-                Toggle("Location tags", isOn: model.settingBinding(\.capture.saveLocation))
+                Toggle("Location tags", isOn: model.settingBinding(\.capture.saveLocation).animation(Theme.Motion.rows))
                 if capture.saveLocation, locationAccess?.isDenied == true {
                     Button("Allow location access") { model.openAppSettings() }
                 }
@@ -83,10 +92,7 @@ struct PhotoSettingsView: View {
                 Text("Photo details")
                     .settingsHeader()
             } footer: {
-                SettingsFooter([
-                    locationNote(enabled: capture.saveLocation, access: locationAccess),
-                    "Name and copyright go into every photo and video.",
-                ])
+                SettingsFooter([locationNote(enabled: capture.saveLocation, access: locationAccess)])
             }
         }
         .navigationTitle("Photos")
@@ -189,8 +195,8 @@ struct BasicPhotosSection: View {
         let photo = PhotoSupport(model.capabilities, isVideoMode: model.settings.mode == .video)
 
         Section {
-            SettingsPicker("Format", selection: formatBinding(model), options: photo.formatChoices(for: capture),
-                           label: \.title)
+            SettingsPicker("Format", selection: formatBinding(model).animation(Theme.Motion.rows),
+                           options: photo.formatChoices(for: capture), label: \.title)
             if photo.livePhoto {
                 // RAW is set on the camera or on the Photos page, never in this list, so it can be on here. The
                 // row is dimmed then, as on that page, and the footer says why. PNG and TIFF dim it the same way.
@@ -198,7 +204,7 @@ struct BasicPhotosSection: View {
                     .disabled(!capture.allowsLivePhoto)
             }
             Toggle("Mirror front camera", isOn: model.settingBinding(\.capture.mirrorFront))
-            Toggle("Location tags", isOn: model.settingBinding(\.capture.saveLocation))
+            Toggle("Location tags", isOn: model.settingBinding(\.capture.saveLocation).animation(Theme.Motion.rows))
             if capture.saveLocation, locationAccess?.isDenied == true {
                 Button("Allow location access") { model.openAppSettings() }
             }

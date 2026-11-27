@@ -21,7 +21,7 @@ struct ViewfinderSettingsView: View {
             }
 
             Section {
-                Toggle("Zebras", isOn: model.settingBinding(\.display.zebras))
+                Toggle("Zebras", isOn: model.settingBinding(\.display.zebras).animation(Theme.Motion.rows))
                 if display.zebras {
                     SettingsSlider(title: "Zebra level", value: display.zebraThreshold, range: 0.7...1, step: 0.01,
                                   format: Formatting.percent) { level in
@@ -33,7 +33,7 @@ struct ViewfinderSettingsView: View {
             }
 
             Section {
-                SettingsPicker("Focus peaking", selection: model.settingBinding(\.display.peaking),
+                SettingsPicker("Focus peaking", selection: model.settingBinding(\.display.peaking).animation(Theme.Motion.rows),
                              options: PeakingMode.allCases, label: \.title)
                 if display.peaking != .off {
                     PeakingColorRow(selection: display.peakingColor) { color in
@@ -49,7 +49,7 @@ struct ViewfinderSettingsView: View {
             }
 
             Section {
-                Toggle("False color", isOn: model.settingBinding(\.display.falseColor))
+                Toggle("False color", isOn: model.settingBinding(\.display.falseColor).animation(Theme.Motion.rows))
                 if display.falseColor {
                     FalseColorLegend()
                 }

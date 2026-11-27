@@ -30,7 +30,7 @@ private struct NightShotSection: View {
 
         Section {
             // Chosen only here. The top bar's button in NIGHT shows or hides the steady sign instead.
-            SettingsPicker("Tripod or handheld", selection: model.settingBinding(\.night.stability),
+            SettingsPicker("Tripod or handheld", selection: model.settingBinding(\.night.stability).animation(Theme.Motion.rows),
                          options: NightStabilityChoice.allCases, label: \.title)
             // A tripod plan never lines frames up, so the switch only shows where it acts.
             if night.stability != .tripod {
@@ -111,7 +111,7 @@ struct BatterySaverSection: View {
                     .settingsHeader()
             }
         } footer: {
-            Text("Darkens the screen during shots of 10 seconds or more.")
+            Text("Dims the screen during shots of 10 seconds or more.")
         }
     }
 }

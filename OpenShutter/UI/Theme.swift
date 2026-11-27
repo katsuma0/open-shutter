@@ -1,5 +1,7 @@
 import SwiftUI
 import UIKit
+// Lets the touch watcher set its own state.
+import UIKit.UIGestureRecognizerSubclass
 
 /// The look of the app: Apple's Camera palette (black, white, the accent), SF Pro, glass controls. What follows a
 /// setting (the accent, Larger labels, Solid buttons, Reduce motion, Increase Contrast) comes from AppearanceStore,
@@ -111,6 +113,17 @@ enum Theme {
         static let largeBigValue = Font.system(size: 24, weight: .semibold).monospacedDigit()
         static let readout = Font.system(size: 11, weight: .medium).monospacedDigit()
         static let largeReadout = Font.system(size: 13, weight: .medium).monospacedDigit()
+    }
+
+    /// Secondary readouts step back once the camera has been left alone for a moment, and come back at the next
+    /// touch: the readout line and the words of the hint badges. What says the camera's state never does.
+    enum Quiet {
+        /// How long after the last touch they step back. The steady sign's calm states wait as long.
+        static let delay: Duration = .seconds(3)
+        /// Slow enough that the step back is never noticed as a change, only as less to look at.
+        static let fade = Animation.easeInOut(duration: 0.5)
+        /// Still read at a glance, only no longer louder than the picture. Increase Contrast keeps more of it.
+        @MainActor static var opacity: Double { AppearanceStore.shared.increaseContrast ? 0.8 : 0.6 }
     }
 
     /// The default spring for controls: quick, no visible bounce.
@@ -393,23 +406,200 @@ struct AccentDot: View {
 }
 
 extension View {
-    /// A chip's rim: a hairline, so the chip reads as an instrument over any picture, and while its dial is open a
-    /// short accent bar along the bottom. Solid buttons already draw a rim of their own.
+    /// A chip's rim: a hairline, so the chip reads as an instrument over any picture. An open dial's chip says so
+    /// in its accent text and glow, with no mark of its own. Solid buttons already draw a rim of their own.
     @MainActor
-    func instrumentEdge(isActive: Bool) -> some View {
+    func instrumentEdge() -> some View {
         overlay {
             if !AppearanceStore.shared.solidControls {
                 Capsule().strokeBorder(Theme.hairline, lineWidth: Theme.hairlineWidth)
             }
         }
-        .overlay(alignment: .bottom) {
-            Capsule()
-                .fill(Theme.accent)
-                .frame(width: 12, height: 1.5)
-                .padding(.bottom, 3)
-                .opacity(isActive ? 1 : 0)
-                .accessibilityHidden(true)
+    }
+
+    /// A symbol that follows a setting changes over in place, as iOS's own toggles do, inside an animated change.
+    /// With Reduce Motion, the app's or the system's, it cuts.
+    @MainActor
+    func symbolSwap() -> some View {
+        modifier(SymbolSwap())
+    }
+
+    /// One short bounce of the symbol when a tap switches its setting, so the tap is seen to land. Once per change,
+    /// never repeating, and none with Reduce Motion.
+    @MainActor
+    func toggleBounce<Value: Equatable>(_ value: Value) -> some View {
+        modifier(ToggleBounce(value: value))
+    }
+
+    /// Steps back to Theme.Quiet.opacity while the camera has been left alone (CameraCalm), unless `isHeld` keeps
+    /// it up, as an open dial does for the line it reads from.
+    @MainActor
+    func quietsWhenIdle(isHeld: Bool = false) -> some View {
+        modifier(QuietWhenIdle(isHeld: isHeld))
+    }
+}
+
+private struct SymbolSwap: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+
+    func body(content: Content) -> some View {
+        let still = systemReduceMotion || AppearanceStore.shared.reduceMotion
+        content.contentTransition(still ? .identity : .symbolEffect(.replace))
+    }
+}
+
+private struct ToggleBounce<Value: Equatable>: ViewModifier {
+    let value: Value
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            // Faster than the default, so it reads as a click of the switch rather than a spring.
+            .symbolEffect(.bounce, options: .nonRepeating.speed(1.5), value: value)
+            .symbolEffectsRemoved(systemReduceMotion || AppearanceStore.shared.reduceMotion)
+    }
+}
+
+private struct QuietWhenIdle: ViewModifier {
+    let isHeld: Bool
+
+    func body(content: Content) -> some View {
+        let quiet = CameraCalm.shared.isCalm && !isHeld
+        content
+            .opacity(quiet ? Theme.Quiet.opacity : 1)
+            // Only the opacity animates, so Reduce Motion needs no other path.
+            .animation(Theme.Quiet.fade, value: quiet)
+    }
+}
+
+/// Whether the camera has been left alone: no finger on the screen for Theme.Quiet.delay. Fed by a watcher on the
+/// window (CameraTouchWatcher) that sees touches begin and end and never takes one, so it costs nothing while a
+/// finger moves, and nothing on the dial's 120 Hz path. Never calm under VoiceOver, where a quieter line helps no one
+/// and the words of a badge are what is read out.
+@MainActor
+@Observable
+final class CameraCalm {
+    static let shared = CameraCalm()
+
+    private(set) var isCalm = false
+
+    @ObservationIgnored private var fingersDown = 0
+    @ObservationIgnored private var timer: Task<Void, Never>?
+    @ObservationIgnored private var observer: NSObjectProtocol?
+
+    private init() {
+        // VoiceOver's touches never reach the window's recognizers, so turning it on has to wake the camera itself.
+        observer = NotificationCenter.default.addObserver(
+            forName: UIAccessibility.voiceOverStatusDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.touchesReset() }
         }
+        // Counts from launch, so the screen settles even before the first touch.
+        scheduleCalm()
+    }
+
+    func touchesBegan(_ count: Int) {
+        fingersDown += count
+        timer?.cancel()
+        timer = nil
+        if isCalm { isCalm = false }
+    }
+
+    func touchesEnded(_ count: Int) {
+        fingersDown = max(0, fingersDown - count)
+        if fingersDown == 0 { scheduleCalm() }
+    }
+
+    /// A touch sequence the system took over (a sheet, a system gesture) never reports its fingers lifting. Wakes
+    /// the camera too, which is what VoiceOver turning on needs.
+    func touchesReset() {
+        fingersDown = 0
+        if isCalm { isCalm = false }
+        scheduleCalm()
+    }
+
+    private func scheduleCalm() {
+        timer?.cancel()
+        timer = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Theme.Quiet.delay)
+            guard !Task.isCancelled, let self, self.fingersDown == 0,
+                  !UIAccessibility.isVoiceOverRunning else { return }
+            if !self.isCalm { self.isCalm = true }
+        }
+    }
+}
+
+/// Puts a touch watcher on the camera's window, for CameraCalm. Lay it behind the camera screen once.
+struct CameraTouchWatcher: UIViewRepresentable {
+    func makeUIView(context: Context) -> WatcherHost {
+        WatcherHost()
+    }
+
+    func updateUIView(_ uiView: WatcherHost, context: Context) {}
+
+    final class WatcherHost: UIView {
+        private let recognizer = TouchWatchRecognizer()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            isAccessibilityElement = false
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) is not used")
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            // On the window, not this view: the touches that count land on every control and on the picture.
+            recognizer.view?.removeGestureRecognizer(recognizer)
+            window?.addGestureRecognizer(recognizer)
+            if window == nil { CameraCalm.shared.touchesReset() }
+        }
+    }
+}
+
+/// Sees fingers come down and lift and never recognizes, so it takes no touch from anything and delays none.
+/// touchesMoved is left alone: it runs at the display's rate while a dial turns.
+private final class TouchWatchRecognizer: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    init() {
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+        delegate = self
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        CameraCalm.shared.touchesBegan(touches.count)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        CameraCalm.shared.touchesEnded(touches.count)
+        failWhenLifted(event)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        CameraCalm.shared.touchesEnded(touches.count)
+        failWhenLifted(event)
+    }
+
+    override func reset() {
+        super.reset()
+        // A sequence ends here however it ended; a count left over would keep the camera awake for good.
+        CameraCalm.shared.touchesReset()
+    }
+
+    /// Fails once the last finger is up, so the recognizer resets for the next touch.
+    private func failWhenLifted(_ event: UIEvent) {
+        let down = event.allTouches?.contains(where: { $0.phase != .ended && $0.phase != .cancelled }) ?? false
+        if !down { state = .failed }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
     }
 }
 

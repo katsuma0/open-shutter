@@ -1,10 +1,9 @@
 import SwiftUI
 import CameraCore
 
-/// How the app looks and handles, whether Advanced settings is on or off: light or dark for Settings, the accent
-/// color, and the pages for the buttons and haptics, Camera Control, accessibility and what the camera keeps between
-/// launches.
-struct LookAndControlsSection: View {
+/// How the app looks: light or dark for Settings and the gallery, and the accent color. Its own section, apart from
+/// the controls, because these two rows are the ones people come back to.
+struct LookSection: View {
     let model: CameraModel
 
     var body: some View {
@@ -13,30 +12,56 @@ struct LookAndControlsSection: View {
         Section {
             SettingsPicker("Appearance", selection: model.settingBinding(\.appearance.scheme),
                            options: AppearanceScheme.allCases, label: \.title)
+                .id(SettingsAnchor.look)
             AccentColorRow(selection: accent, mode: model.settings.mode) { choice in
                 Haptics.tick()
                 model.updateSettings { $0.appearance.accent = choice }
             }
-            NavigationLink("Accessibility") {
-                AccessibilitySettingsView(model: model)
+        } header: {
+            Text("Look")
+                .settingsHeader()
+        } footer: {
+            Text("Appearance is for Settings and the gallery.")
+        }
+    }
+}
+
+/// How the camera handles, as a menu of pages in the same row style as the Advanced menu, whether Advanced settings
+/// is on or off: the buttons and haptics, Camera Control, accessibility and what the camera keeps between launches.
+struct ControlsSection: View {
+    let model: CameraModel
+
+    var body: some View {
+        let controls = model.settings.controls
+
+        Section {
+            NavigationLink(value: SettingsPage.buttons) {
+                SettingsRowLabel("Buttons and haptics", symbol: "hand.tap",
+                                 value: controls.volumeShutter ? nil : "Off")
             }
+            .id(SettingsAnchor.controls)
             // Its own view: it reads the list and the camera, which this section has no need to redraw for. It shows
             // only on an iPhone with Camera Control.
             CameraControlRow(model: model)
-            NavigationLink("Buttons and haptics") {
-                ButtonsAndHapticsView(model: model)
+            // In both lists, so the search finds it wherever it leads.
+            Toggle(isOn: model.settingBinding(\.controls.autoLensSwitching)) {
+                Label {
+                    Text("Switch lenses while zooming")
+                } icon: {
+                    Image(systemName: "plus.magnifyingglass")
+                        .fontWeight(.light)
+                        .foregroundStyle(Theme.accent)
+                }
             }
-            if model.showsAdvancedSettings {
-                Toggle("Switch lenses while zooming", isOn: model.settingBinding(\.controls.autoLensSwitching))
+            NavigationLink(value: SettingsPage.accessibility) {
+                SettingsRowLabel("Accessibility", symbol: "accessibility")
             }
-            NavigationLink("Preserve settings") {
-                PreserveSettingsView(model: model)
+            NavigationLink(value: SettingsPage.preserve) {
+                SettingsRowLabel("Preserve settings", symbol: "clock.arrow.circlepath")
             }
         } header: {
-            Text("Look and controls")
+            Text("Controls")
                 .settingsHeader()
-        } footer: {
-            Text("Appearance changes Settings, not the camera.")
         }
     }
 }

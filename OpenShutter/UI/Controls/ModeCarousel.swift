@@ -95,6 +95,9 @@ struct ModeCarousel: View {
             .font(Theme.labelFont)
             .tracking(Theme.smallCapsTracking)
             .foregroundStyle(isHighlighted ? Theme.accent : Theme.secondaryText)
+            // The mode in use glows like the lens in use and an open dial's chip, so the active thing reads the same
+            // way all over the camera.
+            .accentGlow(isHighlighted)
             .fixedSize()
             .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
                 measuredWidths[item] = width

@@ -6,33 +6,40 @@ import CameraCore
 /// buttons does, so none is stepped through to reach the one wanted. An item that is on or off switches on a tap, and
 /// Resolution's tap takes the other of its two sizes. The photo's shape, the grid and the level are in Settings: they
 /// are set once, not between shots.
+///
+/// Each mode lists only what can work in it: a panel half full of dimmed items is mostly noise, and in VIDEO seven of
+/// the twelve did nothing. What can't work for a moment (a stacked MANUAL shutter, a zoom without RAW, a phone without
+/// a silent shutter) still dims in place and says why, as the top bar's buttons do.
 struct QuickSettingsDrawer: View {
     @Bindable var model: CameraModel
     /// Set to show the timer sheet, which the camera screen presents.
     @Binding var timerSheetRequested: Bool
+    /// The width of one of four columns, so a shorter row keeps the same columns and sits centred under the full ones.
+    @State private var columnWidth: CGFloat = 0
+
+    private static let columns = 4
+    private static let columnSpacing: CGFloat = 2
 
     var body: some View {
+        let rows = Self.rows(Self.items(in: model.settings.mode))
         VStack(spacing: 10) {
-            Grid(horizontalSpacing: 2, verticalSpacing: 12) {
-                GridRow {
-                    TimerItem(model: model, timerSheetRequested: $timerSheetRequested)
-                    formatItem
-                    rawItem
-                    resolutionItem
+            VStack(spacing: 12) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: Self.columnSpacing) {
+                        ForEach(row, id: \.self) { kind in
+                            item(kind)
+                                .frame(width: columnWidth > 0 ? columnWidth : nil)
+                                .frame(maxWidth: columnWidth > 0 ? nil : .infinity)
+                        }
+                    }
                 }
-                GridRow {
-                    processingItem
-                    // AE lock, which had this place, is on the top bar.
-                    SetupsItem(model: model)
-                    silentItem
-                    batterySaverItem
-                }
-                GridRow {
-                    histogramItem
-                    zebraItem
-                    peakingItem
-                    falseColorItem
-                }
+            }
+            .frame(maxWidth: .infinity)
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.width
+            } action: { width in
+                let column = max(0, (width - Self.columnSpacing * CGFloat(Self.columns - 1)) / CGFloat(Self.columns))
+                if abs(column - columnWidth) > 0.5 { columnWidth = column }
             }
             Capsule()
                 .fill(Theme.tertiaryText)
@@ -61,6 +68,62 @@ struct QuickSettingsDrawer: View {
         .accessibilityAction(.escape) { close() }
     }
 
+    private enum Item: Hashable {
+        case timer, format, raw, resolution, processing, setups, silent, batterySaver
+        case histogram, zebras, peaking, falseColor
+    }
+
+    /// In the panel's order: the shot, then the exposure, then the viewfinder.
+    private static func items(in mode: CaptureMode) -> [Item] {
+        // RAW, the size, processing and the silent shutter belong to single photos.
+        let photo = mode == .photo || mode == .manual
+        var items: [Item] = []
+        // Video starts on the press and has a format of its own, in the top bar.
+        if mode != .video { items += [.timer, .format] }
+        if photo { items += [.raw, .resolution, .processing] }
+        items.append(.setups)
+        if photo { items.append(.silent) }
+        // The battery saver works on stacks: NIGHT's, and a MANUAL shutter past the hardware limit.
+        if mode == .manual || mode.usesStacking { items.append(.batterySaver) }
+        if mode.hasHistogram { items.append(.histogram) }
+        items += [.zebras, .peaking, .falseColor]
+        return items
+    }
+
+    /// Up to four a row, shared out evenly, so a short list is two even rows rather than a full one and a straggler.
+    private static func rows(_ items: [Item]) -> [[Item]] {
+        guard !items.isEmpty else { return [] }
+        let count = (items.count + columns - 1) / columns
+        let base = items.count / count
+        let extra = items.count % count
+        var rows: [[Item]] = []
+        var start = 0
+        for index in 0..<count {
+            let length = base + (index < extra ? 1 : 0)
+            rows.append(Array(items[start..<(start + length)]))
+            start += length
+        }
+        return rows
+    }
+
+    @ViewBuilder
+    private func item(_ kind: Item) -> some View {
+        switch kind {
+        case .timer: TimerItem(model: model, timerSheetRequested: $timerSheetRequested)
+        case .format: formatItem
+        case .raw: rawItem
+        case .resolution: resolutionItem
+        case .processing: processingItem
+        case .setups: SetupsItem(model: model)
+        case .silent: silentItem
+        case .batterySaver: batterySaverItem
+        case .histogram: histogramItem
+        case .zebras: zebraItem
+        case .peaking: peakingItem
+        case .falseColor: falseColorItem
+        }
+    }
+
     private func close() {
         withAnimation(Theme.spring) { model.isDrawerOpen = false }
     }
@@ -70,9 +133,9 @@ struct QuickSettingsDrawer: View {
     private var formatItem: some View {
         // The format set, or HEIF in place of RAW only in a stack, which saves a HEIF there.
         let shown = QuickActions.shownFormat(model)
-        // Stacks save all six formats too, so only video turns this off.
+        // Stacks save all six formats too; VIDEO doesn't list it (items(in:)).
         return DrawerMenuItem(model: model, control: .format, title: "Format", value: shown.title,
-                              isActive: shown != .heif, isEnabled: model.settings.mode != .video) {
+                              isActive: shown != .heif) {
             FormatGlyph(choice: shown)
         }
     }
@@ -174,7 +237,7 @@ struct QuickSettingsDrawer: View {
         } glyph: {
             Image(systemName: isOn ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 // QuickActions.toggle animates the write, so the speaker changes over as iOS's own toggles do.
-                .contentTransition(.symbolEffect(.replace))
+                .symbolSwap()
         }
     }
 
@@ -184,20 +247,19 @@ struct QuickSettingsDrawer: View {
                                 hint: "Darkens the screen during long shots.") {
             QuickActions.toggle(\.display.dimDuringLongShots, model)
         } glyph: {
+            // The glyph is the same on and off, so a bounce shows the tap landed.
             Image(systemName: "battery.75percent")
+                .toggleBounce(isOn)
         }
     }
 
     // MARK: - Viewfinder
 
     private var histogramItem: some View {
+        // Not listed in NIGHT, which shows no histogram (items(in:)).
         let style = model.settings.display.histogram
-        // NIGHT's photos are merged from many frames, so it shows none. The setting waits for the other modes.
-        let available = model.settings.mode.hasHistogram
-        return DrawerMenuItem(model: model, control: .histogram, title: "Histogram",
-                              value: available ? style.title : "Not in Night",
-                              isActive: available && style != .off, isEnabled: available,
-                              hint: available ? nil : "Night mode shows no histogram.") {
+        return DrawerMenuItem(model: model, control: .histogram, title: "Histogram", value: style.title,
+                              isActive: style != .off) {
             Image(systemName: "chart.bar.fill")
         }
     }
@@ -225,6 +287,7 @@ struct QuickSettingsDrawer: View {
             QuickActions.toggle(\.display.falseColor, model)
         } glyph: {
             Image(systemName: "paintpalette")
+                .toggleBounce(isOn)
         }
     }
 }
@@ -492,6 +555,9 @@ private struct DrawerItemLabel<Glyph: View>: View {
     let value: String
     let isActive: Bool
     let glyph: Glyph
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+
+    private var reduceMotion: Bool { systemReduceMotion || AppearanceStore.shared.reduceMotion }
 
     var body: some View {
         // Larger labels makes the glyphs and both lines a fifth bigger; the columns still hold them.
@@ -510,7 +576,8 @@ private struct DrawerItemLabel<Glyph: View>: View {
                 Text(value)
                     .font(.system(size: 11 * scale, weight: .semibold).monospacedDigit())
                     .foregroundStyle(isActive ? Theme.accent : Theme.primaryText)
-                    .contentTransition(.opacity)
+                    // Rolls to the new value as the chips do; with Reduce Motion it only cross-fades.
+                    .contentTransition(reduceMotion ? .opacity : .numericText())
             }
             .lineLimit(1)
             .minimumScaleFactor(0.7)

@@ -4,7 +4,8 @@ import Photos
 import CameraCore
 
 /// The full-screen viewer: one asset a page, swiped sideways, always on black, as photos are judged in Photos. A tap
-/// shows or hides the bars. The back button and a swipe down lead to the grid. Info, or a swipe up on a photo, raises
+/// shows or hides the bars, and after a few still seconds they step aside on their own, so the photo gets the whole
+/// screen. The back button and a swipe down lead to the grid. Info, or a swipe up on a photo, raises
 /// the info panel under it.
 struct GalleryViewer: View {
     let library: CaptureLibrary
@@ -17,6 +18,8 @@ struct GalleryViewer: View {
     /// Where the current page sat, so a deleted page hands over to its neighbour.
     @State private var lastIndex = 0
     @State private var chromeVisible = true
+    /// Counts touches on the bars, so each one starts the wait before they hide again.
+    @State private var chromeTouches = 0
     @State private var isZoomed = false
     /// Favorites as tapped, until the library catches up.
     @State private var favorites: [String: Bool] = [:]
@@ -27,6 +30,8 @@ struct GalleryViewer: View {
     @State private var editing: AssetTarget?
     @State private var shareURLs: [URL]?
     @State private var isPreparingShare = false
+    /// iOS's own delete confirmation is up, which the bars' wait can't see; hiding under it loses them on Cancel.
+    @State private var isDeleting = false
     @State private var failure: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
@@ -45,6 +50,10 @@ struct GalleryViewer: View {
         // A video's own controls take its taps, and VoiceOver needs the buttons, so the bars stay up for both. The
         // info panel hides them while it is up, and they come back as they were.
         let showsChrome = voiceOver || current?.mediaType == .video || (chromeVisible && !motion.isOpen)
+        // The bars stay while something on them is in use or about to be: a share being prepared, a sheet or an alert
+        // over the viewer, the panel, and always for VoiceOver and a video's own controls.
+        let holdsChrome = voiceOver || current?.mediaType == .video || motion.isOpen || isPreparingShare
+            || isDeleting || shareURLs != nil || editing != nil || failure != nil
         ZStack {
             Color.black
                 .ignoresSafeArea()
@@ -102,6 +111,12 @@ struct GalleryViewer: View {
                 motion.setSafeArea(top: top, bottom: bottom)
             }
         }
+        .task(id: ChromeIdle(visible: chromeVisible, page: currentID, touches: chromeTouches, held: holdsChrome)) {
+            guard chromeVisible, !holdsChrome else { return }
+            try? await Task.sleep(for: Self.chromeIdle)
+            guard !Task.isCancelled else { return }
+            chromeVisible = false
+        }
         .onAppear {
             keepCurrentPage()
         }
@@ -126,6 +141,9 @@ struct GalleryViewer: View {
         }
     }
 
+    /// Long enough to reach for a button after a swipe, short enough that the photo is soon left alone.
+    private static let chromeIdle = Duration.seconds(3)
+
     // Kept out of the modifier chain: inline, the alert's title and binding take Swift 6.2 about 20 s to type-check.
     private var failureTitle: String { failure ?? "" }
 
@@ -137,6 +155,7 @@ struct GalleryViewer: View {
         let manager = library.imageManager
         let motion = motion
         let isOpen = motion.isOpen
+        let still = AppearanceStore.shared.reduceMotion
         return ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
@@ -153,6 +172,13 @@ struct GalleryViewer: View {
                             }
                         }
                         .containerRelativeFrame(.horizontal)
+                        // A page leaving dims and settles back a touch, so a swipe reads as one photo handing over to
+                        // the next rather than a strip sliding past. At rest the phase is zero and nothing changes.
+                        .scrollTransition(.interactive, axis: .horizontal) { content, phase in
+                            content
+                                .opacity(still ? 1 : 1 - abs(phase.value) * 0.4)
+                                .scaleEffect(still ? 1 : 1 - abs(phase.value) * 0.05)
+                        }
                     }
                 }
                 .scrollTargetLayout()
@@ -174,6 +200,7 @@ struct GalleryViewer: View {
         let isPhoto = asset?.mediaType == .image
         let isFavorite = asset.map { favorites[$0.localIdentifier] ?? $0.isFavorite } ?? false
         Button {
+            chromeTouches &+= 1
             share(asset)
         } label: {
             Label("Share", systemImage: "square.and.arrow.up")
@@ -181,6 +208,7 @@ struct GalleryViewer: View {
         .disabled(asset == nil || isPreparingShare)
         Spacer()
         Button {
+            chromeTouches &+= 1
             toggleFavorite(asset)
         } label: {
             Label(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "heart.fill" : "heart")
@@ -196,6 +224,7 @@ struct GalleryViewer: View {
             } label: {
                 // The bars show over an open panel only for VoiceOver, so only VoiceOver hears the other name.
                 Label(motion.isOpen ? "Hide info" : "Info", systemImage: motion.isOpen ? "info.circle.fill" : "info.circle")
+                    .contentTransition(AppearanceStore.shared.reduceMotion ? .identity : .symbolEffect(.replace))
             }
             .accessibilityHint("Shows how the photo was taken.")
             // The editor's own rule: a loop or bounce passes canPerform(.content) but can't be edited there.
@@ -226,6 +255,7 @@ struct GalleryViewer: View {
             motion.close()
         } else {
             chromeVisible.toggle()
+            chromeTouches &+= 1
         }
     }
 
@@ -275,7 +305,9 @@ struct GalleryViewer: View {
 
     private func delete(_ asset: PHAsset?) {
         guard let asset else { return }
+        isDeleting = true
         Task {
+            defer { isDeleting = false }
             do {
                 // iOS asks first. The page leaves once the library has caught up (keepCurrentPage).
                 try await library.delete(asset)
@@ -322,6 +354,9 @@ private struct ViewerTitle: View {
             if let position, total > 1 {
                 Text("\(position + 1) / \(total)")
                     .font(.caption2.weight(.medium).monospacedDigit())
+                    // The count rolls from photo to photo, as the camera's dials roll their values.
+                    .contentTransition(.numericText(value: Double(position)))
+                    .animation(Theme.Motion.roll, value: position)
                     .tracking(0.6)
                     .foregroundStyle(InfoPanelStyle.tertiary)
                     .lineLimit(1)
@@ -348,6 +383,15 @@ enum GalleryHaptics {
         case .strong: soft.impactOccurred(intensity: 1)
         }
     }
+}
+
+/// What the wait before the bars hide starts over on: the bars coming back, another page, a touch on them, or
+/// something that holds them up.
+private struct ChromeIdle: Hashable {
+    let visible: Bool
+    let page: String?
+    let touches: Int
+    let held: Bool
 }
 
 private struct AssetTarget: Identifiable {

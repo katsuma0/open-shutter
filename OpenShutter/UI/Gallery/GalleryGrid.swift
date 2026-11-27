@@ -20,6 +20,11 @@ struct GalleryGrid: View {
     let onAction: (GridAction, PHAsset) -> Void
 
     @State private var width: CGFloat = 0
+    @State private var height: CGFloat = 0
+    /// True until the first screen has faded in. Cells made after that, by a scroll, arrive as they are.
+    @State private var isIntroducing = !AppearanceStore.shared.reduceMotion
+    /// Flipped a frame after the photos arrive, once the grid knows its size and so which rows are on screen.
+    @State private var hasStartedIntro = false
     @Environment(\.displayScale) private var displayScale
 
     private static let spacing: CGFloat = 2
@@ -30,6 +35,8 @@ struct GalleryGrid: View {
         let columns = Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: Self.columnCount)
         let cellPoints = max(0, (width - Self.spacing * CGFloat(Self.columnCount - 1)) / CGFloat(Self.columnCount))
         let pixelSide = (cellPoints * displayScale).rounded(.up)
+        // The rows the grid opens on, counted from the bottom, where the newest photos are.
+        let introRows = cellPoints > 0 ? Int((height / (cellPoints + Self.spacing)).rounded(.up)) + 1 : 0
         ScrollView {
             VStack(spacing: 0) {
                 if library.access == .limited {
@@ -38,19 +45,26 @@ struct GalleryGrid: View {
                         .padding(.vertical, 10)
                 }
                 if let assets {
+                    let identifiers = assets.identifiers
                     LazyVGrid(columns: columns, spacing: Self.spacing) {
-                        ForEach(assets.identifiers, id: \.self) { id in
+                        ForEach(Array(identifiers.enumerated()), id: \.element) { index, id in
                             GridCell(library: library, asset: assets.asset(id: id), id: id, pixelSide: pixelSide,
                                      zoomSpace: zoomSpace, isSelecting: isSelecting,
-                                     isSelected: isSelecting && selection.contains(id)) {
+                                     isSelected: isSelecting && selection.contains(id),
+                                     isRevealed: !isIntroducing || hasStartedIntro,
+                                     revealDelay: introDelay(index: index, count: identifiers.count, rows: introRows)) {
                                 onOpen(id)
                             } onToggle: {
                                 toggle(id)
                             } onAction: { action, asset in
                                 onAction(action, asset)
                             }
+                            // A deleted photo shrinks away and its neighbours close the gap, instead of the grid
+                            // jumping a cell.
+                            .transition(.scale(scale: 0.85).combined(with: .opacity))
                         }
                     }
+                    .animation(Theme.Motion.fade, value: identifiers.count)
                     .scrollTargetLayout()
                     let count = PhotoFacts.libraryCount(photos: assets.photoCount, videos: assets.videoCount)
                     if !count.isEmpty {
@@ -70,10 +84,19 @@ struct GalleryGrid: View {
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
         .scrollPosition(id: $scrollID, anchor: .center)
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.width
-        } action: { newWidth in
-            width = newWidth
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { size in
+            width = size.width
+            height = size.height
+        }
+        .task(id: library.assets == nil) {
+            // Long enough for the last delayed row to start; after that a cell scrolled in is simply there.
+            guard isIntroducing, library.assets != nil else { return }
+            try? await Task.sleep(for: .milliseconds(30))
+            hasStartedIntro = true
+            try? await Task.sleep(for: .milliseconds(600))
+            isIntroducing = false
         }
         .overlay {
             if let assets {
@@ -88,6 +111,15 @@ struct GalleryGrid: View {
             }
         }
         .background(Color(uiColor: .systemBackground))
+    }
+
+    /// How long the cell at `index` waits before fading in: nil once the intro is over and for cells above the
+    /// first screen, a beat per row up from the bottom for the rest.
+    private func introDelay(index: Int, count: Int, rows: Int) -> Double? {
+        guard isIntroducing, rows > 0 else { return nil }
+        let rowFromBottom = (count - 1 - index) / Self.columnCount
+        guard rowFromBottom < rows else { return nil }
+        return Double(rowFromBottom) * 0.035
     }
 
     private func toggle(_ id: String) {
@@ -111,6 +143,10 @@ private struct GridCell: View {
     let zoomSpace: Namespace.ID
     let isSelecting: Bool
     let isSelected: Bool
+    /// False only in the moment before the grid's first screen fades in.
+    let isRevealed: Bool
+    /// How long this cell waits in that fade; nil for a cell off the first screen, which just appears.
+    let revealDelay: Double?
     let onOpen: () -> Void
     let onToggle: () -> Void
     let onAction: (GridAction, PHAsset) -> Void
@@ -175,6 +211,8 @@ private struct GridCell: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(GridCellButtonStyle())
+        .opacity(isRevealed ? 1 : 0)
+        .animation(revealDelay.flatMap { Theme.Motion.reveal(delay: $0) }, value: isRevealed)
         .modifier(CellMenu(asset: isSelecting ? nil : asset, manager: library.imageManager, onAction: onAction))
         .matchedTransitionSource(id: id, in: zoomSpace)
         .accessibilityLabel(asset.map {

@@ -11,11 +11,13 @@ struct CameraSection: View {
         let aspect = model.settings.capture.aspect
 
         Section {
-            Picker("Aspect ratio", selection: aspectBinding) {
+            // Animated, so the custom row slides in and out with a pick rather than popping.
+            Picker("Aspect ratio", selection: aspectBinding.animation(Theme.Motion.rows)) {
                 ForEach(Self.aspectOptions(current: aspect)) { ratio in
                     Text(ratio.label).tag(ratio)
                 }
             }
+            .id(SettingsAnchor.camera)
             // Any other shape is for the full list, unless one is saved: then it stays where it can be changed.
             if model.showsAdvancedSettings || !AspectRatio.presets.contains(where: { $0.matches(aspect) }) {
                 CustomAspectRow(aspect: aspect) { ratio in

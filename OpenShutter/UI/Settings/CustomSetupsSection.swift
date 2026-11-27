@@ -10,6 +10,8 @@ struct CustomSetupsSection: View {
         Section {
             ForEach(0..<CameraSetups.count, id: \.self) { slot in
                 CustomSetupRow(model: model, slot: slot)
+                    // The first slot is where a search for the setups lands.
+                    .id(slot == 0 ? AnyHashable(SettingsAnchor.setups) : AnyHashable(slot))
             }
         } header: {
             Text("Custom setups")
@@ -44,7 +46,7 @@ private struct CustomSetupRow: View {
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                    Text(setup?.summary ?? "Tap to save the current setup")
+                    Text(setup?.summary ?? "Tap to save")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
