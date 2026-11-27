@@ -30,6 +30,8 @@ struct GalleryViewer: View {
     @State private var editing: AssetTarget?
     @State private var shareURLs: [URL]?
     @State private var isPreparingShare = false
+    /// iOS's own delete confirmation is up, which the bars' wait can't see; hiding under it loses them on Cancel.
+    @State private var isDeleting = false
     @State private var failure: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
@@ -51,7 +53,7 @@ struct GalleryViewer: View {
         // The bars stay while something on them is in use or about to be: a share being prepared, a sheet or an alert
         // over the viewer, the panel, and always for VoiceOver and a video's own controls.
         let holdsChrome = voiceOver || current?.mediaType == .video || motion.isOpen || isPreparingShare
-            || shareURLs != nil || editing != nil || failure != nil
+            || isDeleting || shareURLs != nil || editing != nil || failure != nil
         ZStack {
             Color.black
                 .ignoresSafeArea()
@@ -303,7 +305,9 @@ struct GalleryViewer: View {
 
     private func delete(_ asset: PHAsset?) {
         guard let asset else { return }
+        isDeleting = true
         Task {
+            defer { isDeleting = false }
             do {
                 // iOS asks first. The page leaves once the library has caught up (keepCurrentPage).
                 try await library.delete(asset)

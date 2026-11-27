@@ -62,9 +62,10 @@ struct SettingsSearchEntry: Identifiable {
         case anchor(SettingsAnchor)
     }
 
-    /// Rows that only exist on some iPhones, so the search never leads to a page without them.
+    /// Rows that only exist on some iPhones or behind another setting, so the search never leads to a page
+    /// without them.
     enum Requirement {
-        case silentShutter, cameraControl
+        case silentShutter, cameraControl, quality, zebraLevel, peakingOptions, customRatio
     }
 
     let title: String
@@ -90,8 +91,17 @@ struct SettingsSearchEntry: Identifiable {
     func isAvailable(on model: CameraModel) -> Bool {
         switch requirement {
         case nil: return true
-        case .silentShutter: return model.capabilities.shutterSoundSuppressionSupported
+        // Each mirrors the condition its page shows the row under.
+        case .silentShutter:
+            // PhotoSupport leaves the row out in VIDEO, where no photo capabilities are reported.
+            return model.settings.mode != .video && model.capabilities.shutterSoundSuppressionSupported
         case .cameraControl: return model.capabilities.supportsCameraControls
+        case .quality: return PhotoFormatChoice(model.settings.capture).takesQualitySlider
+        case .zebraLevel: return model.settings.display.zebras
+        case .peakingOptions: return model.settings.display.peaking != .off
+        case .customRatio:
+            let aspect = model.settings.capture.aspect
+            return model.showsAdvancedSettings || !AspectRatio.presets.contains(where: { $0.matches(aspect) })
         }
     }
 }
@@ -102,20 +112,21 @@ extension SettingsSearchEntry {
         SettingsSearchEntry(title: title, keywords: keywords, target: .page(page), requirement: requirement)
     }
 
-    private static func at(_ anchor: SettingsAnchor, _ title: String, _ keywords: [String] = []) -> SettingsSearchEntry {
-        SettingsSearchEntry(title: title, keywords: keywords, target: .anchor(anchor))
+    private static func at(_ anchor: SettingsAnchor, _ title: String, _ keywords: [String] = [],
+                           requirement: Requirement? = nil) -> SettingsSearchEntry {
+        SettingsSearchEntry(title: title, keywords: keywords, target: .anchor(anchor), requirement: requirement)
     }
 
     /// In the order the pages come, so a word that hits several rows lists them as Settings does.
     static let all: [SettingsSearchEntry] = [
         at(.camera, "Aspect ratio", ["crop", "shape", "4:3", "16:9", "square", "1:1"]),
-        at(.camera, "Custom ratio", ["aspect", "cinema"]),
+        at(.camera, "Custom ratio", ["aspect", "cinema"], requirement: .customRatio),
         at(.camera, "Grid", ["thirds", "lines"]),
         at(.camera, "Level", ["horizon", "tilt"]),
         at(.setups, "Custom setups", ["C1", "C2", "C3", "preset", "save", "recall"]),
 
         on(.photos, "Format", ["HEIF", "HEIC", "JPEG", "PNG", "TIFF", "file"]),
-        on(.photos, "Quality", ["compression"]),
+        on(.photos, "Quality", ["compression"], requirement: .quality),
         on(.photos, "RAW", ["ProRAW", "DNG"]),
         on(.photos, "Resolution", ["megapixels", "MP", "48", "12", "size"]),
         on(.photos, "Processing", ["noise", "sharpening", "Deep Fusion"]),
@@ -148,9 +159,9 @@ extension SettingsSearchEntry {
         on(.viewfinder, "Exposure readout", ["readout", "ISO"]),
         on(.viewfinder, TopBarItem.steadySign.title, ["tripod", "shake", "still"]),
         on(.viewfinder, "Zebras", ["clipping", "highlights"]),
-        on(.viewfinder, "Zebra level", ["clipping"]),
+        on(.viewfinder, "Zebra level", ["clipping"], requirement: .zebraLevel),
         on(.viewfinder, "Focus peaking", ["edges", "manual focus"]),
-        on(.viewfinder, "Peaking color", ["edges"]),
+        on(.viewfinder, "Peaking color", ["edges"], requirement: .peakingOptions),
         on(.viewfinder, "False color", ["exposure", "brightness"]),
 
         on(.night, "Tripod or handheld", ["stability", "night shot"]),
